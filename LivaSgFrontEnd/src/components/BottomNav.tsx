@@ -40,7 +40,7 @@ const BottomTabs = () => {
   const activeTabContent = tabs.find(tab => tab.id === activeTab)?.content;
 
   return (
-    <div className="w-full max-w-sm h-full bg-white flex flex-col">
+    <div className="w-full max-w-sm h-screen bg-white flex flex-col">
       {/* Main Content - grows to fill available space */}
       <div className="flex-1 overflow-auto">
         {activeTabContent}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { HiSearch, HiX } from "react-icons/hi";
+import mapDummy from '../assets/mapDummy.png'; 
 
 const MapView = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -36,12 +37,17 @@ const MapView = () => {
 
       {/* Map Content Area */}
       <div className="flex-1 bg-gray-100 relative">
-        {/* Your map component goes here */}
-        <div className="w-full h-full flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-gray-500">Map will be displayed here</p>
-            <p className="text-sm text-gray-400 mt-2">Search: {searchQuery || 'No search query'}</p>
-          </div>
+        <div className="w-full h-full">
+          <img 
+            src={mapDummy} 
+            alt="Map"
+            className="w-full h-full object-cover"
+          />
+          {searchQuery && (
+            <div className="absolute top-4 left-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-sm">
+              Searching for: <strong>"{searchQuery}"</strong>
+            </div>
+          )}
         </div>
       </div>
     </div>
