@@ -1,37 +1,38 @@
 import { useState } from 'react';
-import { HiFilter, HiChevronLeft, HiX, HiMap, HiHome, HiTrendingUp } from 'react-icons/hi';
+import { HiFilter, HiChevronLeft, HiX, HiMap, HiHome, HiTrendingUp, HiChevronDown, HiChevronRight } from 'react-icons/hi';
 
 interface SearchViewProps {
   searchQuery: string;
   onBack: () => void;
+  onViewDetails: (location: any) => void;
 }
 
 interface Filters {
   facilities: string[];
   priceRange: [number, number];
-  propertyType: string[];
 }
 
-interface DistrictResult {
+interface LocationResult {
   id: number;
-  name: string;
+  street: string;
+  area: string;
   district: string;
   priceRange: [number, number];
   avgPrice: number;
   facilities: string[];
   description: string;
-  growth: number; // % price growth
+  growth: number;
   amenities: string[];
-  propertyTypes: string[];
+  showDetails?: boolean;
 }
 
-const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
+const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
     facilities: [],
-    priceRange: [500000, 3000000],
-    propertyType: []
+    priceRange: [500000, 3000000]
   });
+  const [expandedLocation, setExpandedLocation] = useState<number | null>(null);
 
   const facilitiesList = [
     'Near MRT',
@@ -44,157 +45,173 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
     'Community Centre'
   ];
 
-  const propertyTypes = [
-    'HDB',
-    'Condo',
-    'Landed',
-    'Executive Condo',
-    'Cluster House'
-  ];
-
-  // Singapore district data for home buyers
-  const getDistrictResults = (): DistrictResult[] => {
-    const districtData: Record<string, DistrictResult[]> = {
+  // Singapore street-level location data
+  const getLocationResults = (): LocationResult[] => {
+    const locationData: Record<string, LocationResult[]> = {
       'orchard': [
         { 
           id: 1, 
-          name: 'Orchard Road Area', 
+          street: 'Orchard Boulevard',
+          area: 'Orchard',
           district: 'District 9',
-          priceRange: [2500000, 8000000],
-          avgPrice: 3200,
+          priceRange: [2800000, 8500000],
+          avgPrice: 3400,
           facilities: ['Luxury Shopping', 'Fine Dining', 'Entertainment'],
-          description: 'Prime central location with luxury condominiums and excellent connectivity',
+          description: 'Prestigious address along Orchard Road with luxury condominiums and excellent connectivity to shopping malls and entertainment hubs.',
           growth: 5.2,
-          amenities: ['ION Orchard', 'Takashimaya', 'Somerset MRT'],
-          propertyTypes: ['Condo', 'Landed']
+          amenities: ['ION Orchard', 'Wheelock Place', 'Orchard MRT'],
         },
         { 
           id: 2, 
-          name: 'River Valley', 
+          street: 'Scotts Road',
+          area: 'Orchard',
           district: 'District 9',
-          priceRange: [1800000, 5000000],
-          avgPrice: 2400,
-          facilities: ['Riverside', 'Dining', 'Central Location'],
-          description: 'Upscale residential area with beautiful river views and central location',
-          growth: 4.8,
-          amenities: ['Great World City', 'Clarke Quay', 'Fort Canning'],
-          propertyTypes: ['Condo', 'Landed']
+          priceRange: [2200000, 6000000],
+          avgPrice: 2900,
+          facilities: ['Shopping', 'Hotels', 'Central Location'],
+          description: 'Prime location with luxury hotels, shopping centers, and high-end residential developments.',
+          growth: 4.9,
+          amenities: ['Scotts Square', 'Far East Plaza', 'Newton MRT'],
         },
       ],
-      'novena': [
+      'bukit panjang': [
         { 
           id: 3, 
-          name: 'Novena', 
-          district: 'District 11',
-          priceRange: [1500000, 4000000],
-          avgPrice: 2100,
-          facilities: ['Medical Hub', 'Good Schools', 'Central Location'],
-          description: 'Medical and educational hub with excellent transportation links',
-          growth: 6.1,
-          amenities: ['Mount Elizabeth Hospital', 'United Square', 'Novena MRT'],
-          propertyTypes: ['Condo', 'HDB']
+          street: 'Fajar Road',
+          area: 'Bukit Panjang',
+          district: 'District 23',
+          priceRange: [450000, 1200000],
+          avgPrice: 680,
+          facilities: ['LRT Access', 'Schools', 'Community Facilities'],
+          description: 'Family-friendly neighborhood with good amenities and convenient LRT connectivity to Bukit Panjang town center.',
+          growth: 3.8,
+          amenities: ['Fajar LRT', 'Bukit Panjang Plaza', 'West Spring Primary'],
         },
-      ],
-      'marine': [
         { 
           id: 4, 
-          name: 'Marine Parade', 
-          district: 'District 15',
-          priceRange: [1200000, 3500000],
-          avgPrice: 1600,
-          facilities: ['Seafront', 'Family-friendly', 'East Coast Park'],
-          description: 'Popular seaside residential area with family-friendly amenities',
-          growth: 4.3,
-          amenities: ['East Coast Park', 'Parkway Parade', 'Katong Mall'],
-          propertyTypes: ['HDB', 'Condo', 'Landed']
+          street: 'Segar Road',
+          area: 'Bukit Panjang',
+          district: 'District 23',
+          priceRange: [480000, 1300000],
+          avgPrice: 720,
+          facilities: ['Parks', 'Shopping', 'Transport Hub'],
+          description: 'Well-established residential area with proximity to Bukit Panjang Integrated Transport Hub and recreational facilities.',
+          growth: 4.1,
+          amenities: ['Bukit Panjang ITH', 'Segar LRT', 'Junction 10'],
         },
-      ],
-      'bukit timah': [
         { 
           id: 5, 
-          name: 'Bukit Timah', 
-          district: 'District 10',
-          priceRange: [3000000, 10000000],
-          avgPrice: 2800,
-          facilities: ['Prestigious Schools', 'Nature', 'Luxury Living'],
-          description: 'Prestigious residential area with top schools and lush greenery',
-          growth: 5.7,
-          amenities: ['Botanic Gardens', 'Bukit Timah Plaza', 'Rail Mall'],
-          propertyTypes: ['Landed', 'Condo']
+          street: 'Petir Road',
+          area: 'Bukit Panjang',
+          district: 'District 23',
+          priceRange: [420000, 1100000],
+          avgPrice: 650,
+          facilities: ['Nature', 'Schools', 'Affordable'],
+          description: 'Quiet residential street near Chestnut Nature Park with affordable housing options and good schools.',
+          growth: 3.5,
+          amenities: ['Chestnut Nature Park', 'Greenridge Shopping', 'St. Joseph Institution'],
         },
       ],
       'tampines': [
         { 
           id: 6, 
-          name: 'Tampines', 
+          street: 'Tampines Street 11',
+          area: 'Tampines',
           district: 'District 18',
-          priceRange: [400000, 1500000],
-          avgPrice: 550,
-          facilities: ['Self-contained Town', 'Family Amenities', 'Affordable'],
-          description: 'Mature town with comprehensive amenities and family-friendly environment',
+          priceRange: [380000, 950000],
+          avgPrice: 520,
+          facilities: ['Town Centre', 'Schools', 'Recreation'],
+          description: 'Central location in Tampines town with easy access to all amenities and excellent family facilities.',
           growth: 3.2,
-          amenities: ['Tampines Mall', 'Our Tampines Hub', 'Tampines MRT'],
-          propertyTypes: ['HDB', 'Condo', 'Executive Condo']
+          amenities: ['Tampines Mall', 'Tampines MRT', 'Our Tampines Hub'],
+        },
+        { 
+          id: 7, 
+          street: 'Tampines Avenue 7',
+          area: 'Tampines',
+          district: 'District 18',
+          priceRange: [420000, 1100000],
+          avgPrice: 580,
+          facilities: ['Parks', 'Sports', 'Community'],
+          description: 'Quieter part of Tampines with proximity to Tampines Eco Green and various sports facilities.',
+          growth: 3.6,
+          amenities: ['Tampines Eco Green', 'Safra Tampines', 'Tampines North CC'],
         },
       ],
       'jurong': [
         { 
-          id: 7, 
-          name: 'Jurong East', 
+          id: 8, 
+          street: 'Jurong East Street 13',
+          area: 'Jurong East',
           district: 'District 22',
-          priceRange: [350000, 1200000],
+          priceRange: [350000, 900000],
           avgPrice: 480,
-          facilities: ['Regional Centre', 'Future Growth', 'Affordable'],
-          description: 'Regional centre with strong future growth potential and affordability',
+          facilities: ['Regional Centre', 'Future Growth', 'Transport'],
+          description: 'Heart of Jurong East regional centre with excellent connectivity and future growth potential from Jurong Lake District development.',
           growth: 7.8,
-          amenities: ['JEM', 'Westgate', 'Jurong East MRT'],
-          propertyTypes: ['HDB', 'Condo']
+          amenities: ['Jurong East MRT', 'JEM Mall', 'Westgate'],
+        },
+        { 
+          id: 9, 
+          street: 'Jurong West Street 65',
+          area: 'Jurong West',
+          district: 'District 22',
+          priceRange: [320000, 850000],
+          avgPrice: 450,
+          facilities: ['Schools', 'Community', 'Affordable'],
+          description: 'Mature residential area with established community facilities and good educational institutions.',
+          growth: 4.2,
+          amenities: ['Pioneer Mall', 'Boon Lay MRT', 'Jurong West Sports Centre'],
         },
       ],
-      'bishan': [
+      'marine parade': [
         { 
-          id: 8, 
-          name: 'Bishan', 
-          district: 'District 20',
-          priceRange: [600000, 1800000],
-          avgPrice: 850,
-          facilities: ['Central Location', 'Good Schools', 'Park Connector'],
-          description: 'Central location with excellent schools and recreational facilities',
-          growth: 4.5,
-          amenities: ['Bishan Park', 'Junction 8', 'Bishan MRT'],
-          propertyTypes: ['HDB', 'Condo']
+          id: 10, 
+          street: 'Marine Parade Road',
+          area: 'Marine Parade',
+          district: 'District 15',
+          priceRange: [1300000, 3800000],
+          avgPrice: 1650,
+          facilities: ['Seafront', 'Family-friendly', 'East Coast'],
+          description: 'Prime seafront location with panoramic sea views and direct access to East Coast Park.',
+          growth: 4.3,
+          amenities: ['East Coast Park', 'Parkway Parade', 'Katong Mall'],
+        },
+        { 
+          id: 11, 
+          street: 'East Coast Road',
+          area: 'Marine Parade',
+          district: 'District 15',
+          priceRange: [1100000, 3200000],
+          avgPrice: 1450,
+          facilities: ['Dining', 'Heritage', 'Community'],
+          description: 'Historic Katong area with rich Peranakan heritage, famous eateries, and charming shophouses.',
+          growth: 4.0,
+          amenities: ['Katong I12', 'Roxy Square', 'Marine Parade CC'],
         },
       ]
     };
 
     const searchTerm = searchQuery.toLowerCase();
-    const results = Object.entries(districtData).find(([area]) => 
+    const results = Object.entries(locationData).find(([area]) => 
       searchTerm.includes(area)
     )?.[1] || [];
 
     // Apply filters
-    return results.filter(district => {
-      // Price filter - check if price range overlaps with filter range
-      if (district.priceRange[1] < filters.priceRange[0] || district.priceRange[0] > filters.priceRange[1]) {
+    return results.filter(location => {
+      // Price filter
+      if (location.priceRange[1] < filters.priceRange[0] || location.priceRange[0] > filters.priceRange[1]) {
         return false;
       }
       
       // Facilities filter
       if (filters.facilities.length > 0) {
         const hasMatchingFacility = filters.facilities.some(filter => 
-          district.facilities.some(facility => 
+          location.facilities.some(facility => 
             facility.toLowerCase().includes(filter.toLowerCase())
           )
         );
         if (!hasMatchingFacility) return false;
-      }
-      
-      // Property type filter
-      if (filters.propertyType.length > 0) {
-        const hasMatchingType = filters.propertyType.some(type => 
-          district.propertyTypes.includes(type)
-        );
-        if (!hasMatchingType) return false;
       }
       
       return true;
@@ -210,15 +227,6 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
     }));
   };
 
-  const handlePropertyTypeToggle = (type: string) => {
-    setFilters(prev => ({
-      ...prev,
-      propertyType: prev.propertyType.includes(type)
-        ? prev.propertyType.filter(t => t !== type)
-        : [...prev.propertyType, type]
-    }));
-  };
-
   const handlePriceChange = (min: number, max: number) => {
     setFilters(prev => ({
       ...prev,
@@ -229,9 +237,16 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
   const clearFilters = () => {
     setFilters({
       facilities: [],
-      priceRange: [500000, 3000000],
-      propertyType: []
+      priceRange: [500000, 3000000]
     });
+  };
+
+  const toggleLocationDetails = (locationId: number) => {
+    setExpandedLocation(expandedLocation === locationId ? null : locationId);
+  };
+
+  const handleViewDetails = (location: LocationResult) => {
+    onViewDetails(location);
   };
 
   const formatPrice = (price: number) => {
@@ -241,7 +256,7 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
     return `$${(price / 1000).toFixed(0)}K`;
   };
 
-  const districtResults = getDistrictResults();
+  const locationResults = getLocationResults();
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -266,9 +281,9 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
           >
             <HiFilter className="w-5 h-5 mr-2" />
             <span className="font-semibold">Filters</span>
-            {(filters.facilities.length > 0 || filters.propertyType.length > 0 || filters.priceRange[0] > 500000 || filters.priceRange[1] < 3000000) && (
+            {(filters.facilities.length > 0 || filters.priceRange[0] > 500000 || filters.priceRange[1] < 3000000) && (
               <span className="ml-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
-                {filters.facilities.length + filters.propertyType.length + (filters.priceRange[0] > 500000 ? 1 : 0) + (filters.priceRange[1] < 3000000 ? 1 : 0)}
+                {filters.facilities.length + (filters.priceRange[0] > 500000 ? 1 : 0) + (filters.priceRange[1] < 3000000 ? 1 : 0)}
               </span>
             )}
           </button>
@@ -276,7 +291,7 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
         
         <div className="mt-4">
           <h1 className="text-2xl font-bold text-gray-900">
-            Property Districts
+            Property Locations
           </h1>
           <p className="text-gray-600 mt-1">
             Searching in <span className="font-semibold text-blue-600">"{searchQuery}"</span>
@@ -284,7 +299,7 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
           <div className="flex items-center mt-3">
             <HiHome className="w-4 h-4 text-gray-400 mr-2" />
             <span className="text-sm text-gray-500">
-              {districtResults.length} {districtResults.length === 1 ? 'district' : 'districts'} found
+              {locationResults.length} {locationResults.length === 1 ? 'location' : 'locations'} found
             </span>
           </div>
         </div>
@@ -297,7 +312,7 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
           <div className="flex-shrink-0 border-b border-gray-100 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Property Filters</h2>
+                <h2 className="text-2xl font-bold text-gray-900">Location Filters</h2>
                 <p className="text-gray-600 mt-1">Find your perfect neighborhood</p>
               </div>
               <div className="flex items-center gap-3">
@@ -357,24 +372,6 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
               </div>
             </div>
 
-            {/* Property Type Filter */}
-            <div className="mb-12">
-              <h3 className="font-bold text-lg mb-6 text-gray-900">Property Type</h3>
-              <div className="grid grid-cols-1 gap-3">
-                {propertyTypes.map(type => (
-                  <label key={type} className="flex items-center space-x-4 cursor-pointer p-4 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200">
-                    <input
-                      type="checkbox"
-                      checked={filters.propertyType.includes(type)}
-                      onChange={() => handlePropertyTypeToggle(type)}
-                      className="w-5 h-5 rounded border-2 border-gray-300 text-blue-600 focus:ring-blue-500 focus:ring-2"
-                    />
-                    <span className="text-base font-semibold text-gray-800">{type}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
             {/* Facilities Filter */}
             <div>
               <h3 className="font-bold text-lg mb-6 text-gray-900">Preferred Amenities</h3>
@@ -400,116 +397,131 @@ const SearchView = ({ searchQuery, onBack }: SearchViewProps) => {
               onClick={() => setShowFilters(false)}
               className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-4 px-6 rounded-xl font-bold text-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl"
             >
-              Show {districtResults.length} Districts
+              Show {locationResults.length} Locations
             </button>
           </div>
         </div>
       )}
 
-      {/* District Results */}
+      {/* Location Results */}
       <div className="flex-1 overflow-auto bg-gray-50">
         <div className="p-6">
-          {districtResults.length === 0 ? (
+          {locationResults.length === 0 ? (
             <div className="text-center py-16">
               <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-6">
                 <HiHome className="w-12 h-12 text-gray-400" />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">No districts found</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">No locations found</h3>
               <p className="text-gray-600 mb-6">
-                No property districts match your search and filters
+                No property locations match your search and filters
               </p>
               <div className="space-y-3 text-sm text-gray-500">
-                <p>• Try searching for areas like "Orchard", "Marine Parade", or "Bukit Timah"</p>
+                <p>• Try searching for areas like "Bukit Panjang", "Tampines", or "Marine Parade"</p>
                 <p>• Adjust your budget range</p>
-                <p>• Consider different property types</p>
+                <p>• Try different amenity filters</p>
               </div>
             </div>
           ) : (
-            <div className="space-y-6">
-              {districtResults.map(district => (
-                <div key={district.id} className="bg-white rounded-2xl p-6 shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100">
-                  <div className="flex gap-6">
-                    {/* District Badge */}
-                    <div className="flex-shrink-0 w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
-                      <HiMap className="w-8 h-8 text-white" />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h3 className="font-bold text-xl text-gray-900 mb-1">{district.name}</h3>
-                          <div className="flex items-center gap-4 mb-2">
-                            <span className="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">
-                              {district.district}
-                            </span>
-                            <div className="flex items-center text-green-600">
-                              <HiTrendingUp className="w-4 h-4 mr-1" />
-                              <span className="text-sm font-semibold">+{district.growth}%</span>
-                            </div>
-                          </div>
+            <div className="space-y-4">
+              {locationResults.map(location => (
+                <div key={location.id} className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 overflow-hidden">
+                  {/* Location Header - Always Visible */}
+                  <div 
+                    className="p-6 cursor-pointer"
+                    onClick={() => toggleLocationDetails(location.id)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h3 className="font-bold text-xl text-gray-900">{location.street}</h3>
+                          <span className="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">
+                            {location.district}
+                          </span>
                         </div>
+                        <p className="text-gray-600 mb-3">{location.area}</p>
                         
-                        <button className="flex-shrink-0 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-sm hover:shadow-md">
-                          View Properties
-                        </button>
-                      </div>
-
-                      <p className="text-gray-600 mb-4 leading-relaxed">{district.description}</p>
-
-                      {/* Price Information */}
-                      <div className="bg-gray-50 rounded-xl p-4 mb-4">
-                        <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-6">
                           <div>
                             <div className="text-sm text-gray-600 mb-1">Price Range</div>
                             <div className="font-bold text-lg text-gray-900">
-                              {formatPrice(district.priceRange[0])} - {formatPrice(district.priceRange[1])}
+                              {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
                             </div>
                           </div>
                           <div>
                             <div className="text-sm text-gray-600 mb-1">Avg PSF</div>
                             <div className="font-bold text-lg text-blue-600">
-                              ${district.avgPrice} psf
+                              ${location.avgPrice} psf
+                            </div>
+                          </div>
+                          <div className="flex items-center text-green-600">
+                            <HiTrendingUp className="w-4 h-4 mr-1" />
+                            <span className="text-sm font-semibold">+{location.growth}%</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewDetails(location);
+                          }}
+                          className="flex-shrink-0 bg-blue-600 text-white px-4 py-2 rounded-xl font-semibold hover:bg-blue-700 transition-colors shadow-sm hover:shadow-md"
+                        >
+                          View Details
+                        </button>
+                        {expandedLocation === location.id ? (
+                          <HiChevronDown className="w-5 h-5 text-gray-400" />
+                        ) : (
+                          <HiChevronRight className="w-5 h-5 text-gray-400" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expandable Details */}
+                  {expandedLocation === location.id && (
+                    <div className="border-t border-gray-100 p-6 bg-gray-50">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div>
+                          <h4 className="font-semibold text-gray-900 mb-3">About this Location</h4>
+                          <p className="text-gray-600 leading-relaxed">{location.description}</p>
+                          
+                          <div className="mt-4">
+                            <h4 className="font-semibold text-gray-900 mb-2">Key Features</h4>
+                            <div className="flex flex-wrap gap-2">
+                              {location.facilities.map(facility => (
+                                <span
+                                  key={facility}
+                                  className="inline-block bg-green-100 text-green-800 text-xs font-medium px-3 py-1.5 rounded-full"
+                                >
+                                  {facility}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <h4 className="font-semibold text-gray-900 mb-3">Nearby Amenities</h4>
+                          <div className="space-y-2">
+                            {location.amenities.map((amenity, index) => (
+                              <div key={index} className="flex items-center text-gray-600">
+                                <div className="w-2 h-2 bg-blue-500 rounded-full mr-3"></div>
+                                {amenity}
+                              </div>
+                            ))}
+                          </div>
+                          
+                          <div className="mt-6 p-4 bg-blue-50 rounded-xl">
+                            <div className="text-sm text-blue-800">
+                              <strong>Market Insight:</strong> Properties in {location.street} have shown consistent growth over the past 3 years.
                             </div>
                           </div>
                         </div>
                       </div>
-
-                      {/* Key Information */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <h4 className="font-semibold text-gray-900 mb-2">Property Types</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {district.propertyTypes.map(type => (
-                              <span
-                                key={type}
-                                className="inline-block bg-green-100 text-green-800 text-xs font-medium px-3 py-1.5 rounded-full"
-                              >
-                                {type}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <div>
-                          <h4 className="font-semibold text-gray-900 mb-2">Key Amenities</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {district.amenities.slice(0, 3).map(amenity => (
-                              <span
-                                key={amenity}
-                                className="inline-block bg-purple-100 text-purple-800 text-xs font-medium px-3 py-1.5 rounded-full"
-                              >
-                                {amenity}
-                              </span>
-                            ))}
-                            {district.amenities.length > 3 && (
-                              <span className="inline-block bg-gray-100 text-gray-600 text-xs font-medium px-3 py-1.5 rounded-full">
-                                +{district.amenities.length - 3} more
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               ))}
             </div>

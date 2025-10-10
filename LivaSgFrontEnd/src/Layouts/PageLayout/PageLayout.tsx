@@ -2,6 +2,7 @@ import BottomNav from "../../components/BottomNav";
 import { useState } from 'react';
 import { HiSearch, HiX, HiCog } from "react-icons/hi";
 import SearchView from "../../views/SearchView";
+import DetailsView from "../../views/DetailsView";
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -9,44 +10,97 @@ interface PageLayoutProps {
   onTabChange: (tabId: string) => void;
 }
 
+interface LocationData {
+  id: number;
+  street: string;
+  area: string;
+  district: string;
+  priceRange: [number, number];
+  avgPrice: number;
+  facilities: string[];
+  description: string;
+  growth: number;
+  amenities: string[];
+}
+
+type ViewState = 'map' | 'search' | 'details';
+
 function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchView, setIsSearchView] = useState(false);
+  const [currentView, setCurrentView] = useState<ViewState>('map');
+  const [selectedLocation, setSelectedLocation] = useState<LocationData | null>(null);
 
   const clearSearch = () => {
     setSearchQuery('');
-    setIsSearchView(false);
+    setCurrentView('map');
   };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      setIsSearchView(true);
+      setCurrentView('search');
     }
   };
 
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     e.target.style.borderColor = '#3b82f6';
     e.target.style.boxShadow = '0 0 0 2px rgba(59, 130, 246, 0.1)';
-    setIsSearchView(true); // Show SearchView immediately
+    // Show SearchView immediately when search box is clicked
+    setCurrentView('search');
   };
 
   const handleInputBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     e.target.style.borderColor = '#d1d5db';
     e.target.style.boxShadow = 'none';
-    // Don't hide SearchView on blur to keep it visible while interacting with results
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (searchQuery.trim()) {
-        setIsSearchView(true);
+        setCurrentView('search');
       }
     }
   };
 
+  const handleViewDetails = (location: LocationData) => {
+    setSelectedLocation(location);
+    setCurrentView('details');
+  };
+
+  const handleBackFromDetails = () => {
+    setCurrentView('search');
+  };
+
+  const handleBackFromSearch = () => {
+    setCurrentView('map');
+  };
+
   const showSearchBar = activeTab === 'explore';
+
+  const renderContent = () => {
+    switch (currentView) {
+      case 'search':
+        return (
+          <SearchView 
+            searchQuery={searchQuery}
+            onBack={handleBackFromSearch}
+            onViewDetails={handleViewDetails}
+          />
+        );
+      case 'details':
+        return selectedLocation ? (
+          <DetailsView 
+            location={selectedLocation}
+            onBack={handleBackFromDetails}
+          />
+        ) : (
+          <div>Error: No location selected</div>
+        );
+      default:
+        return children;
+    }
+  };
 
   return (
     <div style={{ 
@@ -60,8 +114,8 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
       right: 0,
       bottom: 0
     }}>
-      {/* Fixed Search Bar - Only show for Explore tab */}
-      {showSearchBar && (
+      {/* Fixed Search Bar - Only show for Explore tab and when not in DetailsView */}
+      {showSearchBar && currentView !== 'details' && (
         <div style={{
           flexShrink: 0,
           backgroundColor: 'white',
@@ -89,8 +143,8 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
                 placeholder="Location Search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={handleInputFocus} // Combined focus handler
-                onBlur={handleInputBlur} // Combined blur handler
+                onFocus={handleInputFocus}
+                onBlur={handleInputBlur}
                 onKeyDown={handleInputKeyDown}
                 style={{
                   width: '100%',
@@ -156,20 +210,13 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
         </div>
       )}
       
-      {/* Content Area - Show SearchView when searching, otherwise show children */}
+      {/* Content Area - Dynamic based on current view */}
       <div style={{ 
         flex: 1, 
         overflow: 'auto',
         minHeight: 0
       }}>
-        {isSearchView && showSearchBar ? (
-          <SearchView 
-            searchQuery={searchQuery}
-            onBack={() => setIsSearchView(false)}
-          />
-        ) : (
-          children
-        )}
+        {renderContent()}
       </div>
       
       {/* Fixed Bottom Navigation */}
