@@ -36,3 +36,20 @@ class NeighbourhoodScore(BaseModel):
 class CategoryBreakdown(BaseModel):
     # keys are: Affordability, Accessibility, Amenities, Environment, Community
     scores: Dict[str, float]
+
+class SearchFilters(BaseModel):
+    facilities: List[str] = []
+    price_range: List[int] = Field(default_factory=lambda: [500000, 3000000])
+    search_query: str = ""
+
+class LocationResult(BaseModel):
+    id: int
+    street: str
+    area: str
+    district: str
+    price_range: List[int]
+    avg_price: int
+    facilities: List[str]
+    description: str
+    growth: float
+    amenities: List[str]

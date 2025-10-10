@@ -21,7 +21,7 @@ class RatingEngine:
         amen_score = clamp01((fac.schools + fac.sports + fac.hawkers + fac.healthcare + fac.greenSpaces) / 20.0)
         acc  = 0.75  # placeholder
         env  = clamp01(fac.greenSpaces / 10.0)
-        comm = 0.8   # placeholder
+        comm = 0.8  # placeholder (1.0 or 0, after community center is implemented, call fac.communityCenter or similar)
         return CategoryBreakdown(scores={
             "Affordability": round(aff,3),
             "Accessibility": acc,
@@ -42,3 +42,17 @@ class RatingEngine:
         score = NeighbourhoodScore(areaId=area_id, total=round(total,3), weightsProfileId=w.id)
         self.scores.save(score)
         return score
+
+    def temp(self):
+        pass
+        # FOR comm in category_breakdown():
+        # get community centre presence from amenity/communityCentre repo, which gets from models.py
+        # from facilities summary, get community centre presence (get id of community centres from cache)
+        # in memory_impl.py, MemoryAmenityRepo, add community centre presence - 1.0 if area_id==id else 0.0
+        #
+        # FOR acc in category_breakdown():
+        # proximity to MRT stations, LRT stations, bus stops and carpark availability
+        # in memory_impl.py, MemoryAmenityRepo or MemoryTransportRepo, add mrt, lrt, bus stop and carpark counts
+        # how to actually calculate the proximity of these transport nodes to the area? (get their coordinates and calculate distance from center of area?)
+        # maybe use average distance of all transport nodes to the centre of the area?
+        
