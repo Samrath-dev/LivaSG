@@ -121,14 +121,14 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
   };
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-purple-50">
       {/* Compact Header */}
-      <div className="flex-shrink-0 border-b border-gray-100 p-4">
+      <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
         <div className="flex items-center justify-between w-full mb-3">
           {/* Compact Back button */}
           <button
             onClick={onBack}
-            className="flex items-center text-gray-600 hover:text-gray-800 transition-colors text-sm"
+            className="flex items-center text-purple-700 hover:text-purple-900 transition-colors text-sm"
           >
             <HiChevronLeft className="w-5 h-5 mr-1" />
             <span className="font-medium">Back to Map</span>
@@ -139,8 +139,8 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center px-3 py-2 rounded-lg border transition-all duration-200 text-sm ${
               showFilters 
-                ? 'bg-blue-600 text-white border-blue-600' 
-                : 'bg-white text-gray-700 border-gray-200 hover:border-blue-400'
+                ? 'bg-purple-600 text-white border-purple-600' 
+                : 'bg-white text-purple-700 border-purple-300 hover:border-purple-500 hover:bg-purple-50'
             }`}
           >
             <HiFilter className="w-4 h-4 mr-1" />
@@ -155,12 +155,12 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
         
         {/* Compact Search Info */}
         <div>
-          <p className="text-blue-700 font-semibold text-lg">
-            Searching in <span className="text-blue-600">"{searchQuery}"</span>
+          <p className="text-purple-700 font-semibold text-lg">
+            Searching in <span className="text-purple-600">"{searchQuery}"</span>
           </p>
           <div className="flex items-center mt-1">
-            <HiHome className="w-3 h-3 text-gray-400 mr-1" />
-            <span className="text-xs text-gray-500">
+            <HiHome className="w-3 h-3 text-purple-400 mr-1" />
+            <span className="text-xs text-purple-600">
               {locationResults.length} {locationResults.length === 1 ? 'location' : 'locations'} found
             </span>
           </div>
@@ -171,24 +171,24 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
       {showFilters && (
         <div className="fixed inset-0 bg-white z-50 flex flex-col">
           {/* Filters Header */}
-          <div className="flex-shrink-0 border-b border-gray-100 p-6">
+          <div className="flex-shrink-0 border-b border-purple-200 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Location Filters</h2>
-                <p className="text-gray-600 mt-1">Find your perfect neighborhood</p>
+                <h2 className="text-2xl font-bold text-purple-900">Location Filters</h2>
+                <p className="text-purple-600 mt-1">Find your perfect neighborhood</p>
               </div>
               <div className="flex items-center gap-3">
                 <button
                   onClick={clearFilters}
-                  className="text-blue-600 hover:text-blue-800 font-medium px-3 py-2 rounded-lg hover:bg-blue-50 transition-colors"
+                  className="text-purple-600 hover:text-purple-800 font-medium px-3 py-2 rounded-lg hover:bg-purple-50 transition-colors"
                 >
                   Clear All
                 </button>
                 <button
                   onClick={() => setShowFilters(false)}
-                  className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                  className="p-2 hover:bg-purple-100 rounded-xl transition-colors"
                 >
-                  <HiX className="w-6 h-6 text-gray-600" />
+                  <HiX className="w-6 h-6 text-purple-600" />
                 </button>
               </div>
             </div>
@@ -198,7 +198,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
           <div className="flex-1 overflow-auto p-6">
             {/* Price Range Filter */}
             <div className="mb-12">
-              <h3 className="font-bold text-lg mb-6 text-gray-900">Budget Range</h3>
+              <h3 className="font-bold text-lg mb-6 text-purple-900">Budget Range</h3>
               <div className="space-y-6">
                 <div className="space-y-4">
                   <input
@@ -208,7 +208,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
                     step="100000"
                     value={filters.priceRange[0]}
                     onChange={(e) => handlePriceChange(Number(e.target.value), filters.priceRange[1])}
-                    className="w-full h-2 bg-gradient-to-r from-blue-500 to-gray-300 rounded-lg appearance-none cursor-pointer"
+                    className="w-full h-2 bg-gradient-to-r from-purple-500 to-purple-300 rounded-lg appearance-none cursor-pointer"
                   />
                   <input
                     type="range"
@@ -217,18 +217,18 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
                     step="100000"
                     value={filters.priceRange[1]}
                     onChange={(e) => handlePriceChange(filters.priceRange[0], Number(e.target.value))}
-                    className="w-full h-2 bg-gradient-to-r from-gray-300 to-blue-500 rounded-lg appearance-none cursor-pointer"
+                    className="w-full h-2 bg-gradient-to-r from-purple-300 to-purple-500 rounded-lg appearance-none cursor-pointer"
                   />
                 </div>
-                <div className="flex justify-between items-center bg-gray-50 rounded-2xl p-4">
+                <div className="flex justify-between items-center bg-purple-50 rounded-2xl p-4">
                   <div className="text-center">
-                    <div className="text-sm text-gray-600 font-medium">Min Budget</div>
-                    <div className="text-xl font-bold text-blue-600">{formatPrice(filters.priceRange[0])}</div>
+                    <div className="text-sm text-purple-600 font-medium">Min Budget</div>
+                    <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[0])}</div>
                   </div>
-                  <div className="text-gray-400 text-lg">—</div>
+                  <div className="text-purple-400 text-lg">—</div>
                   <div className="text-center">
-                    <div className="text-sm text-gray-600 font-medium">Max Budget</div>
-                    <div className="text-xl font-bold text-blue-600">{formatPrice(filters.priceRange[1])}</div>
+                    <div className="text-sm text-purple-600 font-medium">Max Budget</div>
+                    <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[1])}</div>
                   </div>
                 </div>
               </div>
@@ -236,17 +236,17 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
 
             {/* Facilities Filter */}
             <div>
-              <h3 className="font-bold text-lg mb-6 text-gray-900">Preferred Amenities</h3>
+              <h3 className="font-bold text-lg mb-6 text-purple-900">Preferred Amenities</h3>
               <div className="grid grid-cols-1 gap-3">
                 {facilitiesList.map(facility => (
-                  <label key={facility} className="flex items-center space-x-4 cursor-pointer p-4 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-all duration-200">
+                  <label key={facility} className="flex items-center space-x-4 cursor-pointer p-4 rounded-xl border-2 border-purple-200 hover:border-purple-400 hover:bg-purple-50 transition-all duration-200">
                     <input
                       type="checkbox"
                       checked={filters.facilities.includes(facility)}
                       onChange={() => handleFacilityToggle(facility)}
-                      className="w-5 h-5 rounded border-2 border-gray-300 text-blue-600 focus:ring-blue-500 focus:ring-2"
+                      className="w-5 h-5 rounded border-2 border-purple-300 text-purple-600 focus:ring-purple-500 focus:ring-2"
                     />
-                    <span className="text-base font-semibold text-gray-800">{facility}</span>
+                    <span className="text-base font-semibold text-purple-800">{facility}</span>
                   </label>
                 ))}
               </div>
@@ -254,10 +254,10 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
           </div>
 
           {/* Apply Filters Button */}
-          <div className="flex-shrink-0 border-t border-gray-100 p-6">
+          <div className="flex-shrink-0 border-t border-purple-200 p-6">
             <button
               onClick={() => setShowFilters(false)}
-              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-4 px-6 rounded-xl font-bold text-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl"
+              className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-4 px-6 rounded-xl font-bold text-lg hover:from-purple-700 hover:to-purple-800 transition-all duration-200 shadow-lg hover:shadow-xl"
             >
               Show {locationResults.length} Locations
             </button>
@@ -266,25 +266,25 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
       )}
 
       {/* Location Results */}
-      <div className="flex-1 overflow-auto bg-gray-50">
+      <div className="flex-1 overflow-auto bg-purple-50">
         <div className="p-4">
           {loading ? (
             <div className="text-center py-16">
-              <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                <HiHome className="w-8 h-8 text-gray-400 animate-pulse" />
+              <div className="w-16 h-16 bg-purple-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                <HiHome className="w-8 h-8 text-purple-400 animate-pulse" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Loading locations...</h3>
+              <h3 className="text-lg font-bold text-purple-900 mb-2">Loading locations...</h3>
             </div>
           ) : locationResults.length === 0 ? (
             <div className="text-center py-16">
-              <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                <HiHome className="w-8 h-8 text-gray-400" />
+              <div className="w-16 h-16 bg-purple-200 rounded-full flex items-center justify-center mx-auto mb-4">
+                <HiHome className="w-8 h-8 text-purple-400" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">No locations found</h3>
-              <p className="text-gray-600 mb-6 text-sm">
+              <h3 className="text-lg font-bold text-purple-900 mb-2">No locations found</h3>
+              <p className="text-purple-600 mb-6 text-sm">
                 No property locations match your search and filters
               </p>
-              <div className="space-y-2 text-xs text-gray-500">
+              <div className="space-y-2 text-xs text-purple-500">
                 <p>• Try searching for areas like "Bukit Panjang", "Tampines", or "Marine Parade"</p>
                 <p>• Adjust your budget range</p>
                 <p>• Try different amenity filters</p>
