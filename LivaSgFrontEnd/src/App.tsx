@@ -1,12 +1,30 @@
-import BottomNav from "./components/BottomNav";
+import { useState } from 'react';
+import PageLayout from './Layouts/PageLayout/PageLayout';
+import MapView from './views/MapView';
+import ComparisonView from './views/ComparisonView';
 
 function App() {
+  const [activeTab, setActiveTab] = useState('explore');
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'explore':
+        return <MapView />;
+      case 'comparison':
+        return <ComparisonView />;
+      case 'preferences':
+        return <div className="p-4">Preferences Content - User settings</div>;
+      case 'bookmarks':
+        return <div className="p-4">Bookmarks</div>;
+      default:
+        return <MapView />;
+    }
+  };
+
   return (
-    <div className="w-screen h-screen flex items-center justify-center bg-gray-100">
-      <div className="w-full max-w-sm h-full border-2 border-blue-500 rounded-xl overflow-hidden bg-white">
-        <BottomNav />
-      </div>
-    </div>
+    <PageLayout activeTab={activeTab} onTabChange={setActiveTab}>
+      {renderContent()}
+    </PageLayout>
   );
 }
 
