@@ -16,7 +16,7 @@ const BottomNav = ({ activeTab, onTabChange }: BottomNavProps) => {
   const tabs = [
     { id: 'explore', label: 'Explore', icon: HiLocationMarker },
     { id: 'comparison', label: 'Compare', icon: HiChartBar },
-    { id: 'preferences', label: 'Profile', icon: HiUser },
+    { id: 'preferences', label: 'Preferred', icon: HiUser },
     { id: 'bookmarks', label: 'Saved', icon: HiBookmark },
   ];
 
