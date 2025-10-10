@@ -37,7 +37,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
+    if (searchQuery.trim() && activeTab === 'explore') {
       setCurrentView('search');
     }
   };
@@ -45,8 +45,10 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     e.target.style.borderColor = '#3b82f6';
     e.target.style.boxShadow = '0 0 0 2px rgba(59, 130, 246, 0.1)';
-    // Show SearchView immediately when search box is clicked
-    setCurrentView('search');
+    // Only show SearchView when search box is clicked in Explore tab
+    if (activeTab === 'explore') {
+      setCurrentView('search');
+    }
   };
 
   const handleInputBlur = (e: React.FocusEvent<HTMLInputElement>) => {
@@ -57,7 +59,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
   const handleInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (searchQuery.trim()) {
+      if (searchQuery.trim() && activeTab === 'explore') {
         setCurrentView('search');
       }
     }
@@ -79,27 +81,28 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
   const showSearchBar = activeTab === 'explore';
 
   const renderContent = () => {
-    switch (currentView) {
-      case 'search':
-        return (
-          <SearchView 
-            searchQuery={searchQuery}
-            onBack={handleBackFromSearch}
-            onViewDetails={handleViewDetails}
-          />
-        );
-      case 'details':
-        return selectedLocation ? (
-          <DetailsView 
-            location={selectedLocation}
-            onBack={handleBackFromDetails}
-          />
-        ) : (
-          <div>Error: No location selected</div>
-        );
-      default:
-        return children;
+    // Only show SearchView if in Explore tab and currentView is 'search'
+    if (activeTab === 'explore' && currentView === 'search') {
+      return (
+        <SearchView 
+          searchQuery={searchQuery}
+          onBack={handleBackFromSearch}
+          onViewDetails={handleViewDetails}
+        />
+      );
     }
+    if (currentView === 'details') {
+      return selectedLocation ? (
+        <DetailsView 
+          location={selectedLocation}
+          onBack={handleBackFromDetails}
+        />
+      ) : (
+        <div>Error: No location selected</div>
+      );
+    }
+    // Default: show children (e.g., MapView, ComparisonView, etc.)
+    return children;
   };
 
   return (
@@ -224,7 +227,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
         flexShrink: 0,
         display: 'flex',
         justifyContent: 'center',
-        backgroundColor: 'white',
+        backgroundColor: '#F5F0FA', // Changed from 'white' to pale purple
         borderTop: '1px solid #e5e7eb'
       }}>
         <div style={{
