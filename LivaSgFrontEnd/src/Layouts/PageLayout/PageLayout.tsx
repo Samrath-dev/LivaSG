@@ -28,14 +28,24 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
                 {children}
             </div>
             
-            {/* Bottom Navigation - Always fixed at bottom */}
+            {/* Bottom Navigation - Centered with max width */}
             <div style={{
-                flexShrink: 0
+                flexShrink: 0,
+                display: 'flex',
+                justifyContent: 'center',
+                backgroundColor: 'white',
+                borderTop: '1px solid #e5e7eb'
             }}>
-                <BottomNav activeTab={activeTab} onTabChange={onTabChange} />
+                <div style={{
+                    width: '100%',
+                    maxWidth: '500px', // Adjust this value as needed
+                    margin: '0 auto'
+                }}>
+                    <BottomNav activeTab={activeTab} onTabChange={onTabChange} />
+                </div>
             </div>
         </div>
     );
 }
 
-export default PageLayout;;
+export default PageLayout;

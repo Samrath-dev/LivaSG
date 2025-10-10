@@ -1,6 +1,6 @@
 const ComparisonView = () => {
   return (
-    <div style={{ height: '100%', padding: '20px', background: 'black' }}>
+    <div style={{ height: '100%', padding: '20px', background: 'white' }}>
       <h1>Comparison View</h1>
       <div style={{ height: '1500px' }}>
         <p>Different content length - bottom nav should stay in same position</p>
