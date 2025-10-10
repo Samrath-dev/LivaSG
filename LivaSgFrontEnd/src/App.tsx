@@ -3,6 +3,7 @@ import PageLayout from './Layouts/PageLayout/PageLayout';
 import MapView from './views/MapView';
 import ComparisonView from './views/ComparisonView';
 
+
 function App() {
   const [activeTab, setActiveTab] = useState('explore');
 

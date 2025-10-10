@@ -1,6 +1,7 @@
 import BottomNav from "../../components/BottomNav";
 import { useState } from 'react';
 import { HiSearch, HiX, HiCog } from "react-icons/hi";
+import SearchView from "../../views/SearchView";
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -10,9 +11,39 @@ interface PageLayoutProps {
 
 function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchView, setIsSearchView] = useState(false);
 
   const clearSearch = () => {
     setSearchQuery('');
+    setIsSearchView(false);
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      setIsSearchView(true);
+    }
+  };
+
+  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.style.borderColor = '#3b82f6';
+    e.target.style.boxShadow = '0 0 0 2px rgba(59, 130, 246, 0.1)';
+    setIsSearchView(true); // Show SearchView immediately
+  };
+
+  const handleInputBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.style.borderColor = '#d1d5db';
+    e.target.style.boxShadow = 'none';
+    // Don't hide SearchView on blur to keep it visible while interacting with results
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (searchQuery.trim()) {
+        setIsSearchView(true);
+      }
+    }
   };
 
   const showSearchBar = activeTab === 'explore';
@@ -29,7 +60,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
       right: 0,
       bottom: 0
     }}>
-      {/* Fixed Search Bar - Only show for MapView (explore tab) */}
+      {/* Fixed Search Bar - Only show for Explore tab */}
       {showSearchBar && (
         <div style={{
           flexShrink: 0,
@@ -43,10 +74,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
             gap: '12px' 
           }}>
             {/* Search Input Container */}
-            <div style={{ 
-              position: 'relative', 
-              flex: 1 
-            }}>
+            <form onSubmit={handleSearchSubmit} style={{ position: 'relative', flex: 1 }}>
               <HiSearch style={{ 
                 position: 'absolute', 
                 left: '12px', 
@@ -61,6 +89,9 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
                 placeholder="Location Search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={handleInputFocus} // Combined focus handler
+                onBlur={handleInputBlur} // Combined blur handler
+                onKeyDown={handleInputKeyDown}
                 style={{
                   width: '100%',
                   paddingLeft: '40px',
@@ -72,17 +103,10 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
                   outline: 'none',
                   fontSize: '14px'
                 }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = '#3b82f6';
-                  e.target.style.boxShadow = '0 0 0 2px rgba(59, 130, 246, 0.1)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = '#d1d5db';
-                  e.target.style.boxShadow = 'none';
-                }}
               />
               {searchQuery && (
                 <button
+                  type="button"
                   onClick={clearSearch}
                   style={{
                     position: 'absolute',
@@ -98,7 +122,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
                   <HiX style={{ width: '16px', height: '16px' }} />
                 </button>
               )}
-            </div>
+            </form>
 
             {/* Settings Icon */}
             <button
@@ -123,7 +147,6 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
                 e.currentTarget.style.color = '#6b7280';
               }}
               onClick={() => {
-                // Add your settings logic here
                 console.log('Settings clicked');
               }}
             >
@@ -133,13 +156,20 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
         </div>
       )}
       
-      {/* Content Area - This will scroll */}
+      {/* Content Area - Show SearchView when searching, otherwise show children */}
       <div style={{ 
         flex: 1, 
         overflow: 'auto',
         minHeight: 0
       }}>
-        {children}
+        {isSearchView && showSearchBar ? (
+          <SearchView 
+            searchQuery={searchQuery}
+            onBack={() => setIsSearchView(false)}
+          />
+        ) : (
+          children
+        )}
       </div>
       
       {/* Fixed Bottom Navigation */}
