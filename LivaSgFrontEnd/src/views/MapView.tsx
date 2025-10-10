@@ -10,9 +10,9 @@ const MapView = () => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col">
-      {/* Search Bar at the top */}
-      <div className="border-b border-gray-200 bg-white">
+    <div className="h-full flex flex-col">
+      {/* Search Bar */}
+      <div className="bg-white border-b border-gray-200">
         <div className="px-4 py-3">
           <div className="relative">
             <HiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -35,19 +35,13 @@ const MapView = () => {
         </div>
       </div>
 
-      {/* Map Content Area */}
-      <div className="flex-1 bg-gray-100 relative">
-        <div className="w-full h-full">
-          <img 
-            src={mapDummy} 
-            alt="Map"
-            className="w-full h-full object-cover"
-          />
-          {searchQuery && (
-            <div className="absolute top-4 left-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-sm">
-              Searching for: <strong>"{searchQuery}"</strong>
-            </div>
-          )}
+      {/* Map Content - fills remaining space */}
+      <div className="flex-1 bg-gray-100">
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-gray-500">Map will be displayed here</p>
+            <p className="text-sm text-gray-400 mt-2">Search: {searchQuery || 'No search query'}</p>
+          </div>
         </div>
       </div>
     </div>
