@@ -53,3 +53,13 @@ class LocationResult(BaseModel):
     description: str
     growth: float
     amenities: List[str]
+
+
+class CommunityCentre(BaseModel):
+    # Represents a community centre (CC) in an area.
+    id: str
+    name: str
+    areaId: str
+    address: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None

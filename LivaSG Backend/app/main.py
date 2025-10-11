@@ -8,6 +8,7 @@ from .api import map_controller, details_controller, search_controller
 from .repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo, MemoryScoreRepo
 )
+from .repositories.memory_impl import MemoryCommunityRepo
 
 # Services
 from .services.trend_service import TrendService
@@ -19,9 +20,10 @@ di_price   = MemoryPriceRepo()
 di_amenity = MemoryAmenityRepo()
 di_weights = MemoryWeightsRepo()
 di_scores  = MemoryScoreRepo()
+di_community = MemoryCommunityRepo()
 
 di_trend   = TrendService(di_price)
-di_engine  = RatingEngine(di_price, di_amenity, di_scores)
+di_engine  = RatingEngine(di_price, di_amenity, di_scores, di_community)
 di_search  = SearchService(di_engine)
 
 app = FastAPI(title="LivaSG API")
