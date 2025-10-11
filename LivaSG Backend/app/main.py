@@ -6,7 +6,7 @@ from .api import map_controller, details_controller, search_controller
 
 # Repos
 from .repositories.memory_impl import (
-    MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo, MemoryScoreRepo
+    MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo, MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo, MemoryAreaRepo
 )
 from .repositories.memory_impl import MemoryCommunityRepo
 
@@ -21,9 +21,12 @@ di_amenity = MemoryAmenityRepo()
 di_weights = MemoryWeightsRepo()
 di_scores  = MemoryScoreRepo()
 di_community = MemoryCommunityRepo()
+di_transit = MemoryTransitRepo()
+di_carpark = MemoryCarparkRepo()
+di_area = MemoryAreaRepo()
 
 di_trend   = TrendService(di_price)
-di_engine  = RatingEngine(di_price, di_amenity, di_scores, di_community)
+di_engine  = RatingEngine(di_price, di_amenity, di_scores, di_community, di_transit, di_carpark, di_area)
 di_search  = SearchService(di_engine)
 
 app = FastAPI(title="LivaSG API")

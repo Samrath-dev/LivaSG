@@ -1,7 +1,7 @@
 from datetime import date
 from typing import List, Optional
-from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre
-from .interfaces import IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo, ICommunityRepo
+from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre, Transit, Carpark, AreaCentroid
+from .interfaces import IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo, ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo
 
 class MemoryPriceRepo(IPriceRepo):
     def series(self, area_id: str, months: int) -> List[PriceRecord]:
@@ -53,3 +53,58 @@ class MemoryCommunityRepo(ICommunityRepo):
     def exists(self, area_id: str) -> bool:
         # case-insensitive check
         return any(c.areaId.lower() == area_id.lower() for c in self._centres)
+    
+    def list_centres(self, area_id: str) -> List[CommunityCentre]:
+        return [c for c in self._centres if c.areaId and c.areaId.lower() == area_id.lower()]
+
+
+class MemoryTransitRepo(ITransitRepo):
+    """Hardcoded transit nodes (MRT/LRT/Bus) and simple area mapping."""
+    # a few sample transit nodes with lat/lon
+    _nodes: List[Transit] = [
+        Transit(id="mrt_bukit_panjang", type="mrt", name="Bukit Panjang MRT", areaId="Bukit Panjang", latitude=1.38, longitude=103.77),
+        Transit(id="lrt_bukit_panjang", type="lrt", name="Bukit Panjang LRT", areaId="Bukit Panjang", latitude=1.379, longitude=103.771),
+        Transit(id="mrt_tampines", type="mrt", name="Tampines MRT", areaId="Tampines", latitude=1.352, longitude=103.94),
+        Transit(id="bus_marine_parade_1", type="bus", name="Marine Parade Bus Stop 1", areaId="Marine Parade", latitude=1.3005, longitude=103.9105)
+    ]
+
+    def list_near_area(self, area_id: str) -> List[Transit]:
+        # return nodes that have matching areaId (case-insensitive), else empty
+        return [n for n in self._nodes if n.areaId and n.areaId.lower() == area_id.lower()]
+
+    def all(self) -> List[Transit]:
+        return list(self._nodes)
+
+
+class MemoryCarparkRepo(ICarparkRepo):
+    """Hardcoded carparks with capacities and positions."""
+    _parks: List[Carpark] = [
+        Carpark(id="cp_bukit_panjang_1", areaId="Bukit Panjang", latitude=1.381, longitude=103.772, capacity=200),
+        Carpark(id="cp_tampines_1", areaId="Tampines", latitude=1.353, longitude=103.945, capacity=500),
+        Carpark(id="cp_marine_1", areaId="Marine Parade", latitude=1.301, longitude=103.911, capacity=120)
+    ]
+
+    def list_near_area(self, area_id: str) -> List[Carpark]:
+        return [p for p in self._parks if p.areaId and p.areaId.lower() == area_id.lower()]
+
+    def all(self) -> List[Carpark]:
+        return list(self._parks)
+
+
+class MemoryAreaRepo(IAreaRepo):
+    """In-memory mapping of areaId -> centroid coordinates."""
+    _centroids: List[AreaCentroid] = [
+        AreaCentroid(areaId="Bukit Panjang", latitude=1.379, longitude=103.771),
+        AreaCentroid(areaId="Tampines", latitude=1.352, longitude=103.94),
+        AreaCentroid(areaId="Marine Parade", latitude=1.3005, longitude=103.9105),
+        AreaCentroid(areaId="Bedok", latitude=1.323, longitude=103.930)
+    ]
+
+    def centroid(self, area_id: str) -> AreaCentroid | None:
+        for c in self._centroids:
+            if c.areaId.lower() == area_id.lower():
+                return c
+        return None
+
+    def list_all(self) -> List[AreaCentroid]:
+        return list(self._centroids)

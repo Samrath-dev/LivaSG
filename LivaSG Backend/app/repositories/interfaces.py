@@ -1,5 +1,6 @@
 from typing import List, Optional
-from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore
+from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre, AreaCentroid
+from ..domain.models import Transit, Carpark
 
 class IPriceRepo:
     def series(self, area_id: str, months: int) -> List[PriceRecord]: ...
@@ -11,6 +12,25 @@ class ICommunityRepo:
     """Repository interface for community centres"""
     def list_all(self) -> List[str]: ...  # return list of areaIds that have a community centre
     def exists(self, area_id: str) -> bool: ...
+    def list_centres(self, area_id: str) -> List[CommunityCentre]: ...
+
+
+class ITransitRepo:
+    """Repository interface for transit nodes (MRT/LRT/Bus)."""
+    def list_near_area(self, area_id: str) -> List[Transit]: ...
+    def all(self) -> List[Transit]: ...
+
+
+class ICarparkRepo:
+    """Repository interface for carparks."""
+    def list_near_area(self, area_id: str) -> List[Carpark]: ...
+    def all(self) -> List[Carpark]: ...
+
+
+class IAreaRepo:
+    """Repository interface for area centroids."""
+    def centroid(self, area_id: str) -> AreaCentroid | None: ...
+    def list_all(self) -> List[AreaCentroid]: ...
 
 class IWeightsRepo:
     def get_active(self) -> WeightsProfile: ...

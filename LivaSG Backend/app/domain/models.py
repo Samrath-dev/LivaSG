@@ -63,3 +63,28 @@ class CommunityCentre(BaseModel):
     address: str | None = None
     latitude: float | None = None
     longitude: float | None = None
+
+
+class Transit(BaseModel):
+    """A transit node: can be MRT, LRT or Bus stop."""
+    id: str
+    type: str  # expected: 'mrt' | 'lrt' | 'bus'
+    name: str | None = None
+    areaId: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+class Carpark(BaseModel):
+    id: str
+    areaId: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    capacity: int | None = None
+
+
+class AreaCentroid(BaseModel):
+    """Simple area centroid record for proximity calculations."""
+    areaId: str
+    latitude: float
+    longitude: float
