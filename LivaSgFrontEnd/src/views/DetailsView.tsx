@@ -1,4 +1,8 @@
 import { HiChevronLeft, HiMap, HiHome, HiTrendingUp } from 'react-icons/hi';
+import { useState } from 'react';
+import { FaDumbbell, FaTree } from 'react-icons/fa';
+import React, { isValidElement, cloneElement } from 'react';
+import type { ReactNode } from 'react';
 import facilitiesMapDummy from '../assets/facilitiesMapDummy.png';
 import priceGraphDummy from '../assets/priceGraphDummy.png';
 
@@ -18,6 +22,16 @@ interface DetailsViewProps {
   onBack: () => void;
 }
 
+type FilterItemProps = {
+  icon: ReactNode;
+  label: string;
+  checked: boolean;
+  onChange: () => void;
+  count?: number;
+  iconStyle?: React.CSSProperties;
+  iconClassName?: string;
+};
+
 const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   const formatPrice = (price: number) => {
     if (price >= 1000000) {
@@ -25,6 +39,50 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     }
     return `$${(price / 1000).toFixed(0)}K`;
   };
+
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [selectedOptions, setSelectedOptions] = useState<{ gym: boolean; park: boolean }>({
+    gym: false,
+    park: false
+  });
+
+  const toggleOption = (key: 'gym' | 'park') => {
+    setSelectedOptions(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const FilterItem = ({ icon, label, checked, onChange, count, iconStyle, iconClassName }: FilterItemProps) => (
+  <label className="flex items-center justify-between w-full">
+    <div className="flex items-center gap-3">
+      <span
+        className={`flex-shrink-0 ${iconClassName ?? ''}`}
+        style={{
+          width: 'clamp(32px,10vw,48px)',
+          height: 'clamp(32px,10vw,48px)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          ...(iconStyle || {})
+        }}>
+        {isValidElement(icon)
+          ? cloneElement(icon as React.ReactElement<any>, {
+              className: `${(icon as any)?.props?.className ?? ''} w-full h-full`
+            })
+          : icon}
+      </span>
+      <span className="text-xl text-gray-700">{label}</span>
+    </div>
+    <div className="flex items-center gap-3">
+      {count !== undefined && <span className="text-xs text-gray-500">{count}</span>}
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="h-8 w-8"
+        aria-label={`Filter by ${label.toLowerCase()}`}
+      />
+    </div>
+  </label>
+);
 
   return (
     <div className="h-full flex flex-col bg-white">
@@ -63,7 +121,19 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
           {/* Facilities Map */}
           <div className="bg-amber-50 rounded-2xl p-6 text-center">
-            <h2 className="font-bold text-lg mb-4 text-gray-900">Facilities Map</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-lg mb-4 text-gray-900">Facilities Map</h2>
+
+              <div>
+                <button
+                  onClick={() => setShowFilterMenu(s => !s)}
+                  className="inline-flex items-center px-3 py-1.5 bg-white border rounded-lg text-sm text-gray-700 shadow-sm hover:bg-gray-50"
+                >
+                  Filters
+                </button>
+              </div>
+            </div>
+
             <img
               src={facilitiesMapDummy}
               alt={`Facilities map for ${location.street}`}
@@ -71,6 +141,53 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
               loading="lazy"
             />
           </div>
+
+          {/* Facilities Map- Filter Submenu */}
+          {showFilterMenu && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center"
+              role="dialog"
+              aria-modal="true"
+            >
+
+              {/* Overlay (Backdrop) */}
+              <div
+                className="absolute inset-0 bg-black bg-opacity-50"
+                onClick={() => setShowFilterMenu(false)}
+              />
+
+              {/* Filter Menu */}
+              <div
+                className="relative bg-white rounded-lg w-[clamp(280px,75vw,800px)] max-w-full pt-[clamp(32px,2vw,40px)] px-[clamp(12px,2.5vw,24px)] pb-[clamp(12px,2.5vw,24px)] z-10 shadow-lg max-h-[90vh] overflow-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-8 pb-2">
+                  <h3 className="absolute left-1/2 flex items-center transform -translate-x-1/2 text-lg font-semibold text-gray-900 pointer-events-none">Filters</h3>
+                  <button
+                    onClick={() => setShowFilterMenu(false)}
+                    className="absolute right-4 top-0 transform translate-y-1/4 text-gray-500 hover:text-white hover:bg-red-900 transition-colors duration-300 text-xl p-1 px-2"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Filter Options */}
+                <div className="flex flex-col gap-3">
+                  {[
+                    { key: 'gym' as const, label: 'Gym', icon: <FaDumbbell /> },
+                    { key: 'park' as const, label: 'Park', icon: <FaTree /> }
+                  ].map(f => (
+                    <FilterItem
+                      key={f.key}
+                      icon={f.icon}
+                      label={f.label}
+                      checked={selectedOptions[f.key]}
+                      onChange={() => toggleOption(f.key)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Price Information */}
           <div className="bg-blue-50 rounded-2xl p-6">
