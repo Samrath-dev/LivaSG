@@ -132,19 +132,29 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
       <div className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-4 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="relative">
           <button
             onClick={onBack}
-            className="flex items-center text-purple-700 hover:text-purple-900 transition-colors group"
+            className="absolute left-0 top-1/2 transform -translate-y-1/2 flex items-center text-purple-700 hover:text-purple-900 transition-colors group md:static md:transform-none md:mr-4"
           >
             <HiChevronLeft className="w-6 h-6 mr-2 group-hover:-translate-x-1 transition-transform" />
             <span className="font-semibold">Back to Search</span>
           </button>
+          <div className="hidden sm:block text-center">
+            <h1 className="text-2xl font-bold text-gray-900">{location.street}</h1>
+            <p className="text-gray-600 mt-2 flex items-center gap-2 justify-center">
+            <span className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-semibold px-3 py-1 rounded-full">
+              {location.area}
+            </span>
+            <span className="text-gray-400">•</span>
+            <span className="font-medium text-gray-700">{location.district}</span>
+          </p>
+          </div>
         </div>
-        
-        <div className="mt-4">
-          <h1 className="text-2xl font-bold text-gray-900">{location.street}</h1>
-          <p className="text-gray-600 mt-2 flex items-center gap-2">
+
+        <div className="mt-4 sm:hidden w-full">
+          <h1 className="text-2xl font-bold text-gray-900 justify-center text-center">{location.street}</h1>
+          <p className="text-gray-600 mt-2 flex items-center gap-2 justify-center">
             <span className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-semibold px-3 py-1 rounded-full">
               {location.area}
             </span>
