@@ -289,14 +289,21 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
       {/* Filter Modal - Grey Background with Pale Purple Header */}
       {showFilterMenu && (
-        <div className="fixed inset-0 z-50 bg-gray-600 bg-opacity-50 flex items-start justify-center p-4 overflow-auto"
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-auto"
           role="dialog"
           aria-modal="true"
         >
+          {/* backdrop (below modal) */}
           <div
-            className="relative bg-white rounded-2xl w-full max-w-md mx-auto shadow-2xl mt-20 mb-8 border border-gray-300"
+            className="fixed inset-0 bg-gray-600 bg-opacity-50 z-[9998]"
+            onClick={() => setShowFilterMenu(false)}
+          />
+
+          <div
+            className="relative bg-white rounded-2xl w-full max-w-md mx-auto shadow-2xl border border-gray-300 max-h-[90vh] overflow-auto z-[9999]"
             onClick={(e) => e.stopPropagation()}
           >
+            
             {/* Pale Purple Header */}
             <div className="flex items-center justify-between p-6 border-b border-purple-200 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-900 rounded-t-2xl">
               <div>
