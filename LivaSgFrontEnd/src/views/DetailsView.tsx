@@ -156,11 +156,11 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto p-6 space-y-6">
+        <div className="w-full max-w-full mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
           {/* Price History and Facilities Map shown first */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
             {/* Price History */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200 flex flex-col max-h-[50vh] md:max-h-[420px] overflow-auto">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-bold text-lg text-gray-900 flex items-center gap-2">
                   <HiTrendingUp className="w-5 h-5 text-green-500" />
@@ -173,13 +173,13 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
               <img
                 src={priceGraphDummy}
                 alt={`Price history for ${location.street}`}
-                className="w-full rounded-xl object-contain border border-gray-100"
+                className="w-full rounded-xl object-contain border border-gray-100 max-h-full"
                 loading="lazy"
               />
             </div>
 
             {/* Facilities Map */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200 flex flex-col max-h-[50vh] md:max-h-[420px] overflow-auto">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-bold text-lg text-gray-900 flex items-center gap-2">
                   <HiMap className="w-5 h-5 text-blue-500" />
@@ -303,7 +303,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
             className="relative bg-white rounded-2xl w-full max-w-md mx-auto shadow-2xl border border-gray-300 max-h-[90vh] overflow-auto z-[9999]"
             onClick={(e) => e.stopPropagation()}
           >
-            
+
             {/* Pale Purple Header */}
             <div className="flex items-center justify-between p-6 border-b border-purple-200 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-900 rounded-t-2xl">
               <div>
