@@ -1,5 +1,5 @@
 import BottomNav from "../../components/BottomNav";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { HiSearch, HiX, HiCog } from "react-icons/hi";
 import SearchView from "../../views/SearchView";
 import DetailsView from "../../views/DetailsView";
@@ -29,6 +29,13 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentView, setCurrentView] = useState<ViewState>('map');
   const [selectedLocation, setSelectedLocation] = useState<LocationData | null>(null);
+
+  // Reset view state when tab changes
+  useEffect(() => {
+    setCurrentView('map');
+    setSelectedLocation(null);
+    setSearchQuery('');
+  }, [activeTab]);
 
   const clearSearch = () => {
     setSearchQuery('');
@@ -78,7 +85,12 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
     setCurrentView('map');
   };
 
-  const showSearchBar = activeTab === 'explore';
+  const handleTabChange = (tabId: string) => {
+    // This will trigger the useEffect above to reset the view state
+    onTabChange(tabId);
+  };
+
+  const showSearchBar = activeTab === 'explore' && currentView !== 'details';
 
   const renderContent = () => {
     // Only show SearchView if in Explore tab and currentView is 'search'
@@ -108,7 +120,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
   return (
     <div className="h-screen w-screen flex flex-col fixed top-0 left-0 right-0 bottom-0 bg-purple-50">
       {/* Fixed Search Bar - Only show for Explore tab and when not in DetailsView */}
-      {showSearchBar && currentView !== 'details' && (
+      {showSearchBar && (
         <div className="flex-shrink-0 bg-purple-100 border-b border-purple-200 p-3">
           <div className="flex items-center gap-3">
             {/* Search Input Container */}
@@ -156,7 +168,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
       {/* Fixed Bottom Navigation */}
       <div className="flex-shrink-0 flex justify-center bg-purple-100 border-t border-purple-200">
         <div className="w-full max-w-lg mx-auto">
-          <BottomNav activeTab={activeTab} onTabChange={onTabChange} />
+          <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
         </div>
       </div>
     </div>
