@@ -1,6 +1,6 @@
-import { HiChevronLeft, HiMap, HiHome, HiTrendingUp } from 'react-icons/hi';
+import { HiChevronLeft, HiTrendingUp, HiStar, HiMap, HiHome } from 'react-icons/hi';
 import { useState } from 'react';
-import { FaDumbbell, FaTree } from 'react-icons/fa';
+import { FaDumbbell, FaTree, FaShoppingBag, FaSchool, FaHospital, FaParking, FaUtensils } from 'react-icons/fa';
 import React, { isValidElement, cloneElement } from 'react';
 import type { ReactNode } from 'react';
 import facilitiesMapDummy from '../assets/facilitiesMapDummy.png';
@@ -41,221 +41,324 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   };
 
   const [showFilterMenu, setShowFilterMenu] = useState(false);
-  const [selectedOptions, setSelectedOptions] = useState<{ gym: boolean; park: boolean }>({
+  const [selectedOptions, setSelectedOptions] = useState<{ 
+    gym: boolean; 
+    park: boolean;
+    mall: boolean;
+    school: boolean;
+    hospital: boolean;
+    parking: boolean;
+    dining: boolean;
+  }>({
     gym: false,
-    park: false
+    park: false,
+    mall: false,
+    school: false,
+    hospital: false,
+    parking: false,
+    dining: false
   });
 
-  const toggleOption = (key: 'gym' | 'park') => {
+  const toggleOption = (key: keyof typeof selectedOptions) => {
     setSelectedOptions(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const FilterItem = ({ icon, label, checked, onChange, count, iconStyle, iconClassName }: FilterItemProps) => (
-  <label className="flex items-center justify-between w-full">
-    <div className="flex items-center gap-3">
-      <span
-        className={`flex-shrink-0 ${iconClassName ?? ''}`}
-        style={{
-          width: 'clamp(32px,10vw,48px)',
-          height: 'clamp(32px,10vw,48px)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          ...(iconStyle || {})
-        }}>
-        {isValidElement(icon)
-          ? cloneElement(icon as React.ReactElement<any>, {
-              className: `${(icon as any)?.props?.className ?? ''} w-full h-full`
-            })
-          : icon}
-      </span>
-      <span className="text-xl text-gray-700">{label}</span>
-    </div>
-    <div className="flex items-center gap-3">
-      {count !== undefined && <span className="text-xs text-gray-500">{count}</span>}
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onChange}
-        className="h-8 w-8"
-        aria-label={`Filter by ${label.toLowerCase()}`}
-      />
-    </div>
-  </label>
-);
+    <label className="flex items-center justify-between w-full p-4 rounded-xl hover:bg-purple-50 transition-colors cursor-pointer border border-purple-200 bg-white">
+      <div className="flex items-center gap-4">
+        <span
+          className={`flex-shrink-0 p-3 rounded-xl border-2 ${
+            checked ? 'border-purple-500 text-purple-600 bg-purple-50' : 'border-purple-300 text-purple-400 bg-white'
+          } ${iconClassName ?? ''}`}
+          style={{
+            width: '52px',
+            height: '52px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            ...(iconStyle || {})
+          }}>
+          {isValidElement(icon)
+            ? cloneElement(icon as React.ReactElement<any>, {
+                className: `${(icon as any)?.props?.className ?? ''} w-6 h-6`
+              })
+            : icon}
+        </span>
+        <div>
+          <span className="text-lg font-semibold text-gray-900">{label}</span>
+          {count !== undefined && (
+            <span className="block text-sm text-purple-600 mt-1">{count} locations nearby</span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onChange}
+          className="hidden"
+        />
+        <div 
+          className={`relative w-7 h-7 rounded-xl border-2 transition-all cursor-pointer ${
+            checked 
+              ? 'bg-purple-500 border-purple-500' 
+              : 'bg-white border-purple-300'
+          }`}
+          onClick={onChange}
+        >
+          {checked && (
+            <svg className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </div>
+      </div>
+    </label>
+  );
+
+  const getAmenityIcon = (amenity: string) => {
+    const lowerAmenity = amenity.toLowerCase();
+    if (lowerAmenity.includes('mall') || lowerAmenity.includes('shopping')) return <FaShoppingBag className="w-5 h-5" />;
+    if (lowerAmenity.includes('school') || lowerAmenity.includes('education')) return <FaSchool className="w-5 h-5" />;
+    if (lowerAmenity.includes('hospital') || lowerAmenity.includes('medical')) return <FaHospital className="w-5 h-5" />;
+    if (lowerAmenity.includes('park') || lowerAmenity.includes('garden')) return <FaTree className="w-5 h-5" />;
+    if (lowerAmenity.includes('gym') || lowerAmenity.includes('fitness')) return <FaDumbbell className="w-5 h-5" />;
+    if (lowerAmenity.includes('parking')) return <FaParking className="w-5 h-5" />;
+    if (lowerAmenity.includes('food') || lowerAmenity.includes('dining')) return <FaUtensils className="w-5 h-5" />;
+    return <HiStar className="w-5 h-5" />;
+  };
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-gray-50">
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-gray-100 p-6">
+      <div className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-4 shadow-sm">
         <div className="flex items-center justify-between">
           <button
             onClick={onBack}
-            className="flex items-center text-gray-600 hover:text-gray-800 transition-colors"
+            className="flex items-center text-purple-700 hover:text-purple-900 transition-colors group"
           >
-            <HiChevronLeft className="w-6 h-6 mr-2" />
-            <span className="font-medium">Back to Search</span>
+            <HiChevronLeft className="w-6 h-6 mr-2 group-hover:-translate-x-1 transition-transform" />
+            <span className="font-semibold">Back to Search</span>
           </button>
         </div>
         
         <div className="mt-4">
           <h1 className="text-2xl font-bold text-gray-900">{location.street}</h1>
-          <p className="text-gray-600 mt-1">{location.area} • {location.district}</p>
+          <p className="text-gray-600 mt-2 flex items-center gap-2">
+            <span className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-semibold px-3 py-1 rounded-full">
+              {location.area}
+            </span>
+            <span className="text-gray-400">•</span>
+            <span className="font-medium text-gray-700">{location.district}</span>
+          </p>
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
-        <div className="space-y-6">
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-4xl mx-auto p-6 space-y-6">
+          {/* Price History and Facilities Map shown first */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Price History */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+                  <HiTrendingUp className="w-5 h-5 text-green-500" />
+                  Price History
+                </h2>
+                <div className="text-sm text-gray-600 font-medium bg-gray-100 px-3 py-1 rounded-full">
+                  Last 5 years
+                </div>
+              </div>
+              <img
+                src={priceGraphDummy}
+                alt={`Price history for ${location.street}`}
+                className="w-full rounded-xl object-contain border border-gray-100"
+                loading="lazy"
+              />
+            </div>
 
-          {/* Price History */}
-          <div className="bg-green-50 rounded-2xl p-6 text-center">
-            <h2 className="font-bold text-lg mb-4 text-gray-900">Price History</h2>
-            <img
-              src={priceGraphDummy}
-              alt={`Price history for ${location.street}`}
-              className="w-full rounded-xl object-contain"
-              loading="lazy"
-            />
-          </div>
-
-          {/* Facilities Map */}
-          <div className="bg-amber-50 rounded-2xl p-6 text-center">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-bold text-lg mb-4 text-gray-900">Facilities Map</h2>
-
-              <div>
+            {/* Facilities Map */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-bold text-lg text-gray-900 flex items-center gap-2">
+                  <HiMap className="w-5 h-5 text-blue-500" />
+                  Facilities Map
+                </h2>
                 <button
-                  onClick={() => setShowFilterMenu(s => !s)}
-                  className="inline-flex items-center px-3 py-1.5 bg-white border rounded-lg text-sm text-gray-700 shadow-sm hover:bg-gray-50"
+                  onClick={() => setShowFilterMenu(true)}
+                  className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl text-sm font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg"
                 >
-                  Filters
+                  Filter Facilities
                 </button>
               </div>
+              <img
+                src={facilitiesMapDummy}
+                alt={`Facilities map for ${location.street}`}
+                className="w-full rounded-xl object-contain border border-gray-100"
+                loading="lazy"
+              />
             </div>
-
-            <img
-              src={facilitiesMapDummy}
-              alt={`Facilities map for ${location.street}`}
-              className="w-full rounded-xl object-contain"
-              loading="lazy"
-            />
           </div>
 
-          {/* Facilities Map- Filter Submenu */}
-          {showFilterMenu && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center"
-              role="dialog"
-              aria-modal="true"
-            >
-
-              {/* Overlay (Backdrop) */}
-              <div
-                className="absolute inset-0 bg-black bg-opacity-50"
-                onClick={() => setShowFilterMenu(false)}
-              />
-
-              {/* Filter Menu */}
-              <div
-                className="relative bg-white rounded-lg w-[clamp(280px,75vw,800px)] max-w-full pt-[clamp(32px,2vw,40px)] px-[clamp(12px,2.5vw,24px)] pb-[clamp(12px,2.5vw,24px)] z-10 shadow-lg max-h-[90vh] overflow-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between mb-8 pb-2">
-                  <h3 className="absolute left-1/2 flex items-center transform -translate-x-1/2 text-lg font-semibold text-gray-900 pointer-events-none">Filters</h3>
-                  <button
-                    onClick={() => setShowFilterMenu(false)}
-                    className="absolute right-4 top-0 transform translate-y-1/4 text-gray-500 hover:text-white hover:bg-red-900 transition-colors duration-300 text-xl p-1 px-2"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                {/* Filter Options */}
-                <div className="flex flex-col gap-3">
-                  {[
-                    { key: 'gym' as const, label: 'Gym', icon: <FaDumbbell /> },
-                    { key: 'park' as const, label: 'Park', icon: <FaTree /> }
-                  ].map(f => (
-                    <FilterItem
-                      key={f.key}
-                      icon={f.icon}
-                      label={f.label}
-                      checked={selectedOptions[f.key]}
-                      onChange={() => toggleOption(f.key)}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Price Information */}
-          <div className="bg-blue-50 rounded-2xl p-6">
-            <h2 className="font-bold text-lg mb-4 text-gray-900">Price Information</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-sm text-gray-600 mb-1">Price Range</div>
-                <div className="font-bold text-xl text-gray-900">
+          <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-lg">
+            <h2 className="font-bold text-lg mb-6 flex items-center gap-2">
+              <HiHome className="w-5 h-5" />
+              Price Information
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="text-center">
+                <div className="text-blue-200 text-sm mb-2">Price Range</div>
+                <div className="font-bold text-2xl">
                   {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
                 </div>
               </div>
-              <div>
-                <div className="text-sm text-gray-600 mb-1">Average PSF</div>
-                <div className="font-bold text-xl text-blue-600">
-                  ${location.avgPrice} psf
+              <div className="text-center">
+                <div className="text-blue-200 text-sm mb-2">Average PSF</div>
+                <div className="font-bold text-2xl">
+                  ${location.avgPrice.toLocaleString()} psf
                 </div>
               </div>
-              <div className="flex items-center text-green-600">
-                <HiTrendingUp className="w-5 h-5 mr-2" />
-                <span className="font-semibold">+{location.growth}% growth</span>
+              <div className="text-center">
+                <div className="text-blue-200 text-sm mb-2">Annual Growth</div>
+                <div className="flex items-center justify-center font-bold text-2xl text-green-300">
+                  <HiTrendingUp className="w-5 h-5 mr-2" />
+                  +{location.growth}%
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Description */}
-          <div>
-            <h2 className="font-bold text-lg mb-3 text-gray-900">About this Location</h2>
-            <p className="text-gray-600 leading-relaxed">{location.description}</p>
-          </div>
+          {/* Description & Features Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Description */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+              <h2 className="font-bold text-lg mb-4 text-gray-900 flex items-center gap-2">
+                <HiStar className="w-5 h-5 text-yellow-500" />
+                About this Location
+              </h2>
+              <p className="text-gray-700 leading-relaxed">{location.description}</p>
+            </div>
 
-          {/* Key Features */}
-          <div>
-            <h2 className="font-bold text-lg mb-3 text-gray-900">Key Features</h2>
-            <div className="flex flex-wrap gap-2">
-              {location.facilities.map(facility => (
-                <span
-                  key={facility}
-                  className="inline-block bg-green-100 text-green-800 text-sm font-medium px-3 py-2 rounded-full"
-                >
-                  {facility}
-                </span>
-              ))}
+            {/* Key Features */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+              <h2 className="font-bold text-lg mb-4 text-gray-900">Key Features</h2>
+              <div className="flex flex-wrap gap-3">
+                {location.facilities.map(facility => (
+                  <span
+                    key={facility}
+                    className="inline-flex items-center px-4 py-2 bg-green-100 text-green-800 text-sm font-semibold rounded-xl border border-green-200 hover:bg-green-200 transition-colors"
+                  >
+                    {facility}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 
           {/* Nearby Amenities */}
-          <div>
-            <h2 className="font-bold text-lg mb-3 text-gray-900">Nearby Amenities</h2>
-            <div className="space-y-3">
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+            <h2 className="font-bold text-lg mb-4 text-gray-900">Nearby Amenities</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {location.amenities.map((amenity, index) => (
-                <div key={index} className="flex items-center text-gray-700">
-                  <div className="w-3 h-3 bg-blue-500 rounded-full mr-4"></div>
-                  {amenity}
+                <div key={index} className="flex items-center gap-4 p-4 rounded-xl hover:bg-gray-50 transition-colors border border-gray-100">
+                  <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-sm">
+                    {getAmenityIcon(amenity)}
+                  </div>
+                  <span className="text-gray-800 font-medium">{amenity}</span>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Market Insights */}
-          <div className="bg-yellow-50 rounded-2xl p-6">
-            <h2 className="font-bold text-lg mb-2 text-gray-900">Market Insights</h2>
-            <p className="text-yellow-800">
+          <div className="bg-gradient-to-r from-amber-500 to-amber-600 rounded-2xl p-6 text-white shadow-lg">
+            <h2 className="font-bold text-lg mb-3 flex items-center gap-2">
+              <HiTrendingUp className="w-5 h-5" />
+              Market Insights
+            </h2>
+            <p className="text-amber-50 leading-relaxed">
               Properties in {location.street} have shown consistent growth of {location.growth}% annually, 
-              making it a promising investment opportunity in the {location.area} area.
+              making it a promising investment opportunity in the {location.area} area. This location 
+              combines excellent amenities with strong potential for long-term value appreciation.
             </p>
           </div>
         </div>
       </div>
+
+      {/* Filter Modal - Grey Background with Pale Purple Header */}
+      {showFilterMenu && (
+        <div className="fixed inset-0 z-50 bg-gray-600 bg-opacity-50 flex items-start justify-center p-4 overflow-auto"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="relative bg-white rounded-2xl w-full max-w-md mx-auto shadow-2xl mt-20 mb-8 border border-gray-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Pale Purple Header */}
+            <div className="flex items-center justify-between p-6 border-b border-purple-200 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-900 rounded-t-2xl">
+              <div>
+                <h3 className="text-xl font-bold">Filter Facilities</h3>
+                <p className="text-purple-700 text-sm mt-1">Select amenities to show on map</p>
+              </div>
+              <button
+                onClick={() => setShowFilterMenu(false)}
+                className="p-2 hover:bg-purple-300 rounded-xl transition-colors text-purple-700 hover:text-purple-900"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 max-h-96 overflow-y-auto">
+              {[
+                { key: 'gym' as const, label: 'Fitness Centers', icon: <FaDumbbell />, count: 12 },
+                { key: 'park' as const, label: 'Parks & Recreation', icon: <FaTree />, count: 8 },
+                { key: 'mall' as const, label: 'Shopping Malls', icon: <FaShoppingBag />, count: 5 },
+                { key: 'school' as const, label: 'Schools', icon: <FaSchool />, count: 15 },
+                { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: 3 },
+                { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: 20 },
+                { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: 25 }
+              ].map(f => (
+                <FilterItem
+                  key={f.key}
+                  icon={f.icon}
+                  label={f.label}
+                  checked={selectedOptions[f.key]}
+                  onChange={() => toggleOption(f.key)}
+                  count={f.count}
+                />
+              ))}
+            </div>
+
+            <div className="flex gap-3 p-6 border-t border-purple-200 bg-purple-50 rounded-b-2xl">
+              <button
+                onClick={() => setSelectedOptions({
+                  gym: false,
+                  park: false,
+                  mall: false,
+                  school: false,
+                  hospital: false,
+                  parking: false,
+                  dining: false
+                })}
+                className="flex-1 px-4 py-3 text-purple-700 bg-white border border-purple-300 rounded-xl font-semibold hover:bg-purple-100 transition-colors"
+              >
+                Reset All
+              </button>
+              <button
+                onClick={() => setShowFilterMenu(false)}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg"
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
