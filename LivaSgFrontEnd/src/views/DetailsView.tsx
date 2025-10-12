@@ -1,4 +1,6 @@
 import { HiChevronLeft, HiMap, HiHome, HiTrendingUp } from 'react-icons/hi';
+import facilitiesMapDummy from '../assets/facilitiesMapDummy.png';
+import priceGraphDummy from '../assets/priceGraphDummy.png';
 
 interface DetailsViewProps {
   location: {
@@ -47,6 +49,29 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
         <div className="space-y-6">
+
+          {/* Price History */}
+          <div className="bg-green-50 rounded-2xl p-6 text-center">
+            <h2 className="font-bold text-lg mb-4 text-gray-900">Price History</h2>
+            <img
+              src={priceGraphDummy}
+              alt={`Price history for ${location.street}`}
+              className="w-full rounded-xl object-contain"
+              loading="lazy"
+            />
+          </div>
+
+          {/* Facilities Map */}
+          <div className="bg-amber-50 rounded-2xl p-6 text-center">
+            <h2 className="font-bold text-lg mb-4 text-gray-900">Facilities Map</h2>
+            <img
+              src={facilitiesMapDummy}
+              alt={`Facilities map for ${location.street}`}
+              className="w-full rounded-xl object-contain"
+              loading="lazy"
+            />
+          </div>
+
           {/* Price Information */}
           <div className="bg-blue-50 rounded-2xl p-6">
             <h2 className="font-bold text-lg mb-4 text-gray-900">Price Information</h2>
