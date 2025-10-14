@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { HiFilter, HiChevronLeft, HiX, HiHome } from 'react-icons/hi';
+import { HiFilter, HiChevronLeft, HiX, HiHome, HiSearch, HiCog } from 'react-icons/hi';
 
 interface SearchViewProps {
   searchQuery: string;
   onBack: () => void;
   onViewDetails: (location: any) => void;
+  onSearchQueryChange: (query: string) => void;
 }
 
 interface Filters {
@@ -26,7 +27,7 @@ interface LocationResult {
   showDetails?: boolean;
 }
 
-const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => {
+const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange }: SearchViewProps) => {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
     facilities: [],
@@ -98,6 +99,10 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
     }));
   };
 
+  const clearSearch = () => {
+    onSearchQueryChange('');
+  };
+
   const clearFilters = () => {
     setFilters({
       facilities: [],
@@ -116,8 +121,9 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
     <div className="h-full flex flex-col bg-purple-50">
       {/* Header */}
       <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
-        <div className="flex items-center justify-between w-full mb-3">
-          {/* Simple back arrow button - no background, no circle */}
+        {/* Title and Back Button */}
+        <div className="flex items-center justify-between w-full mb-4">
+          {/* Back Button */}
           <button
             onClick={onBack}
             className="text-purple-700 hover:text-purple-900 transition-colors"
@@ -125,12 +131,60 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
             <HiChevronLeft className="w-6 h-6" />
           </button>
           
+          {/* Title */}
           <div className="flex items-center text-purple-700">
             <HiHome className="w-5 h-5 mr-2" />
             <h1 className="text-lg font-bold">Search Locations</h1>
           </div>
           
-          {/* Filters button */}
+          {/* Spacer for balance */}
+          <div className="w-6"></div>
+        </div>
+
+        {/* Search Bar and Settings */}
+        <div className="flex items-center gap-3 mb-3">
+          {/* Search Bar */}
+          <div className="flex-1">
+            <div className="relative">
+              <HiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-purple-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchQueryChange(e.target.value)}
+                placeholder="Search for locations..."
+                className="w-full pl-10 pr-10 py-3 border border-purple-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white text-purple-900 placeholder-purple-400"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-400 hover:text-purple-600 transition-colors"
+                >
+                  <HiX className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Settings Gear Icon */}
+          <button
+            className="p-3 rounded-xl text-purple-600 hover:text-purple-800 hover:bg-purple-100 transition-all duration-200 border border-purple-200"
+            onClick={() => {
+              console.log('Settings clicked');
+            }}
+          >
+            <HiCog className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Filters Button */}
+        <div className="flex justify-between items-center">
+          <div className="text-left">
+            <p className="text-purple-600 text-sm">
+              {locationResults.length} {locationResults.length === 1 ? 'location' : 'locations'} found
+            </p>
+          </div>
+          
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center px-4 py-2 rounded-xl border transition-all duration-200 font-semibold ${
@@ -147,13 +201,6 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
               </span>
             )}
           </button>
-        </div>
-        
-        {/* Search info aligned to the left */}
-        <div className="text-left">
-          <p className="text-purple-600 text-sm">
-            Searching in <span className="font-semibold">"{searchQuery}"</span> • {locationResults.length} {locationResults.length === 1 ? 'location' : 'locations'} found
-          </p>
         </div>
       </div>
 

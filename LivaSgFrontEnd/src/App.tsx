@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import PageLayout from './Layouts/PageLayout/PageLayout';
-import MapView from './views/MapView';
 import ComparisonView from './views/ComparisonView';
 import PreferenceView from './views/PreferenceView';
 
@@ -13,21 +12,23 @@ function App() {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'explore':
-        return <MapView />;
       case 'comparison':
         return <ComparisonView onBack={handleBack} />;
       case 'preferences':
         return <PreferenceView onBack={handleBack}/>;
       case 'bookmarks':
-        return <div className="p-4">Bookmarks</div>;
+        return <div className="p-4">Bookmarks View - Coming Soon</div>;
       default:
-        return <MapView />;
+        // For explore tab, PageLayout will handle MapView/SearchView/DetailsView
+        return null;
     }
   };
 
   return (
-    <PageLayout activeTab={activeTab} onTabChange={setActiveTab}>
+    <PageLayout 
+      activeTab={activeTab} 
+      onTabChange={setActiveTab}
+    >
       {renderContent()}
     </PageLayout>
   );
