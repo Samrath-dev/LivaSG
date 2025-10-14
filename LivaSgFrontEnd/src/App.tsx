@@ -2,6 +2,7 @@ import { useState } from 'react';
 import PageLayout from './Layouts/PageLayout/PageLayout';
 import MapView from './views/MapView';
 import ComparisonView from './views/ComparisonView';
+import PreferenceView from './views/PreferenceView';
 
 function App() {
   const [activeTab, setActiveTab] = useState('explore');
@@ -17,7 +18,7 @@ function App() {
       case 'comparison':
         return <ComparisonView onBack={handleBack} />;
       case 'preferences':
-        return <div className="p-4">Preferences Content - User settings</div>;
+        return <PreferenceView onBack={handleBack}/>;
       case 'bookmarks':
         return <div className="p-4">Bookmarks</div>;
       default:
