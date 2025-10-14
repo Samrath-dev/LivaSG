@@ -1,6 +1,5 @@
-import { useState } from 'react';
 import { HiSearch, HiX, HiMap, HiCog } from 'react-icons/hi';
-import mapDummy from '../assets/mapDummy.png'; 
+import OneMapInteractive from '../components/OneMapInteractive';
 
 interface MapViewProps {
   onSearchClick: () => void;
@@ -11,9 +10,7 @@ interface MapViewProps {
 const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange }: MapViewProps) => {
   const clearSearch = () => {
     onSearchQueryChange('');
-  };
-
-  const handleInputFocus = () => {
+  };  const handleInputFocus = () => {
     // When user focuses on search input, show SearchView
     onSearchClick();
   };
@@ -35,6 +32,10 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange }: MapViewPro
           {/* Spacer for balance */}
           <div className="w-6"></div>
         </div>
+
+        <p className="text-purple-600 text-sm text-center">
+          Search a location or click on a region on map to find out more!
+        </p>
 
         {/* Search Bar and Settings */}
         <div className="flex items-center gap-3">
@@ -77,35 +78,24 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange }: MapViewPro
       {/* Map Content */}
       <div className="flex-1 bg-purple-50 relative">
         <div className="w-full h-full">
-          <img 
-            src={mapDummy} 
-            alt="Singapore map"
-            className="w-full h-full object-cover"
+          <OneMapInteractive 
+            center={[1.3521, 103.8198]}
+            zoom={13}
+            /* markers={[
+              { position: [1.3521, 103.8198], popup: 'Singapore Center' }
+            ]} */
+            className="w-full h-full"
           />
           
           {/* Search Indicator */}
           {searchQuery && (
-            <div className="absolute top-4 left-4 bg-purple-600 text-white px-4 py-2 rounded-xl shadow-lg">
+            <div className="absolute top-4 left-4 bg-purple-600 text-white px-4 py-2 rounded-xl shadow-lg z-[1000]">
               <p className="text-sm font-medium">Searching: <span className="font-semibold">"{searchQuery}"</span></p>
             </div>
           )}
 
-          {/* Map Controls */}
-          <div className="absolute bottom-4 right-4 flex flex-col gap-2">
-            <button className="bg-white p-3 rounded-xl shadow-lg border border-purple-200 hover:bg-purple-50 transition-colors text-purple-700">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </button>
-            <button className="bg-white p-3 rounded-xl shadow-lg border border-purple-200 hover:bg-purple-50 transition-colors text-purple-700">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-              </svg>
-            </button>
-          </div>
-
           {/* Location Pins Info */}
-          <div className="absolute top-4 right-4 bg-white rounded-xl p-4 shadow-lg border border-purple-200 max-w-xs">
+          <div className="absolute top-4 right-4 bg-white rounded-xl p-4 shadow-lg border border-purple-200 max-w-xs z-[1000]">
             <h3 className="font-bold text-purple-900 text-sm mb-2">Map Legend</h3>
             <div className="space-y-2 text-xs text-purple-700">
               <div className="flex items-center gap-2">

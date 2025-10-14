@@ -26,6 +26,10 @@ interface LocationResult {
   growth: number;
   amenities: string[];
   showDetails?: boolean;
+  latitude?: number;
+  longitude?: number;
+  lat?: number;
+  lng?: number;
 }
 
 const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange }: SearchViewProps) => {
