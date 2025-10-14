@@ -18,7 +18,6 @@ function App() {
       case 'preferences':
         return <PreferenceView onBack={handleBack}/>;
       case 'bookmarks':
-        return <div className="p-4">Bookmarks View - Coming Soon</div>;
         return <BookmarkView onBack={handleBack} />;
         //return <div className="p-4">Bookmarks</div>;
       default:
