@@ -186,25 +186,23 @@ const PreferenceView = ({ onBack }: PreferenceViewProps) => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-gradient-to-br from-purple-50 to-blue-50">
+    <div className="h-full flex flex-col bg-purple-50">
       {/* Header */}
-      <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between w-full mb-3">
-          {/* Simple back arrow button - no background, no circle */}
+      <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
+        <div className="flex items-center justify-center w-full mb-3 relative">
+          {/* Back button positioned absolutely on the left */}
           <button
             onClick={onBack}
-            className="text-purple-700 hover:text-purple-900 transition-colors"
+            className="absolute left-0 text-purple-700 hover:text-purple-900 transition-colors"
           >
             <HiChevronLeft className="w-6 h-6" />
           </button>
           
+          {/* Centered title and icon */}
           <div className="flex items-center text-purple-700">
             <HiViewList className="w-5 h-5 mr-2" />
             <h1 className="text-lg font-bold">Location Preferences</h1>
           </div>
-          
-          {/* Spacer for balance */}
-          <div className="w-6"></div>
         </div>
         
         <p className="text-purple-600 text-sm text-center">
