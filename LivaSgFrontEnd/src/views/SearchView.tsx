@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { HiFilter, HiChevronLeft, HiX, HiHome, HiSearch, HiCog } from 'react-icons/hi';
+import { FaSubway, FaSchool, FaShoppingBag, FaTree, FaUtensils, FaHospital, FaDumbbell } from 'react-icons/fa';
 
 interface SearchViewProps {
   searchQuery: string;
@@ -38,13 +39,13 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange }:
   const [loading, setLoading] = useState(false);
 
   const facilitiesList = [
-    'Near MRT',
-    'Good Schools',
-    'Shopping Malls',
-    'Parks',
-    'Hawker Centres',
-    'Healthcare',
-    'Sports Facilities'
+    { key: 'mrt', label: 'Near MRT', icon: <FaSubway />, count: 15 },
+    { key: 'schools', label: 'Good Schools', icon: <FaSchool />, count: 12 },
+    { key: 'malls', label: 'Shopping Malls', icon: <FaShoppingBag />, count: 8 },
+    { key: 'parks', label: 'Parks', icon: <FaTree />, count: 10 },
+    { key: 'hawker', label: 'Hawker Centres', icon: <FaUtensils />, count: 20 },
+    { key: 'healthcare', label: 'Healthcare', icon: <FaHospital />, count: 6 },
+    { key: 'sports', label: 'Sports Facilities', icon: <FaDumbbell />, count: 7 }
   ];
 
   // Fetch filtered locations from backend
@@ -116,6 +117,54 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange }:
     }
     return `$${(price / 1000).toFixed(0)}K`;
   };
+
+  const FilterItem = ({ icon, label, checked, onChange, count }: any) => (
+    <label className="flex items-center justify-between w-full p-4 rounded-xl hover:bg-purple-50 transition-colors cursor-pointer border border-purple-200 bg-white">
+      <div className="flex items-center gap-4">
+        <span
+          className={`flex-shrink-0 p-3 rounded-xl border-2 ${
+            checked ? 'border-purple-500 text-purple-600 bg-purple-50' : 'border-purple-300 text-purple-400 bg-white'
+          }`}
+          style={{
+            width: '52px',
+            height: '52px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+          {icon}
+        </span>
+        <div>
+          <span className="text-lg font-semibold text-gray-900">{label}</span>
+          {count !== undefined && (
+            <span className="block text-sm text-purple-600 mt-1">{count} locations nearby</span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onChange}
+          className="hidden"
+        />
+        <div 
+          className={`relative w-7 h-7 rounded-xl border-2 transition-all cursor-pointer ${
+            checked 
+              ? 'bg-purple-500 border-purple-500' 
+              : 'bg-white border-purple-300'
+          }`}
+          onClick={onChange}
+        >
+          {checked && (
+            <svg className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </div>
+      </div>
+    </label>
+  );
 
   return (
     <div className="h-full flex flex-col bg-purple-50">
@@ -204,121 +253,100 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange }:
         </div>
       </div>
 
-      {/* Full-page Filters Overlay */}
+      {/* Full-page Filters Overlay - Updated to match DetailsView */}
       {showFilters && (
-        <div className="fixed inset-0 z-50">
-          {/* Grey Background Overlay */}
-          <div className="absolute inset-0 bg-gray-600 bg-opacity-50" onClick={() => setShowFilters(false)} />
-          
-          {/* Filters Container */}
-          <div className="absolute inset-0 flex items-start justify-center p-4 overflow-hidden">
-            <div className="bg-white rounded-2xl w-full max-w-2xl mx-auto shadow-2xl border border-purple-200 max-h-[85vh] flex flex-col">
-              {/* Filters Header */}
-              <div className="flex-shrink-0 border-b border-purple-200 p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center text-purple-700">
-                    <HiFilter className="w-5 h-5 mr-2" />
-                    <h2 className="text-lg font-bold">Location Filters</h2>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={clearFilters}
-                      className="text-purple-600 hover:text-purple-800 font-medium px-3 py-2 rounded-lg hover:bg-purple-50 transition-colors"
-                    >
-                      Clear All
-                    </button>
-                    <button
-                      onClick={() => setShowFilters(false)}
-                      className="p-2 hover:bg-purple-100 rounded-xl transition-colors text-purple-600 hover:text-purple-700"
-                    >
-                      <HiX className="w-6 h-6" />
-                    </button>
-                  </div>
-                </div>
-                <p className="text-purple-600 text-sm mt-1 text-left">
-                  Find your perfect neighborhood
-                </p>
+        <div className="fixed inset-0 z-50 bg-gray-600 bg-opacity-50 flex items-start justify-center p-4 overflow-auto"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="relative bg-white rounded-2xl w-full max-w-md mx-auto shadow-2xl mt-20 mb-8 border border-gray-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Pale Purple Header */}
+            <div className="flex items-center justify-between p-6 border-b border-purple-200 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-900 rounded-t-2xl">
+              <div>
+                <h3 className="text-xl font-bold">Search Filters</h3>
+                <p className="text-purple-700 text-sm mt-1">Refine your location search</p>
               </div>
+              <button
+                onClick={() => setShowFilters(false)}
+                className="p-2 hover:bg-purple-300 rounded-xl transition-colors text-purple-700 hover:text-purple-900"
+              >
+                <HiX className="w-6 h-6" />
+              </button>
+            </div>
 
-              {/* Filters Content - Scrollable */}
-              <div className="flex-1 overflow-auto p-6">
-                {/* Price Range Filter */}
-                <div className="mb-8">
-                  <h3 className="font-bold text-lg mb-4 text-purple-900 text-left">Budget Range</h3>
-                  <div className="space-y-6">
-                    <div className="space-y-4">
-                      <input
-                        type="range"
-                        min="500000"
-                        max="5000000"
-                        step="100000"
-                        value={filters.priceRange[0]}
-                        onChange={(e) => handlePriceChange(Number(e.target.value), filters.priceRange[1])}
-                        className="w-full h-2 bg-gradient-to-r from-purple-500 to-purple-300 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <input
-                        type="range"
-                        min="500000"
-                        max="5000000"
-                        step="100000"
-                        value={filters.priceRange[1]}
-                        onChange={(e) => handlePriceChange(filters.priceRange[0], Number(e.target.value))}
-                        className="w-full h-2 bg-gradient-to-r from-purple-300 to-purple-500 rounded-lg appearance-none cursor-pointer"
-                      />
+            <div className="p-6 space-y-6 max-h-96 overflow-y-auto">
+              {/* Price Range Filter */}
+              <div>
+                <h3 className="font-bold text-lg mb-4 text-gray-900">Budget Range</h3>
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    <input
+                      type="range"
+                      min="500000"
+                      max="5000000"
+                      step="100000"
+                      value={filters.priceRange[0]}
+                      onChange={(e) => handlePriceChange(Number(e.target.value), filters.priceRange[1])}
+                      className="w-full h-2 bg-gradient-to-r from-purple-500 to-purple-300 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <input
+                      type="range"
+                      min="500000"
+                      max="5000000"
+                      step="100000"
+                      value={filters.priceRange[1]}
+                      onChange={(e) => handlePriceChange(filters.priceRange[0], Number(e.target.value))}
+                      className="w-full h-2 bg-gradient-to-r from-purple-300 to-purple-500 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+                  <div className="flex justify-between items-center bg-purple-50 rounded-2xl p-4 border border-purple-200">
+                    <div className="text-center">
+                      <div className="text-sm text-purple-600 font-medium">Min Budget</div>
+                      <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[0])}</div>
                     </div>
-                    <div className="flex justify-between items-center bg-purple-50 rounded-2xl p-4 border border-purple-200">
-                      <div className="text-center">
-                        <div className="text-sm text-purple-600 font-medium">Min Budget</div>
-                        <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[0])}</div>
-                      </div>
-                      <div className="text-purple-400 text-lg">—</div>
-                      <div className="text-center">
-                        <div className="text-sm text-purple-600 font-medium">Max Budget</div>
-                        <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[1])}</div>
-                      </div>
+                    <div className="text-purple-400 text-lg">—</div>
+                    <div className="text-center">
+                      <div className="text-sm text-purple-600 font-medium">Max Budget</div>
+                      <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[1])}</div>
                     </div>
                   </div>
                 </div>
+              </div>
 
-                {/* Facilities Filter */}
-                <div>
-                  <h3 className="font-bold text-lg mb-4 text-purple-900 text-left">Preferred Amenities</h3>
-                  <div className="grid grid-cols-1 gap-3">
-                    {facilitiesList.map(facility => (
-                      <label key={facility} className="flex items-center space-x-4 cursor-pointer p-4 rounded-xl border-2 border-purple-200 hover:border-purple-400 hover:bg-purple-50 transition-all duration-200 bg-white">
-                        <div className={`relative w-6 h-6 rounded-xl border-2 transition-all cursor-pointer ${
-                          filters.facilities.includes(facility) 
-                            ? 'bg-purple-500 border-purple-500' 
-                            : 'bg-white border-purple-300'
-                        }`}>
-                          {filters.facilities.includes(facility) && (
-                            <svg className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                          <input
-                            type="checkbox"
-                            checked={filters.facilities.includes(facility)}
-                            onChange={() => handleFacilityToggle(facility)}
-                            className="hidden"
-                          />
-                        </div>
-                        <span className="text-base font-semibold text-purple-800">{facility}</span>
-                      </label>
-                    ))}
-                  </div>
+              {/* Facilities Filter - Updated to match DetailsView */}
+              <div>
+                <h3 className="font-bold text-lg mb-4 text-gray-900">Preferred Amenities</h3>
+                <div className="space-y-3">
+                  {facilitiesList.map(facility => (
+                    <FilterItem
+                      key={facility.key}
+                      icon={facility.icon}
+                      label={facility.label}
+                      checked={filters.facilities.includes(facility.label)}
+                      onChange={() => handleFacilityToggle(facility.label)}
+                      count={facility.count}
+                    />
+                  ))}
                 </div>
               </div>
+            </div>
 
-              {/* Apply Filters Button */}
-              <div className="flex-shrink-0 border-t border-purple-200 p-6">
-                <button
-                  onClick={() => setShowFilters(false)}
-                  className="w-full bg-purple-600 text-white py-4 px-6 rounded-xl font-bold text-lg hover:bg-purple-700 transition-all duration-200"
-                >
-                  Show {locationResults.length} Locations
-                </button>
-              </div>
+            <div className="flex gap-3 p-6 border-t border-purple-200 bg-purple-50 rounded-b-2xl">
+              <button
+                onClick={clearFilters}
+                className="flex-1 px-4 py-3 text-purple-700 bg-white border border-purple-300 rounded-xl font-semibold hover:bg-purple-100 transition-colors"
+              >
+                Reset All
+              </button>
+              <button
+                onClick={() => setShowFilters(false)}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg"
+              >
+                Apply Filters
+              </button>
             </div>
           </div>
         </div>

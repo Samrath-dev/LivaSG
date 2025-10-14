@@ -72,7 +72,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
             searchQuery={searchQuery}
             onBack={handleBackFromSearch}
             onViewDetails={handleViewDetails}
-            onSearchQueryChange={handleSearchQueryChange} // Added this prop
+            onSearchQueryChange={handleSearchQueryChange} 
           />
         );
       }
@@ -100,14 +100,25 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col fixed top-0 left-0 right-0 bottom-0 bg-purple-50">
+    <div 
+      className="h-screen w-screen flex flex-col fixed top-0 left-0 right-0 bottom-0"
+      style={{
+        background: 'linear-gradient(135deg, #faf5ff 0%, #f0f9ff 100%)'
+      }}
+    >
       {/* Content Area - Dynamic based on current view */}
       <div className="flex-1 overflow-auto min-h-0">
         {renderContent()}
       </div>
       
       {/* Fixed Bottom Navigation */}
-      <div className="flex-shrink-0 flex justify-center bg-purple-100 border-t border-purple-200">
+      <div 
+        className="flex-shrink-0 flex justify-center border-t border-purple-200"
+        style={{
+          background: 'linear-gradient(135deg, #faf5ff 0%, #f0f9ff 100%)',
+          backdropFilter: 'blur(10px)'
+        }}
+      >
         <div className="w-full max-w-lg mx-auto">
           <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
         </div>
