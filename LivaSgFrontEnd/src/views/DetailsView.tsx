@@ -165,6 +165,12 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
             <h1 className="text-2xl font-bold text-gray-900">{location.street}</h1>
             <p className="text-gray-600 mt-2 flex items-center gap-2 justify-center">
             <span className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-semibold px-3 py-1 rounded-full">
+            {/*<span
+              className="text-white text-sm font-semibold px-3 py-1 rounded-full"
+              style={{
+                background: 'linear-gradient(90deg,#7c3aed 0%,#7c3aed 50%,#ef4444 50%,#ef4444 100%)'
+              }}
+            >*/}
               {location.area}
             </span>
             <span className="text-gray-400">•</span>
@@ -176,6 +182,13 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         <div className="mt-4 sm:hidden w-full">
           <h1 className="text-2xl font-bold text-gray-900 justify-center text-center">{location.street}</h1>
           <p className="text-gray-600 mt-2 flex items-center gap-2 justify-center">
+            {/* <span
+              className="text-white text-sm font-semibold px-3 py-1 rounded-full"
+              style={{
+                background: 'linear-gradient(90deg,#7c3aed 0%,#7c3aed 50%,#ef4444 50%,#ef4444 100%)'
+              }}
+            >
+              */}
             <span className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-semibold px-3 py-1 rounded-full">
               {location.area}
             </span>
