@@ -223,7 +223,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
                   Filter Facilities
                 </button>
               </div>
-              <div className="w-full rounded-xl border border-gray-100 overflow-hidden" style={{ height: '400px' }}>
+              <div className="w-full rounded-xl border border-gray-100 overflow-hidden z-50" style={{ height: '400px' }}>
                 <OneMapEmbedded
                   center={mapCenter}
                   zoom={16}
