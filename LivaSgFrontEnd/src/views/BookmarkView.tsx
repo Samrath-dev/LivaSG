@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { HiChevronLeft, HiSearch, HiBookmark, HiX, HiFilter } from 'react-icons/hi';
+import DetailsView from './DetailsView';
 
 interface BookmarkViewProps {
   onBack: () => void;
@@ -29,11 +30,12 @@ interface Filters {
 const BookmarkView = ({ onBack }: BookmarkViewProps) => {
   const [locations, setLocations] = useState<LocationData[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
     facilities: [],
     priceRange: [500, 3000000],
   });
-  const [showFilter, setShowFilter] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState<LocationData | null>(null);
 
   // Mock data for demonstration - replace with actual API calls
   useEffect(() => {
@@ -96,6 +98,29 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
     'Healthcare',
     'Sports Facilities'
   ];
+  
+  const handleFacilityToggle = (facility: string) => {
+    setFilters((prevFilters) => {
+      const facilities = prevFilters.facilities.includes(facility)
+        ? prevFilters.facilities.filter((f) => f !== facility)
+        : [...prevFilters.facilities, facility];
+      return { ...prevFilters, facilities };
+    });
+  };
+
+  const handlePriceChange = (min: number, max: number) => {
+    setFilters((prevFilters) => ({
+      ...prevFilters,
+      priceRange: [min, max],
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      facilities: [],
+      priceRange: [500, 3000000],
+    });
+  };
 
   const filteredLocations = locations.filter((loc) => {
     // Search filters
@@ -165,7 +190,7 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
           
           {/* Filter button */}
           <button
-            onClick={() => setShowFilter(!showFilter)}
+            onClick={() => setShowFilters(!showFilters)}
             className="h-10 px-3 bg-purple-700 text-white rounded-lg flex items-center gap-1 hover:bg-purple-800"
           >
             <HiFilter className="w-5 h-5" />
