@@ -344,24 +344,50 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
           )}
       
       {/* List of locations */}
-      <div className="flex-1 overflow-auto p-4 space-y-4">
-        {locations.length === 0 ? (
-          <p className="text-center text-purple-600">No saved locations</p>
-        ) : (
-          filteredLocations.map((loc) => (
-            <div
-              key={loc.id}
-              className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer"
-            >
-              <h2 className="font-bold text-purple-800">{loc.street}</h2>
-              <p className="text-sm text-purple-700">{loc.area} • {loc.district}</p>
-              <p className="text-sm text-purple-600 mt-1">{loc.description}</p>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
+          <div className="flex-1 overflow-auto p-4 space-y-4">
+            {locations.length === 0 ? (
+              // No saved locations
+              <div className="text-center text-purple-600">
+                <p className="text-lg font-bold">You have no saved locations</p>
+                <p className="text-sm">Start bookmarking your favorite locations to see them here!</p>
+              </div>
+            ) : filteredLocations.length === 0 ? (
+              // No locations matching filters
+              filters.facilities.length > 0 || filters.priceRange[0] > 500000 || filters.priceRange[1] < 3000000 ? (
+                <div className="text-center text-purple-600">
+                  <p className="text-lg font-bold">No locations match your filters</p>
+                  <p className="text-sm">Try adjusting your filters to find more locations.</p>
+                </div>
+              ) : searchTerm ? (
+                // No locations matching the keyword search
+                <div className="text-center text-purple-600">
+                  <p className="text-lg font-bold">No locations match your search</p>
+                  <p className="text-sm">Try searching with different keywords.</p>
+                </div>
+              ) : (
+                // Default fallback (Edgecase)
+                <div className="text-center text-purple-600">
+                  <p className="text-lg font-bold">No locations found</p>
+                </div>
+              )
+            ) : (
+              // Display filtered locations
+              filteredLocations.map((loc) => (
+                <div
+                  key={loc.id}
+                  onClick={() => setSelectedLocation(loc)}
+                  className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer"
+                >
+                  <h2 className="font-bold text-purple-800">{loc.street}</h2>
+                  <p className="text-sm text-purple-700">{loc.area} • {loc.district}</p>
+                  <p className="text-sm text-purple-600 mt-1">{loc.description}</p>
+                </div>
+              ))
+            )}
+          </div>
+      
+        </div>
+      );
 };
 
 export default BookmarkView;
