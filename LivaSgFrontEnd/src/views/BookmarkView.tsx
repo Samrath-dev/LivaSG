@@ -224,7 +224,6 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
           </div>
 
           {/* Filter Menu */}
-
           {showFilters && (
             <div className="fixed inset-0 z-50">
               {/* Grey Background Overlay */}
