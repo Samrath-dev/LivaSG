@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { FaDumbbell, FaTree, FaShoppingBag, FaSchool, FaHospital, FaParking, FaUtensils } from 'react-icons/fa';
 import React, { isValidElement, cloneElement } from 'react';
 import type { ReactNode } from 'react';
-import facilitiesMapDummy from '../assets/facilitiesMapDummy.png';
+import OneMapEmbedded from '../components/OneMapEmbedded';
 import priceGraphDummy from '../assets/priceGraphDummy.png';
 
 interface DetailsViewProps {
@@ -18,6 +18,10 @@ interface DetailsViewProps {
     description: string;
     growth: number;
     amenities: string[];
+    latitude?: number;
+    longitude?: number;
+    lat?: number;
+    lng?: number;
   };
   onBack: () => void;
 }
@@ -39,6 +43,23 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     }
     return `$${(price / 1000).toFixed(0)}K`;
   };
+
+  // Get coordinates from location, with fallback to Singapore center
+  const getLocationCoordinates = (): [number, number] => {
+    // Check for latitude/longitude properties
+    if (location.latitude !== undefined && location.longitude !== undefined) {
+      console.log("Using latitude/longitude" + location.latitude + ", " + location.longitude);
+      return [location.latitude, location.longitude];
+    }
+    // Check for lat/lng properties
+    if (location.lat !== undefined && location.lng !== undefined) {
+      return [location.lat, location.lng];
+    }
+    // Fallback to Singapore center
+    return [1.3521, 103.8198];
+  };
+
+  const mapCenter = getLocationCoordinates();
 
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<{ 
@@ -202,12 +223,20 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
                   Filter Facilities
                 </button>
               </div>
-              <img
-                src={facilitiesMapDummy}
-                alt={`Facilities map for ${location.street}`}
-                className="w-full rounded-xl object-contain border border-gray-100"
-                loading="lazy"
-              />
+              <div className="w-full rounded-xl border border-gray-100 overflow-hidden" style={{ height: '400px' }}>
+                <OneMapEmbedded
+                  center={mapCenter}
+                  zoom={16}
+                  markers={[
+                    { 
+                      position: mapCenter, 
+                      popup: `<strong>${location.street}</strong><br/>${location.area}<br/>${location.district}` 
+                    }
+                  ]}
+                  interactive={false}
+                  className="w-full h-full"
+                />
+              </div>
             </div>
           </div>
 

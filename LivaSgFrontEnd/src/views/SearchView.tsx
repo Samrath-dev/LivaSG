@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { HiFilter, HiChevronLeft, HiX, HiHome } from 'react-icons/hi';
+import { HiFilter, HiChevronLeft, HiX, HiHome, HiSearch, HiCog } from 'react-icons/hi';
+import { FaSubway, FaSchool, FaShoppingBag, FaTree, FaUtensils, FaHospital, FaDumbbell } from 'react-icons/fa';
 
 interface SearchViewProps {
   searchQuery: string;
   onBack: () => void;
   onViewDetails: (location: any) => void;
+  onSearchQueryChange: (query: string) => void;
 }
 
 interface Filters {
@@ -24,9 +26,13 @@ interface LocationResult {
   growth: number;
   amenities: string[];
   showDetails?: boolean;
+  latitude?: number;
+  longitude?: number;
+  lat?: number;
+  lng?: number;
 }
 
-const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => {
+const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange }: SearchViewProps) => {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
     facilities: [],
@@ -37,13 +43,13 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
   const [loading, setLoading] = useState(false);
 
   const facilitiesList = [
-    'Near MRT',
-    'Good Schools',
-    'Shopping Malls',
-    'Parks',
-    'Hawker Centres',
-    'Healthcare',
-    'Sports Facilities'
+    { key: 'mrt', label: 'Near MRT', icon: <FaSubway />, count: 15 },
+    { key: 'schools', label: 'Good Schools', icon: <FaSchool />, count: 12 },
+    { key: 'malls', label: 'Shopping Malls', icon: <FaShoppingBag />, count: 8 },
+    { key: 'parks', label: 'Parks', icon: <FaTree />, count: 10 },
+    { key: 'hawker', label: 'Hawker Centres', icon: <FaUtensils />, count: 20 },
+    { key: 'healthcare', label: 'Healthcare', icon: <FaHospital />, count: 6 },
+    { key: 'sports', label: 'Sports Facilities', icon: <FaDumbbell />, count: 7 }
   ];
 
   // Fetch filtered locations from backend
@@ -98,19 +104,15 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
     }));
   };
 
+  const clearSearch = () => {
+    onSearchQueryChange('');
+  };
+
   const clearFilters = () => {
     setFilters({
       facilities: [],
       priceRange: [500000, 3000000]
     });
-  };
-
-  const toggleLocationDetails = (locationId: number) => {
-    setExpandedLocation(expandedLocation === locationId ? null : locationId);
-  };
-
-  const handleViewDetails = (location: LocationResult) => {
-    onViewDetails(location);
   };
 
   const formatPrice = (price: number) => {
@@ -120,147 +122,236 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
     return `$${(price / 1000).toFixed(0)}K`;
   };
 
+  const FilterItem = ({ icon, label, checked, onChange, count }: any) => (
+    <label className="flex items-center justify-between w-full p-4 rounded-xl hover:bg-purple-50 transition-colors cursor-pointer border border-purple-200 bg-white">
+      <div className="flex items-center gap-4">
+        <span
+          className={`flex-shrink-0 p-3 rounded-xl border-2 ${
+            checked ? 'border-purple-500 text-purple-600 bg-purple-50' : 'border-purple-300 text-purple-400 bg-white'
+          }`}
+          style={{
+            width: '52px',
+            height: '52px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+          {icon}
+        </span>
+        <div>
+          <span className="text-lg font-semibold text-gray-900">{label}</span>
+          {count !== undefined && (
+            <span className="block text-sm text-purple-600 mt-1">{count} locations nearby</span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onChange}
+          className="hidden"
+        />
+        <div 
+          className={`relative w-7 h-7 rounded-xl border-2 transition-all cursor-pointer ${
+            checked 
+              ? 'bg-purple-500 border-purple-500' 
+              : 'bg-white border-purple-300'
+          }`}
+          onClick={onChange}
+        >
+          {checked && (
+            <svg className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </div>
+      </div>
+    </label>
+  );
+
   return (
     <div className="h-full flex flex-col bg-purple-50">
-      {/* Compact Header */}
+      {/* Header */}
       <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
-        <div className="flex items-center justify-between w-full mb-3">
-          {/* Compact Back button */}
+        {/* Title and Back Button */}
+        <div className="flex items-center justify-between w-full mb-4">
+          {/* Back Button */}
           <button
             onClick={onBack}
-            className="flex items-center text-purple-700 hover:text-purple-900 transition-colors text-sm"
+            className="text-purple-700 hover:text-purple-900 transition-colors"
           >
-            <HiChevronLeft className="w-5 h-5 mr-1" />
-            <span className="font-medium">Back to Map</span>
+            <HiChevronLeft className="w-6 h-6" />
           </button>
           
-          {/* Compact Filters button */}
+          {/* Title */}
+          <div className="flex items-center text-purple-700">
+            <HiHome className="w-5 h-5 mr-2" />
+            <h1 className="text-lg font-bold">Search Locations</h1>
+          </div>
+          
+          {/* Spacer for balance */}
+          <div className="w-6"></div>
+        </div>
+
+        {/* Search Bar and Settings */}
+        <div className="flex items-center gap-3 mb-3">
+          {/* Search Bar */}
+          <div className="flex-1">
+            <div className="relative">
+              <HiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-purple-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchQueryChange(e.target.value)}
+                placeholder="Search for locations..."
+                className="w-full pl-10 pr-10 py-3 border border-purple-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white text-purple-900 placeholder-purple-400"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-400 hover:text-purple-600 transition-colors"
+                >
+                  <HiX className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Settings Gear Icon */}
+          <button
+            className="p-3 rounded-xl text-purple-600 hover:text-purple-800 hover:bg-purple-100 transition-all duration-200 border border-purple-200"
+            onClick={() => {
+              console.log('Settings clicked');
+            }}
+          >
+            <HiCog className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Filters Button */}
+        <div className="flex justify-between items-center">
+          <div className="text-left">
+            <p className="text-purple-600 text-sm">
+              {locationResults.length} {locationResults.length === 1 ? 'location' : 'locations'} found
+            </p>
+          </div>
+          
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center px-3 py-2 rounded-lg border transition-all duration-200 text-sm ${
+            className={`flex items-center px-4 py-2 rounded-xl border transition-all duration-200 font-semibold ${
               showFilters 
                 ? 'bg-purple-600 text-white border-purple-600' 
                 : 'bg-white text-purple-700 border-purple-300 hover:border-purple-500 hover:bg-purple-50'
             }`}
           >
-            <HiFilter className="w-4 h-4 mr-1" />
-            <span className="font-semibold">Filters</span>
+            <HiFilter className="w-5 h-5 mr-2" />
+            <span>Filters</span>
             {(filters.facilities.length > 0 || filters.priceRange[0] > 500000 || filters.priceRange[1] < 3000000) && (
-              <span className="ml-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center font-bold">
+              <span className="ml-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
                 {filters.facilities.length + (filters.priceRange[0] > 500000 ? 1 : 0) + (filters.priceRange[1] < 3000000 ? 1 : 0)}
               </span>
             )}
           </button>
         </div>
-        
-        {/* Compact Search Info */}
-        <div>
-          <p className="text-purple-700 font-semibold text-lg">
-            Searching in <span className="text-purple-600">"{searchQuery}"</span>
-          </p>
-          <div className="flex items-center mt-1">
-            <HiHome className="w-3 h-3 text-purple-400 mr-1" />
-            <span className="text-xs text-purple-600">
-              {locationResults.length} {locationResults.length === 1 ? 'location' : 'locations'} found
-            </span>
-          </div>
-        </div>
       </div>
 
-      {/* Full-page Filters Overlay */}
+      {/* Full-page Filters Overlay - Updated to match DetailsView */}
       {showFilters && (
-        <div className="fixed inset-0 bg-white z-50 flex flex-col">
-          {/* Filters Header */}
-          <div className="flex-shrink-0 border-b border-purple-200 p-6">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-gray-600 bg-opacity-50 flex items-start justify-center p-4 overflow-auto"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="relative bg-white rounded-2xl w-full max-w-md mx-auto shadow-2xl mt-20 mb-8 border border-gray-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Pale Purple Header */}
+            <div className="flex items-center justify-between p-6 border-b border-purple-200 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-900 rounded-t-2xl">
               <div>
-                <h2 className="text-2xl font-bold text-purple-900">Location Filters</h2>
-                <p className="text-purple-600 mt-1">Find your perfect neighborhood</p>
+                <h3 className="text-xl font-bold">Search Filters</h3>
+                <p className="text-purple-700 text-sm mt-1">Refine your location search</p>
               </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={clearFilters}
-                  className="text-purple-600 hover:text-purple-800 font-medium px-3 py-2 rounded-lg hover:bg-purple-50 transition-colors"
-                >
-                  Clear All
-                </button>
-                <button
-                  onClick={() => setShowFilters(false)}
-                  className="p-2 hover:bg-purple-100 rounded-xl transition-colors"
-                >
-                  <HiX className="w-6 h-6 text-purple-600" />
-                </button>
-              </div>
+              <button
+                onClick={() => setShowFilters(false)}
+                className="p-2 hover:bg-purple-300 rounded-xl transition-colors text-purple-700 hover:text-purple-900"
+              >
+                <HiX className="w-6 h-6" />
+              </button>
             </div>
-          </div>
 
-          {/* Filters Content */}
-          <div className="flex-1 overflow-auto p-6">
-            {/* Price Range Filter */}
-            <div className="mb-12">
-              <h3 className="font-bold text-lg mb-6 text-purple-900">Budget Range</h3>
-              <div className="space-y-6">
+            <div className="p-6 space-y-6 max-h-96 overflow-y-auto">
+              {/* Price Range Filter */}
+              <div>
+                <h3 className="font-bold text-lg mb-4 text-gray-900">Budget Range</h3>
                 <div className="space-y-4">
-                  <input
-                    type="range"
-                    min="500000"
-                    max="5000000"
-                    step="100000"
-                    value={filters.priceRange[0]}
-                    onChange={(e) => handlePriceChange(Number(e.target.value), filters.priceRange[1])}
-                    className="w-full h-2 bg-gradient-to-r from-purple-500 to-purple-300 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <input
-                    type="range"
-                    min="500000"
-                    max="5000000"
-                    step="100000"
-                    value={filters.priceRange[1]}
-                    onChange={(e) => handlePriceChange(filters.priceRange[0], Number(e.target.value))}
-                    className="w-full h-2 bg-gradient-to-r from-purple-300 to-purple-500 rounded-lg appearance-none cursor-pointer"
-                  />
-                </div>
-                <div className="flex justify-between items-center bg-purple-50 rounded-2xl p-4">
-                  <div className="text-center">
-                    <div className="text-sm text-purple-600 font-medium">Min Budget</div>
-                    <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[0])}</div>
-                  </div>
-                  <div className="text-purple-400 text-lg">—</div>
-                  <div className="text-center">
-                    <div className="text-sm text-purple-600 font-medium">Max Budget</div>
-                    <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[1])}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Facilities Filter */}
-            <div>
-              <h3 className="font-bold text-lg mb-6 text-purple-900">Preferred Amenities</h3>
-              <div className="grid grid-cols-1 gap-3">
-                {facilitiesList.map(facility => (
-                  <label key={facility} className="flex items-center space-x-4 cursor-pointer p-4 rounded-xl border-2 border-purple-200 hover:border-purple-400 hover:bg-purple-50 transition-all duration-200">
+                  <div className="space-y-3">
                     <input
-                      type="checkbox"
-                      checked={filters.facilities.includes(facility)}
-                      onChange={() => handleFacilityToggle(facility)}
-                      className="w-5 h-5 rounded border-2 border-purple-300 text-purple-600 focus:ring-purple-500 focus:ring-2"
+                      type="range"
+                      min="500000"
+                      max="5000000"
+                      step="100000"
+                      value={filters.priceRange[0]}
+                      onChange={(e) => handlePriceChange(Number(e.target.value), filters.priceRange[1])}
+                      className="w-full h-2 bg-gradient-to-r from-purple-500 to-purple-300 rounded-lg appearance-none cursor-pointer"
                     />
-                    <span className="text-base font-semibold text-purple-800">{facility}</span>
-                  </label>
-                ))}
+                    <input
+                      type="range"
+                      min="500000"
+                      max="5000000"
+                      step="100000"
+                      value={filters.priceRange[1]}
+                      onChange={(e) => handlePriceChange(filters.priceRange[0], Number(e.target.value))}
+                      className="w-full h-2 bg-gradient-to-r from-purple-300 to-purple-500 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+                  <div className="flex justify-between items-center bg-purple-50 rounded-2xl p-4 border border-purple-200">
+                    <div className="text-center">
+                      <div className="text-sm text-purple-600 font-medium">Min Budget</div>
+                      <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[0])}</div>
+                    </div>
+                    <div className="text-purple-400 text-lg">—</div>
+                    <div className="text-center">
+                      <div className="text-sm text-purple-600 font-medium">Max Budget</div>
+                      <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[1])}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Facilities Filter - Updated to match DetailsView */}
+              <div>
+                <h3 className="font-bold text-lg mb-4 text-gray-900">Preferred Amenities</h3>
+                <div className="space-y-3">
+                  {facilitiesList.map(facility => (
+                    <FilterItem
+                      key={facility.key}
+                      icon={facility.icon}
+                      label={facility.label}
+                      checked={filters.facilities.includes(facility.label)}
+                      onChange={() => handleFacilityToggle(facility.label)}
+                      count={facility.count}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Apply Filters Button */}
-          <div className="flex-shrink-0 border-t border-purple-200 p-6">
-            <button
-              onClick={() => setShowFilters(false)}
-              className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-4 px-6 rounded-xl font-bold text-lg hover:from-purple-700 hover:to-purple-800 transition-all duration-200 shadow-lg hover:shadow-xl"
-            >
-              Show {locationResults.length} Locations
-            </button>
+            <div className="flex gap-3 p-6 border-t border-purple-200 bg-purple-50 rounded-b-2xl">
+              <button
+                onClick={clearFilters}
+                className="flex-1 px-4 py-3 text-purple-700 bg-white border border-purple-300 rounded-xl font-semibold hover:bg-purple-100 transition-colors"
+              >
+                Reset All
+              </button>
+              <button
+                onClick={() => setShowFilters(false)}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg"
+              >
+                Apply Filters
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -284,22 +375,22 @@ const SearchView = ({ searchQuery, onBack, onViewDetails }: SearchViewProps) => 
               <p className="text-purple-600 mb-6 text-sm">
                 No property locations match your search and filters
               </p>
-              <div className="space-y-2 text-xs text-purple-500">
+              <div className="space-y-2 text-sm text-purple-500 max-w-md mx-auto">
                 <p>• Try searching for areas like "Bukit Panjang", "Tampines", or "Marine Parade"</p>
                 <p>• Adjust your budget range</p>
                 <p>• Try different amenity filters</p>
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {locationResults.map(location => (
                 <div 
                   key={location.id} 
-                  className="bg-purple-100 rounded-xl p-4 border border-purple-200 hover:bg-purple-200 transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md"
+                  className="bg-white rounded-xl p-4 border border-purple-200 hover:border-purple-300 hover:shadow-md transition-all duration-200 cursor-pointer"
                   onClick={() => onViewDetails(location)}
                 >
                   <div className="text-center">
-                    <span className="text-purple-800 font-semibold text-lg">
+                    <span className="text-purple-900 font-semibold text-lg">
                       {location.street}
                     </span>
                   </div>
