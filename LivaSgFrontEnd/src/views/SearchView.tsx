@@ -7,6 +7,7 @@ interface SearchViewProps {
   onBack: () => void;
   onViewDetails: (location: any) => void;
   onSearchQueryChange: (query: string) => void;
+  onSettingsClick: () => void; // Add this prop
 }
 
 interface Filters {
@@ -32,13 +33,12 @@ interface LocationResult {
   lng?: number;
 }
 
-const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange }: SearchViewProps) => {
+const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, onSettingsClick }: SearchViewProps) => {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
     facilities: [],
     priceRange: [500000, 3000000]
   });
-  const [expandedLocation, setExpandedLocation] = useState<number | null>(null);
   const [locationResults, setLocationResults] = useState<LocationResult[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -222,9 +222,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange }:
           {/* Settings Gear Icon */}
           <button
             className="p-3 rounded-xl text-purple-600 hover:text-purple-800 hover:bg-purple-100 transition-all duration-200 border border-purple-200"
-            onClick={() => {
-              console.log('Settings clicked');
-            }}
+            onClick={onSettingsClick} // Use the new prop
           >
             <HiCog className="w-5 h-5" />
           </button>

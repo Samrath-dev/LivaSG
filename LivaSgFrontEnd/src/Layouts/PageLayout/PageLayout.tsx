@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import SearchView from "../../views/SearchView";
 import DetailsView from "../../views/DetailsView";
 import MapView from "../../views/MapView";
+import SettingsView from "../../views/SettingsView"; // Import SettingsView
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -29,12 +30,14 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentView, setCurrentView] = useState<ViewState>('map');
   const [selectedLocation, setSelectedLocation] = useState<LocationData | null>(null);
+  const [showSettings, setShowSettings] = useState(false); // Add settings state
 
   // Reset view state when tab changes
   useEffect(() => {
     setCurrentView('map');
     setSelectedLocation(null);
     setSearchQuery('');
+    setShowSettings(false); 
   }, [activeTab]);
 
   const handleSearchClick = () => {
@@ -64,7 +67,25 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
     onTabChange(tabId);
   };
 
+  // Settings handlers
+  const handleShowSettings = () => {
+    setShowSettings(true);
+  };
+
+  const handleSettingsBack = () => {
+    setShowSettings(false);
+  };
+
   const renderContent = () => {
+    // If settings is shown, it takes precedence and appears as overlay
+    if (showSettings) {
+      return (
+        <div className="fixed inset-0 z-50">
+          <SettingsView onBack={handleSettingsBack} />
+        </div>
+      );
+    }
+
     if (activeTab === 'explore') {
       if (currentView === 'search') {
         return (
@@ -72,7 +93,8 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
             searchQuery={searchQuery}
             onBack={handleBackFromSearch}
             onViewDetails={handleViewDetails}
-            onSearchQueryChange={handleSearchQueryChange} 
+            onSearchQueryChange={handleSearchQueryChange}
+            onSettingsClick={handleShowSettings} // Pass settings handler
           />
         );
       }
@@ -92,6 +114,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
           onSearchClick={handleSearchClick}
           searchQuery={searchQuery}
           onSearchQueryChange={handleSearchQueryChange}
+          onSettingsClick={handleShowSettings} // Pass settings handler
         />
       );
     }
@@ -107,7 +130,7 @@ function PageLayout({ children, activeTab, onTabChange }: PageLayoutProps) {
       }}
     >
       {/* Content Area - Dynamic based on current view */}
-      <div className="flex-1 overflow-auto min-h-0">
+      <div className="flex-1 overflow-auto min-h-0 relative">
         {renderContent()}
       </div>
       

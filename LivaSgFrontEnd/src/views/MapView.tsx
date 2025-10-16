@@ -5,12 +5,15 @@ interface MapViewProps {
   onSearchClick: () => void;
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
+  onSettingsClick: () => void; 
 }
 
-const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange }: MapViewProps) => {
+const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsClick }: MapViewProps) => {
   const clearSearch = () => {
     onSearchQueryChange('');
-  };  const handleInputFocus = () => {
+  };
+
+  const handleInputFocus = () => {
     // When user focuses on search input, show SearchView
     onSearchClick();
   };
@@ -66,9 +69,7 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange }: MapViewPro
           {/* Settings Gear Icon */}
           <button
             className="p-3 rounded-xl text-purple-600 hover:text-purple-800 hover:bg-purple-100 transition-all duration-200 border border-purple-200"
-            onClick={() => {
-              console.log('Settings clicked');
-            }}
+            onClick={onSettingsClick} 
           >
             <HiCog className="w-5 h-5" />
           </button>
