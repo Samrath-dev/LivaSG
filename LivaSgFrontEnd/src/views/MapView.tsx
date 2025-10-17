@@ -1,4 +1,4 @@
-import { HiSearch, HiX, HiMap, HiCog, HiInformationCircle } from 'react-icons/hi';
+import { HiSearch, HiX, HiMap, HiCog, HiInformationCircle, HiChevronUp, HiChevronDown } from 'react-icons/hi';
 import { useState } from 'react';
 import OneMapInteractive from '../components/OneMapInteractive';
 
@@ -12,6 +12,7 @@ interface MapViewProps {
 const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsClick }: MapViewProps) => {
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [showAreaInfo, setShowAreaInfo] = useState(false);
+  const [isLegendOpen, setIsLegendOpen] = useState(false);
 
   const clearSearch = () => {
     onSearchQueryChange('');
@@ -38,6 +39,10 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
       setSelectedArea(null);
       setShowAreaInfo(false);
     }
+  };
+
+  const toggleLegend = () => {
+    setIsLegendOpen(!isLegendOpen);
   };
 
   return (
@@ -133,7 +138,7 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
                 </div>
                 <p className="text-sm text-purple-600 mb-3">Planning Area</p>
                 
-                {/* Area Statistics - Removed Properties and Growth, kept only Amenities and Avg Price */}
+                {/* Area Statistics */}
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div className="bg-green-50 p-2 rounded-lg">
                     <div className="text-green-500">Avg Price</div>
@@ -145,50 +150,71 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
                   </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-2 mt-3">
-                  <button className="flex-1 bg-purple-600 text-white py-2 px-3 rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
+                {/* Single Action Button */}
+                <div className="mt-3">
+                  <button className="w-full bg-purple-600 text-white py-2 px-3 rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
                     View Properties
-                  </button>
-                  <button className="flex-1 border border-purple-200 text-purple-700 py-2 px-3 rounded-lg text-sm font-medium hover:bg-purple-50 transition-colors">
-                    Compare
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Map Legend */}
-          <div className="absolute top-4 right-4 bg-white rounded-xl p-4 shadow-lg border border-purple-200 max-w-xs z-[1000]">
-            <h3 className="font-bold text-purple-900 text-sm mb-2">Map Legend</h3>
-            <div className="space-y-2 text-xs text-purple-700">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
-                <span>Planning Areas</span>
+          {/* Legend Toggle Button */}
+          <div className="absolute bottom-4 right-4 flex flex-col items-end gap-2 z-[1000]">
+            {/* Map Legend - Only shown when isLegendOpen is true */}
+            {isLegendOpen && (
+              <div className="bg-white rounded-xl p-4 shadow-lg border border-purple-200 max-w-xs mb-2">
+                <h3 className="font-bold text-purple-900 text-sm mb-2">Neighbourhood Rating</h3>
+                
+                {/* Color Gradient Legend */}
+                <div className="mb-3">
+                  <div className="flex justify-between text-xs text-purple-600 mb-1">
+                    <span>Highest Rating</span>
+                    <span>Lowest Rating</span>
+                  </div>
+                  <div className="h-4 rounded-lg bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 w-full"></div>
+                  <div className="flex justify-between text-xs text-purple-600 mt-1">
+                    <span>Green</span>
+                    <span>Red</span>
+                  </div>
+                </div>
+
+                {/* Rating Explanation */}
+                <div className="mt-3 pt-3 border-t border-purple-100">
+                  <div className="flex items-start gap-2">
+                    <HiInformationCircle className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-xs text-purple-600 font-medium mb-1">About Neighbourhood Rating</p>
+                      <p className="text-xs text-purple-500">
+                        A weighted score determined by Affordability, Accessibility, Amenities, Environment and Community after weighing user preferences.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Instructions */}
+                <div className="mt-3 pt-3 border-t border-purple-100">
+                  <p className="text-xs text-purple-600">
+                    Click on any colored region to see detailed information about that area.
+                  </p>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                <span>Affordable Areas</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                <span>Good Amenities</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                <span>High Growth</span>
-              </div>
-            </div>
-            
-            {/* Instructions */}
-            <div className="mt-3 pt-3 border-t border-purple-100">
-              <div className="flex items-start gap-2">
-                <HiInformationCircle className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-purple-600">
-                  Click on any colored region to see detailed information about that area.
-                </p>
-              </div>
-            </div>
+            )}
+
+            {/* Toggle Button */}
+            <button
+              onClick={toggleLegend}
+              className="flex items-center gap-2 bg-purple-600 text-white px-4 py-3 rounded-xl shadow-lg hover:bg-purple-700 transition-colors border border-purple-500"
+            >
+              <HiInformationCircle className="w-5 h-5" />
+              <span className="font-medium">{isLegendOpen ? 'Hide Legend' : 'Show Legend'}</span>
+              {isLegendOpen ? (
+                <HiChevronDown className="w-4 h-4" />
+              ) : (
+                <HiChevronUp className="w-4 h-4" />
+              )}
+            </button>
           </div>
         </div>
       </div>
