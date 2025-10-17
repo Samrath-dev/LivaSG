@@ -28,6 +28,13 @@ interface PlanningAreaData {
   features: PlanningAreaFeature[];
 }
 
+interface ChoroplethData {
+  areaId: string;
+  total: number;
+  weightsProfileId: string;
+  computedAt: string;
+}
+
 interface OneMapInteractiveProps {
   center?: [number, number];
   zoom?: number;
@@ -45,8 +52,9 @@ interface OneMapInteractiveProps {
   }>;
   showPlanningAreas?: boolean;
   planningAreasYear?: number;
+  weightsProfileId?: string;
   onMapClick?: (lat: number, lng: number) => void;
-  onAreaClick?: (areaName: string, coordinates: [number, number][]) => void;
+  onAreaClick?: (areaName: string, coordinates: [number, number][], rating?: number) => void;
   className?: string;
 }
 
@@ -57,6 +65,7 @@ const OneMapInteractive = ({
   polygons = [],
   showPlanningAreas = true,
   planningAreasYear = 2019,
+  weightsProfileId = 'default',
   onMapClick,
   onAreaClick,
   className = ''
@@ -67,7 +76,9 @@ const OneMapInteractive = ({
   const polygonsRef = useRef<L.Polygon[]>([]);
   const planningAreasRef = useRef<L.Polygon[]>([]);
   const [planningAreas, setPlanningAreas] = useState<PlanningAreaFeature[]>([]);
+  const [choroplethData, setChoroplethData] = useState<ChoroplethData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingChoropleth, setIsLoadingChoropleth] = useState(false);
 
   // Fetch planning areas from API
   useEffect(() => {
@@ -97,6 +108,34 @@ const OneMapInteractive = ({
     fetchPlanningAreas();
   }, [showPlanningAreas, planningAreasYear]);
 
+  // Fetch choropleth data
+  useEffect(() => {
+    if (!showPlanningAreas) return;
+
+    const fetchChoroplethData = async () => {
+      setIsLoadingChoropleth(true);
+      try {
+        const response = await fetch(
+          `http://localhost:8000/map/choropleth?weightsId=${weightsProfileId}`
+        );
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch choropleth data');
+        }
+        
+        const data: ChoroplethData[] = await response.json();
+        setChoroplethData(data);
+      } catch (error) {
+        console.error('Error fetching choropleth data:', error);
+        setChoroplethData([]);
+      } finally {
+        setIsLoadingChoropleth(false);
+      }
+    };
+
+    fetchChoroplethData();
+  }, [showPlanningAreas, weightsProfileId]);
+
   // Convert GeoJSON coordinates to Leaflet positions
   const convertCoordinates = (coords: number[][][][] | number[][][]): [number, number][][] => {
     if (coords.length === 0) return [];
@@ -112,16 +151,55 @@ const OneMapInteractive = ({
     return [(coords as number[][][])[0].map(coord => [coord[1], coord[0]] as [number, number])];
   };
 
-  // Generate color based on area name for consistency
-  const getAreaColor = (areaName: string): string => {
-    const colors = [
-      '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#feca57',
-      '#ff9ff3', '#54a0ff', '#5f27cd', '#00d2d3', '#ff9f43',
-      '#a29bfe', '#fd79a8', '#81ecec', '#55efc4', '#74b9ff',
-      '#dfe6e9', '#00b894', '#e17055', '#0984e3', '#6c5ce7'
-    ];
-    const index = areaName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
-    return colors[index];
+  // Get rating for a specific area
+  const getAreaRating = (areaName: string): number | null => {
+    const areaData = choroplethData.find(data => 
+      data.areaId.toLowerCase() === areaName.toLowerCase()
+    );
+    return areaData ? areaData.total : null;
+  };
+
+  // Generate color based on rating (green = high, red = low)
+  const getRatingColor = (rating: number | null): string => {
+    if (rating === null) {
+      return '#cccccc'; // Gray for areas without data
+    }
+    
+    // Normalize rating to 0-1 scale (assuming ratings are between 0 and 1)
+    const normalizedRating = Math.max(0, Math.min(1, rating));
+    
+    // Create gradient from red (0) to green (1)
+    if (normalizedRating < 0.5) {
+      // Red to Yellow
+      const ratio = normalizedRating * 2;
+      const red = 255;
+      const green = Math.floor(255 * ratio);
+      return `rgb(${red}, ${green}, 0)`;
+    } else {
+      // Yellow to Green
+      const ratio = (normalizedRating - 0.5) * 2;
+      const red = Math.floor(255 * (1 - ratio));
+      const green = 255;
+      return `rgb(${red}, ${green}, 0)`;
+    }
+  };
+
+  // Get color intensity for fill opacity
+  const getFillOpacity = (rating: number | null): number => {
+    if (rating === null) return 0.1;
+    return 0.3 + (rating * 0.4); // 0.3 to 0.7 opacity based on rating
+  };
+
+  // Get border weight based on rating
+  const getBorderWeight = (rating: number | null): number => {
+    if (rating === null) return 1;
+    return 1 + (rating * 2); // 1 to 3 weight based on rating
+  };
+
+  // Format rating for display
+  const formatRating = (rating: number | null): string => {
+    if (rating === null) return 'No data';
+    return `${(rating * 100).toFixed(1)}%`;
   };
 
   // Initialize map
@@ -216,7 +294,7 @@ const OneMapInteractive = ({
     });
   }, [polygons]);
 
-  // Update planning areas polygons
+  // Update planning areas polygons with choropleth coloring
   useEffect(() => {
     if (!mapRef.current || !showPlanningAreas) return;
 
@@ -224,48 +302,68 @@ const OneMapInteractive = ({
     planningAreasRef.current.forEach(polygon => polygon.remove());
     planningAreasRef.current = [];
 
-    // Add planning area polygons
+    // Add planning area polygons with choropleth coloring
     planningAreas.forEach(area => {
       if (mapRef.current) {
         const coordinates = convertCoordinates(area.geometry.coordinates);
+        const areaRating = getAreaRating(area.properties.pln_area_n);
+        const areaColor = getRatingColor(areaRating);
+        const fillOpacity = getFillOpacity(areaRating);
+        const borderWeight = getBorderWeight(areaRating);
         
         coordinates.forEach(polygonCoords => {
           const polygon = L.polygon(polygonCoords, {
-            color: getAreaColor(area.properties.pln_area_n),
-            fillColor: getAreaColor(area.properties.pln_area_n),
-            fillOpacity: 0.3,
-            weight: 2,
+            color: '#000000', // Black borders for separation
+            fillColor: areaColor,
+            fillOpacity: fillOpacity,
+            weight: borderWeight,
             opacity: 0.8
           });
 
-          // Add popup with area name
-          polygon.bindPopup(`
-            <div class="p-2">
-              <h3 class="font-bold text-lg">${area.properties.pln_area_n}</h3>
-              <p class="text-sm text-gray-600">Planning Area</p>
+          // Create popup content with rating information
+          const popupContent = `
+            <div class="p-3 min-w-[200px]">
+              <h3 class="font-bold text-lg text-gray-900 mb-2">${area.properties.pln_area_n}</h3>
+              <div class="space-y-2">
+                <div class="flex justify-between items-center">
+                  <span class="text-sm text-gray-600">Neighbourhood Rating:</span>
+                  <span class="font-semibold ${areaRating !== null ? 'text-green-600' : 'text-gray-500'}">
+                    ${formatRating(areaRating)}
+                  </span>
+                </div>
+                ${areaRating !== null ? `
+                <div class="flex items-center gap-2">
+                  <div class="flex-1 h-2 bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 rounded-full"></div>
+                  <div class="w-3 h-3 rounded-full border-2 border-white shadow-sm" style="background-color: ${areaColor}; margin-left: ${(areaRating * 100).toFixed(1)}%"></div>
+                </div>
+                ` : ''}
+              </div>
+              <p class="text-xs text-gray-500 mt-3">Click for more details</p>
             </div>
-          `);
+          `;
+
+          polygon.bindPopup(popupContent);
 
           // Add click handler for area selection
           polygon.on('click', (e: L.LeafletMouseEvent) => {
             L.DomEvent.stopPropagation(e);
             if (onAreaClick) {
-              onAreaClick(area.properties.pln_area_n, polygonCoords);
+              onAreaClick(area.properties.pln_area_n, polygonCoords, areaRating || undefined);
             }
           });
 
-          // Add hover effects with proper 'this' typing
+          // Add hover effects
           polygon.on('mouseover', function (this: L.Polygon, e: L.LeafletMouseEvent) {
             this.setStyle({
-              fillOpacity: 0.5,
-              weight: 3
+              fillOpacity: Math.min(0.8, fillOpacity + 0.2),
+              weight: borderWeight + 1
             });
           });
 
           polygon.on('mouseout', function (this: L.Polygon, e: L.LeafletMouseEvent) {
             this.setStyle({
-              fillOpacity: 0.3,
-              weight: 2
+              fillOpacity: fillOpacity,
+              weight: borderWeight
             });
           });
 
@@ -274,7 +372,7 @@ const OneMapInteractive = ({
         });
       }
     });
-  }, [planningAreas, showPlanningAreas, onAreaClick]);
+  }, [planningAreas, choroplethData, showPlanningAreas, onAreaClick]);
 
   return (
     <div className="relative w-full h-full">
@@ -284,18 +382,20 @@ const OneMapInteractive = ({
         style={{ width: '100%', height: '100%' }}
       />
       
-      {/* Loading overlay for planning areas */}
-      {isLoading && showPlanningAreas && (
+      {/* Loading overlay */}
+      {(isLoading || isLoadingChoropleth) && showPlanningAreas && (
         <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg px-4 py-2 z-[1000]">
           <div className="flex items-center gap-2">
             <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-            <span className="text-sm text-purple-700">Loading planning areas...</span>
+            <span className="text-sm text-purple-700">
+              {isLoading ? 'Loading planning areas...' : 'Loading ratings...'}
+            </span>
           </div>
         </div>
       )}
       
       {/* Error message */}
-      {!isLoading && showPlanningAreas && planningAreas.length === 0 && (
+      {!isLoading && !isLoadingChoropleth && showPlanningAreas && planningAreas.length === 0 && (
         <div className="absolute top-4 left-4 bg-red-50 border border-red-200 rounded-lg shadow-lg px-4 py-2 z-[1000]">
           <span className="text-sm text-red-700">Failed to load planning areas</span>
         </div>

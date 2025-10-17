@@ -46,16 +46,13 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
   // Get coordinates from location, with fallback to Singapore center
   const getLocationCoordinates = (): [number, number] => {
-    // Check for latitude/longitude properties
     if (location.latitude !== undefined && location.longitude !== undefined) {
       console.log("Using latitude/longitude" + location.latitude + ", " + location.longitude);
       return [location.latitude, location.longitude];
     }
-    // Check for lat/lng properties
     if (location.lat !== undefined && location.lng !== undefined) {
       return [location.lat, location.lng];
     }
-    // Fallback to Singapore center
     return [1.3521, 103.8198];
   };
 
@@ -149,94 +146,110 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     return <HiStar className="w-5 h-5" />;
   };
 
+  // Color schemes for different sections
+  const sectionColors = {
+    priceInfo: {
+      gradient: 'from-blue-500 to-cyan-500',
+      icon: 'text-blue-300',
+      textLight: 'text-blue-200',
+      accent: 'text-cyan-300'
+    },
+    keyFeatures: {
+      gradient: 'from-green-500 to-emerald-500',
+      badge: 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200',
+      icon: 'text-green-500'
+    },
+    nearbyAmenities: {
+      gradient: 'from-orange-500 to-amber-500',
+      iconBg: 'from-orange-500 to-amber-500',
+      icon: 'text-orange-500',
+      border: 'border-orange-100',
+      hover: 'hover:bg-orange-50'
+    },
+    marketInsights: {
+      gradient: 'from-indigo-500 to-purple-500',
+      icon: 'text-indigo-300',
+      textLight: 'text-indigo-200'
+    }
+  };
+
   return (
-    <div className="h-full flex flex-col bg-gray-50">
-      {/* Header */}
-      <div className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-4 shadow-sm">
-        <div className="relative">
+    <div className="h-full flex flex-col bg-purple-50">
+      {/* Header - Simplified back button */}
+      <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
+        {/* Title and Back Button */}
+        <div className="flex items-center justify-between w-full mb-4">
+          {/* Back Button - Only arrow */}
           <button
             onClick={onBack}
-            className="absolute left-0 top-1/2 transform -translate-y-1/2 flex items-center text-purple-700 hover:text-purple-900 transition-colors group md:static md:transform-none md:mr-4"
+            className="text-purple-700 hover:text-purple-900 transition-colors"
           >
-            <HiChevronLeft className="w-6 h-6 mr-2 group-hover:-translate-x-1 transition-transform" />
-            <span className="font-semibold">Back to Search</span>
+            <HiChevronLeft className="w-6 h-6" />
           </button>
-          <div className="hidden sm:block text-center">
-            <h1 className="text-2xl font-bold text-gray-900">{location.street}</h1>
-            <p className="text-gray-600 mt-2 flex items-center gap-2 justify-center">
-            <span className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-semibold px-3 py-1 rounded-full">
-            {/*<span
-              className="text-white text-sm font-semibold px-3 py-1 rounded-full"
-              style={{
-                background: 'linear-gradient(90deg,#7c3aed 0%,#7c3aed 50%,#ef4444 50%,#ef4444 100%)'
-              }}
-            >*/}
-              {location.area}
-            </span>
-            <span className="text-gray-400">•</span>
-            <span className="font-medium text-gray-700">{location.district}</span>
-          </p>
+          
+          {/* Title */}
+          <div className="flex items-center text-purple-700">
+            <HiHome className="w-5 h-5 mr-2" />
+            <h1 className="text-lg font-bold">Location Details</h1>
           </div>
+          
+          {/* Spacer for balance */}
+          <div className="w-6"></div>
         </div>
 
-        <div className="mt-4 sm:hidden w-full">
-          <h1 className="text-2xl font-bold text-gray-900 justify-center text-center">{location.street}</h1>
-          <p className="text-gray-600 mt-2 flex items-center gap-2 justify-center">
-            {/* <span
-              className="text-white text-sm font-semibold px-3 py-1 rounded-full"
-              style={{
-                background: 'linear-gradient(90deg,#7c3aed 0%,#7c3aed 50%,#ef4444 50%,#ef4444 100%)'
-              }}
-            >
-              */}
-            <span className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-sm font-semibold px-3 py-1 rounded-full">
+        {/* Location Address */}
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-purple-900">{location.street}</h1>
+          <p className="text-purple-600 mt-2 flex items-center gap-2 justify-center">
+            <span className="bg-purple-100 text-purple-800 text-sm font-semibold px-3 py-1 rounded-full border border-purple-200">
               {location.area}
             </span>
-            <span className="text-gray-400">•</span>
-            <span className="font-medium text-gray-700">{location.district}</span>
+            <span className="text-purple-400">•</span>
+            <span className="font-medium text-purple-700">{location.district}</span>
           </p>
         </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
-        <div className="w-full max-w-full mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+        <div className="w-full max-w-full mx-auto px-4 sm:px-6 lg:px-8 space-y-6 py-6">
           {/* Price History and Facilities Map shown first */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
             {/* Price History */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200 flex flex-col max-h-[50vh] md:max-h-[420px] overflow-auto">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 flex flex-col max-h-[50vh] md:max-h-[420px] overflow-auto">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg text-gray-900 flex items-center gap-2">
-                  <HiTrendingUp className="w-5 h-5 text-green-500" />
+                <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
+                  <HiTrendingUp className="w-5 h-5 text-purple-500" />
                   Price History
                 </h2>
-                <div className="text-sm text-gray-600 font-medium bg-gray-100 px-3 py-1 rounded-full">
+                <div className="text-sm text-purple-600 font-medium bg-purple-100 px-3 py-1 rounded-full">
                   Last 5 years
                 </div>
               </div>
               <img
                 src={priceGraphDummy}
                 alt={`Price history for ${location.street}`}
-                className="w-full rounded-xl object-contain border border-gray-100 max-h-full"
+                className="w-full rounded-xl object-contain border border-purple-100 max-h-full"
                 loading="lazy"
               />
             </div>
 
             {/* Facilities Map */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200 flex flex-col max-h-[50vh] md:max-h-[420px] overflow-auto">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 flex flex-col max-h-[50vh] md:max-h-[420px] overflow-auto">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg text-gray-900 flex items-center gap-2">
-                  <HiMap className="w-5 h-5 text-blue-500" />
+                <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
+                  <HiMap className="w-5 h-5 text-purple-500" />
                   Facilities Map
                 </h2>
+                {/* Filter Facility Button - White with purple outline */}
                 <button
                   onClick={() => setShowFilterMenu(true)}
-                  className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl text-sm font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg"
+                  className="inline-flex items-center px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-semibold border-2 border-purple-300 hover:border-purple-500 hover:bg-purple-50 transition-all"
                 >
                   Filter Facilities
                 </button>
               </div>
-              <div className="w-full rounded-xl border border-gray-100 overflow-hidden z-50" style={{ height: '400px' }}>
+              <div className="w-full rounded-xl border border-purple-100 overflow-hidden z-50" style={{ height: '400px' }}>
                 <OneMapEmbedded
                   center={mapCenter}
                   zoom={16}
@@ -253,28 +266,28 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
             </div>
           </div>
 
-          {/* Price Information */}
-          <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl p-6 text-white shadow-lg">
+          {/* Price Information - Blue Theme */}
+          <div className={`bg-gradient-to-r ${sectionColors.priceInfo.gradient} rounded-2xl p-6 text-white shadow-lg`}>
             <h2 className="font-bold text-lg mb-6 flex items-center gap-2">
-              <HiHome className="w-5 h-5" />
+              <HiHome className={`w-5 h-5 ${sectionColors.priceInfo.icon}`} />
               Price Information
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="text-center">
-                <div className="text-blue-200 text-sm mb-2">Price Range</div>
+                <div className={`text-sm mb-2 ${sectionColors.priceInfo.textLight}`}>Price Range</div>
                 <div className="font-bold text-2xl">
                   {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
                 </div>
               </div>
               <div className="text-center">
-                <div className="text-blue-200 text-sm mb-2">Average PSF</div>
+                <div className={`text-sm mb-2 ${sectionColors.priceInfo.textLight}`}>Average PSF</div>
                 <div className="font-bold text-2xl">
                   ${location.avgPrice.toLocaleString()} psf
                 </div>
               </div>
               <div className="text-center">
-                <div className="text-blue-200 text-sm mb-2">Annual Growth</div>
-                <div className="flex items-center justify-center font-bold text-2xl text-green-300">
+                <div className={`text-sm mb-2 ${sectionColors.priceInfo.textLight}`}>Annual Growth</div>
+                <div className="flex items-center justify-center font-bold text-2xl text-yellow-300">
                   <HiTrendingUp className="w-5 h-5 mr-2" />
                   +{location.growth}%
                 </div>
@@ -285,22 +298,25 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
           {/* Description & Features Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Description */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
-              <h2 className="font-bold text-lg mb-4 text-gray-900 flex items-center gap-2">
-                <HiStar className="w-5 h-5 text-yellow-500" />
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200">
+              <h2 className="font-bold text-lg mb-4 text-purple-900 flex items-center gap-2">
+                <HiStar className="w-5 h-5 text-purple-500" />
                 About this Location
               </h2>
-              <p className="text-gray-700 leading-relaxed">{location.description}</p>
+              <p className="text-purple-700 leading-relaxed">{location.description}</p>
             </div>
 
-            {/* Key Features */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
-              <h2 className="font-bold text-lg mb-4 text-gray-900">Key Features</h2>
+            {/* Key Features - Green Theme */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200">
+              <h2 className="font-bold text-lg mb-4 text-purple-900 flex items-center gap-2">
+                <HiStar className={`w-5 h-5 ${sectionColors.keyFeatures.icon}`} />
+                Key Features
+              </h2>
               <div className="flex flex-wrap gap-3">
                 {location.facilities.map(facility => (
                   <span
                     key={facility}
-                    className="inline-flex items-center px-4 py-2 bg-green-100 text-green-800 text-sm font-semibold rounded-xl border border-green-200 hover:bg-green-200 transition-colors"
+                    className={`inline-flex items-center px-4 py-2 text-sm font-semibold rounded-xl border transition-colors ${sectionColors.keyFeatures.badge}`}
                   >
                     {facility}
                   </span>
@@ -309,28 +325,31 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
             </div>
           </div>
 
-          {/* Nearby Amenities */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
-            <h2 className="font-bold text-lg mb-4 text-gray-900">Nearby Amenities</h2>
+          {/* Nearby Amenities - Orange Theme */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200">
+            <h2 className="font-bold text-lg mb-4 text-purple-900 flex items-center gap-2">
+              <HiStar className={`w-5 h-5 ${sectionColors.nearbyAmenities.icon}`} />
+              Nearby Amenities
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {location.amenities.map((amenity, index) => (
-                <div key={index} className="flex items-center gap-4 p-4 rounded-xl hover:bg-gray-50 transition-colors border border-gray-100">
-                  <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-r from-purple-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-sm">
+                <div key={index} className={`flex items-center gap-4 p-4 rounded-xl transition-colors ${sectionColors.nearbyAmenities.border} ${sectionColors.nearbyAmenities.hover}`}>
+                  <div className={`flex-shrink-0 w-12 h-12 bg-gradient-to-r ${sectionColors.nearbyAmenities.iconBg} rounded-xl flex items-center justify-center text-white shadow-sm`}>
                     {getAmenityIcon(amenity)}
                   </div>
-                  <span className="text-gray-800 font-medium">{amenity}</span>
+                  <span className="text-purple-800 font-medium">{amenity}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Market Insights */}
-          <div className="bg-gradient-to-r from-amber-500 to-amber-600 rounded-2xl p-6 text-white shadow-lg">
+          {/* Market Insights - Indigo Theme */}
+          <div className={`bg-gradient-to-r ${sectionColors.marketInsights.gradient} rounded-2xl p-6 text-white shadow-lg`}>
             <h2 className="font-bold text-lg mb-3 flex items-center gap-2">
-              <HiTrendingUp className="w-5 h-5" />
+              <HiTrendingUp className={`w-5 h-5 ${sectionColors.marketInsights.icon}`} />
               Market Insights
             </h2>
-            <p className="text-amber-50 leading-relaxed">
+            <p className={`leading-relaxed ${sectionColors.marketInsights.textLight}`}>
               Properties in {location.street} have shown consistent growth of {location.growth}% annually, 
               making it a promising investment opportunity in the {location.area} area. This location 
               combines excellent amenities with strong potential for long-term value appreciation.
@@ -339,7 +358,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         </div>
       </div>
 
-      {/* Filter Modal - Grey Background with Pale Purple Header */}
+      {/* Filter Modal */}
       {showFilterMenu && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-auto"
           role="dialog"
@@ -352,19 +371,19 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
           />
 
           <div
-            className="relative bg-white rounded-2xl w-full max-w-md mx-auto shadow-2xl border border-gray-300 max-h-[90vh] overflow-auto z-[9999]"
+            className="relative bg-white rounded-2xl w-full max-w-md mx-auto shadow-2xl border border-purple-300 max-h-[90vh] overflow-auto z-[9999]"
             onClick={(e) => e.stopPropagation()}
           >
 
-            {/* Pale Purple Header */}
-            <div className="flex items-center justify-between p-6 border-b border-purple-200 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-900 rounded-t-2xl">
+            {/* Header - Pale purple */}
+            <div className="flex items-center justify-between p-6 border-b border-purple-200 bg-purple-100 text-purple-900 rounded-t-2xl">
               <div>
                 <h3 className="text-xl font-bold">Filter Facilities</h3>
                 <p className="text-purple-700 text-sm mt-1">Select amenities to show on map</p>
               </div>
               <button
                 onClick={() => setShowFilterMenu(false)}
-                className="p-2 hover:bg-purple-300 rounded-xl transition-colors text-purple-700 hover:text-purple-900"
+                className="p-2 hover:bg-purple-200 rounded-xl transition-colors text-purple-700 hover:text-purple-900"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
