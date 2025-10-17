@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { HiChevronLeft, HiSearch, HiChartBar } from 'react-icons/hi';
+import CompareLocations from './CompareLocations';
 
 interface ComparisonViewProps {
   onBack: () => void;
@@ -30,6 +31,7 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
   const [searchResults2, setSearchResults2] = useState<LocationResult[]>([]);
   const [loading1, setLoading1] = useState(false);
   const [loading2, setLoading2] = useState(false);
+  const [compareLocations, setCompareLocations] = useState(false);
 
   // Mock data for demonstration - replace with actual API calls
   const mockLocations: LocationResult[] = [
@@ -281,12 +283,22 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
         {/* Compare Button */}
         {location1 && location2 && (
           <div className="mt-8 text-center">
-            <button className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold hover:bg-purple-700 transition-colors text-lg">
+            <button 
+            onClick ={() => setCompareLocations(true)}
+            className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold hover:bg-purple-700 transition-colors text-lg">
               Compare Locations
             </button>
           </div>
         )}
       </div>
+      {/* delegate modal to CompareLocations component */}
+      {compareLocations && location1 && location2 && (
+        <CompareLocations
+          location1={location1}
+          location2={location2}
+          onClose={() => setCompareLocations(false)}
+        />
+      )}
     </div>
   );
 };
