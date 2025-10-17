@@ -57,6 +57,28 @@ class LocationResult(BaseModel):
     longitude: float | None = None
 
 
+class OneMapSearchResult(BaseModel):
+    """Model matching OneMap search API response"""
+    SEARCHVAL: str
+    BLK_NO: str = ""
+    ROAD_NAME: str = ""
+    BUILDING: str = ""
+    ADDRESS: str
+    POSTAL: str = ""
+    X: str = ""
+    Y: str = ""
+    LATITUDE: str
+    LONGITUDE: str
+
+
+class OneMapSearchResponse(BaseModel):
+    """Full OneMap search response"""
+    found: int
+    totalNumPages: int
+    pageNum: int
+    results: List[OneMapSearchResult]
+
+
 class CommunityCentre(BaseModel):
     # Represents a community centre (CC) in an area.
     id: str

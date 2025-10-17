@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from typing import List, Dict, Any
-from ..domain.models import NeighbourhoodScore, SearchFilters, LocationResult
+from ..domain.models import NeighbourhoodScore, SearchFilters, LocationResult, OneMapSearchResponse
 
 router = APIRouter()
 
@@ -15,14 +15,14 @@ def search_areas(filters: SearchFilters, weightsId: str = "default"):
     return di_search.rank(areas, w)
 
 @router.post("/filter", response_model=List[LocationResult])
-def filter_locations(filters: SearchFilters):
+async def filter_locations(filters: SearchFilters):
     """
     Filter locations based on search query, facilities, and price range.
     Corresponds to the filtering functionality in SearchView.tsx.
     """
     try:
         from ..main import di_search
-        return di_search.filter_locations(filters)
+        return await di_search.filter_locations(filters)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error filtering locations: {str(e)}")
 
@@ -54,3 +54,40 @@ def get_available_facilities():
         'Sports Facilities',
         'Community Facilities'
     ]
+
+@router.get("/onemap", response_model=OneMapSearchResponse)
+async def search_onemap(
+    query: str = Query(..., description="Search query for location"),
+    page: int = Query(1, ge=1, description="Page number")
+):
+    """
+    Search for locations using OneMap API.
+    Returns results in OneMap's native format.
+    
+    Example response:
+    {
+      "found": 1,
+      "totalNumPages": 1,
+      "pageNum": 1,
+      "results": [
+        {
+          "SEARCHVAL": "640 ROWELL ROAD SINGAPORE 200640",
+          "BLK_NO": "640",
+          "ROAD_NAME": "ROWELL ROAD",
+          "BUILDING": "NIL",
+          "ADDRESS": "640 ROWELL ROAD SINGAPORE 200640",
+          "POSTAL": "200640",
+          "X": "30381.1007417506",
+          "Y": "32195.1006872542",
+          "LATITUDE": "1.30743547948389",
+          "LONGITUDE": "103.854713903431",
+          "LONGTITUDE": "103.854713903431"
+        }
+      ]
+    }
+    """
+    try:
+        from ..main import di_search
+        return await di_search.search_onemap(query, page)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error searching OneMap: {str(e)}")

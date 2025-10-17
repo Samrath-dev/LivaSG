@@ -47,7 +47,7 @@ di_engine = RatingEngine(
     di_carpark,
     di_area
 )
-di_search = SearchService(di_engine)
+di_search = SearchService(di_engine, di_onemap_client)
 
 # --- FastAPI app ---
 app = FastAPI(title="LivaSG API")
