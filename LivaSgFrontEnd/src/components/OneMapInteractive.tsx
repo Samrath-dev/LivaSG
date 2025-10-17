@@ -196,12 +196,6 @@ const OneMapInteractive = ({
     return 1 + (rating * 2); // 1 to 3 weight based on rating
   };
 
-  // Format rating for display
-  const formatRating = (rating: number | null): string => {
-    if (rating === null) return 'No data';
-    return `${(rating * 100).toFixed(1)}%`;
-  };
-
   // Initialize map
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -319,30 +313,6 @@ const OneMapInteractive = ({
             weight: borderWeight,
             opacity: 0.8
           });
-
-          // Create popup content with rating information
-          const popupContent = `
-            <div class="p-3 min-w-[200px]">
-              <h3 class="font-bold text-lg text-gray-900 mb-2">${area.properties.pln_area_n}</h3>
-              <div class="space-y-2">
-                <div class="flex justify-between items-center">
-                  <span class="text-sm text-gray-600">Neighbourhood Rating:</span>
-                  <span class="font-semibold ${areaRating !== null ? 'text-green-600' : 'text-gray-500'}">
-                    ${formatRating(areaRating)}
-                  </span>
-                </div>
-                ${areaRating !== null ? `
-                <div class="flex items-center gap-2">
-                  <div class="flex-1 h-2 bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 rounded-full"></div>
-                  <div class="w-3 h-3 rounded-full border-2 border-white shadow-sm" style="background-color: ${areaColor}; margin-left: ${(areaRating * 100).toFixed(1)}%"></div>
-                </div>
-                ` : ''}
-              </div>
-              <p class="text-xs text-gray-500 mt-3">Click for more details</p>
-            </div>
-          `;
-
-          polygon.bindPopup(popupContent);
 
           // Add click handler for area selection
           polygon.on('click', (e: L.LeafletMouseEvent) => {
