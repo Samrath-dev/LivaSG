@@ -31,23 +31,9 @@ interface LocationResult {
 }
 
 interface Props {
-  location1: LocationResult;
-  location2: LocationResult;
+  locations: LocationResult[];
   onClose: () => void;
 }
-
-const computeRadarScores = (locA: LocationResult, locB: LocationResult) => {
-  const growthMax = Math.max(Math.abs(locA.growth), Math.abs(locB.growth), 1);
-  const priceMax = Math.max(locA.avgPrice, locB.avgPrice, 1);
-
-  const transit = Math.round(locA.transitScore);
-  const schools = Math.round(locA.schoolScore);
-  const amenities = Math.round(locA.amenitiesScore);
-  const growth = Math.round((Math.abs(locA.growth) / growthMax) * 100);
-  const affordability = Math.round(((priceMax - locA.avgPrice) / priceMax) * 100);
-
-  return [transit, schools, amenities, growth, affordability];
-};
 
 const formatPrice = (price: number) => {
   if (price >= 1000000) {
@@ -56,30 +42,88 @@ const formatPrice = (price: number) => {
   return `$${(price / 1000).toFixed(0)}K`;
 };
 
-export default function CompareLocations({ location1, location2, onClose }: Props) {
+export default function CompareLocations({ locations, onClose }: Props) {
   const labels = ['Transit', 'Schools', 'Amenities', 'Growth', 'Affordability'];
+
+  // limit to up to 5 locations
+  const maxLocations = 5;
+  const locs = locations ? locations.slice(0, maxLocations) : [];
+
+  // Normalizers across selected locations
+  const growthVals = locs.map((l: LocationResult) => Number(l.growth) || 0);
+  const growthMin = growthVals.length ? Math.min(...growthVals) : 0;
+  const growthMax = growthVals.length ? Math.max(...growthVals) : 1;
+
+  const priceVals = locs.map((l: LocationResult) => l.avgPrice);
+  const priceMin = priceVals.length ? Math.min(...priceVals) : 0;
+  const priceMax = priceVals.length ? Math.max(...priceVals) : 1;
+
+  const paletteBg = [
+    'rgba(99,102,241,0.22)',
+    'rgba(16,185,129,0.18)',
+    'rgba(59,130,246,0.18)',
+    'rgba(234,88,12,0.16)',
+    'rgba(168,85,247,0.16)',
+  ];
+  const paletteBorder = [
+    'rgba(99,102,241,1)',
+    'rgba(16,185,129,1)',
+    'rgba(59,130,246,1)',
+    'rgba(234,88,12,1)',
+    'rgba(168,85,247,1)',
+  ];
+
+  // Return raw growth and raw price (affordability) instead of normalized percentages.
+  // NOTE: radar scale must adapt to mixed ranges (we compute suggestedMax below).
+  const computeRadarFor = (loc: LocationResult) => {
+    const transit = Math.round(Math.max(0, Math.min(100, Number(loc.transitScore) || 0)));
+    const schools = Math.round(Math.max(0, Math.min(100, Number(loc.schoolScore) || 0)));
+    const amenities = Math.round(Math.max(0, Math.min(100, Number(loc.amenitiesScore) || 0)));
+
+    const growthRaw = Number(loc.growth) || 0;
+    const affordabilityRaw = Number(loc.avgPrice) / 100 || 0; // CHANGE SCALE DEPENDING ON VALUE OF AFFORDABILITY
+
+    return [transit, schools, amenities, growthRaw, affordabilityRaw];
+  };
 
   const data = {
     labels,
-    datasets: [
-      {
-        label: location1.street,
-        data: computeRadarScores(location1, location2),
-        backgroundColor: 'rgba(99,102,241,0.2)',
-        borderColor: 'rgba(99,102,241,1)',
-        borderWidth: 2,
-        pointBackgroundColor: 'rgba(99,102,241,1)',
-      },
-      {
-        label: location2.street,
-        data: computeRadarScores(location2, location1),
-        backgroundColor: 'rgba(16,185,129,0.15)',
-        borderColor: 'rgba(16,185,129,1)',
-        borderWidth: 2,
-        pointBackgroundColor: 'rgba(16,185,129,1)',
-      },
-    ],
+    datasets: locs.map((loc: LocationResult, i: number) => ({
+      label: loc.street,
+      data: computeRadarFor(loc),
+      backgroundColor: paletteBg[i % paletteBg.length],
+      borderColor: paletteBorder[i % paletteBorder.length],
+      borderWidth: 2,
+      pointBackgroundColor: paletteBorder[i % paletteBorder.length],
+    })),
   };
+
+  // Debug / validation: log props and generated datasets so you can inspect in devtools
+  useEffect(() => {
+    console.log('CompareLocations.props.locations:', locations);
+    console.log('derived locs:', locs);
+    console.log('chart data.datasets:', data.datasets);
+    // validate required numeric fields
+    const invalid = locs.filter(l =>
+      typeof l.transitScore !== 'number' ||
+      typeof l.schoolScore !== 'number' ||
+      typeof l.amenitiesScore !== 'number' ||
+      typeof l.avgPrice !== 'number' ||
+      typeof l.growth !== 'number'
+    );
+    if (invalid.length) {
+      console.warn('CompareLocations: some locations missing numeric fields', invalid);
+    }
+  }, [locations, locs, data]);
+
+  // Guard: show fallback if no locations supplied
+  if (!locs.length) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-20">
+        <div className="bg-white p-6 rounded-lg">No locations provided to compare — select at least one.</div>
+      </div>
+    );
+  }
 
   const options = {
     scales: {
@@ -87,7 +131,7 @@ export default function CompareLocations({ location1, location2, onClose }: Prop
         suggestedMin: 0,
         suggestedMax: 100,
         ticks: { stepSize: 20, color: '#6b21a8' },
-        pointLabels: { color: '#6b21a8', font: { size: 12 } },
+        pointLabels: { color: '#6b21a8', font: { size: 12 }, padding: 14 },
         grid: { color: 'rgba(79,70,229,0.1)' },
       },
     },
@@ -225,7 +269,7 @@ export default function CompareLocations({ location1, location2, onClose }: Prop
         <div className="p-4 h-[calc(100%-40px)] overflow-auto flex flex-col">
           {/* Square purple container with centered radar */}
           <div
-            className="bg-purple-50 p-4 rounded-xl w-full max-w-full mx-auto relative overflow-hidden flex-none"
+            className="bg-purple-50 p-4 rounded-xl w-full max-w-full mx-auto relative overflow-visible flex-none"
             style={{ maxHeight: 'min(70vh, 90vw)', aspectRatio: '1 / 1' }}
           >
             <div className="absolute inset-0 flex items-center justify-center p-2">
@@ -239,9 +283,9 @@ export default function CompareLocations({ location1, location2, onClose }: Prop
             </div>
           </div>
 
-          {/* Summary cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-            {[location1, location2].map((loc) => (
+          {/* Summary cards for selected locations (up to 5) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mt-4">
+            {locs.map((loc) => (
               <div key={loc.id} className="p-3 bg-white rounded-lg border border-gray-100">
                 <div className="font-semibold text-purple-900">{loc.street}</div>
                 <div className="text-sm text-purple-700">{loc.area}, {loc.district}</div>

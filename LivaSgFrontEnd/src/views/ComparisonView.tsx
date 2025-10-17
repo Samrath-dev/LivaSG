@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { HiChevronLeft, HiSearch, HiChartBar } from 'react-icons/hi';
+import { useState } from 'react';
+import { HiChevronLeft, HiSearch, HiChartBar, HiPlus } from 'react-icons/hi';
 import CompareLocations from './CompareLocations';
 
 interface ComparisonViewProps {
@@ -23,15 +23,12 @@ interface LocationResult {
 }
 
 const ComparisonView = ({ onBack }: ComparisonViewProps) => {
-  const [location1, setLocation1] = useState<LocationResult | null>(null);
-  const [location2, setLocation2] = useState<LocationResult | null>(null);
-  const [searchQuery1, setSearchQuery1] = useState('');
-  const [searchQuery2, setSearchQuery2] = useState('');
-  const [searchResults1, setSearchResults1] = useState<LocationResult[]>([]);
-  const [searchResults2, setSearchResults2] = useState<LocationResult[]>([]);
-  const [loading1, setLoading1] = useState(false);
-  const [loading2, setLoading2] = useState(false);
-  const [compareLocations, setCompareLocations] = useState(false);
+  // dynamic slots: start with two slots (may be null if not selected)
+  const [selectedLocations, setSelectedLocations] = useState<(LocationResult | null)[]>([null, null]);
+  const [searchQueries, setSearchQueries] = useState<string[]>(['', '']);
+  const [searchResults, setSearchResults] = useState<LocationResult[][]>([[], []]);
+  const [loading, setLoading] = useState<boolean[]>([false, false]);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   // Mock data for demonstration - replace with actual API calls
   const mockLocations: LocationResult[] = [
@@ -79,47 +76,59 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
       transitScore: 80,
       schoolScore: 85,
       amenitiesScore: 88
+    },
+    {
+      id: 4,
+      street: "TEST1",
+      area: "Bishan",
+      district: "D21",
+      priceRange: [100000, 900000],
+      avgPrice: 1200,
+      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Sports Facilities'],
+      description: "Family-friendly neighborhood with great facilities.",
+      growth: 18.4,
+      amenities: ["Tampines Mall", "Our Tampines Hub", "Tampines MRT"],
+      transitScore: 90,
+      schoolScore: 60,
+      amenitiesScore: 43
+    },
+    {
+      id: 5,
+      street: "TEST2",
+      area: "Changi",
+      district: "D22",
+      priceRange: [300000, 1700000],
+      avgPrice: 620,
+      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Sports Facilities'],
+      description: "Family-friendly neighborhood with great facilities.",
+      growth: 2.3,
+      amenities: ["Tampines Mall", "Our Tampines Hub", "Tampines MRT"],
+      transitScore: 95,
+      schoolScore: 75,
+      amenitiesScore: 65
+    },
+    {
+      id: 6,
+      street: "TEST3",
+      area: "Atlantis",
+      district: "D23",
+      priceRange: [800000, 900000],
+      avgPrice: 1500,
+      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Sports Facilities'],
+      description: "Family-friendly neighborhood with great facilities.",
+      growth: 35.6,
+      amenities: ["Tampines Mall", "Our Tampines Hub", "Tampines MRT"],
+      transitScore: 100,
+      schoolScore: 70,
+      amenitiesScore: 75
     }
   ];
 
   // Suggested locations (top 3 by growth rate)
   const suggestedLocations = mockLocations
+    .slice()
     .sort((a, b) => b.growth - a.growth)
     .slice(0, 3);
-
-  const searchLocations = async (query: string, setResults: React.Dispatch<React.SetStateAction<LocationResult[]>>, setLoading: React.Dispatch<React.SetStateAction<boolean>>) => {
-    setLoading(true);
-    try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 300));
-      const filtered = mockLocations.filter(loc =>
-        loc.street.toLowerCase().includes(query.toLowerCase()) ||
-        loc.area.toLowerCase().includes(query.toLowerCase()) ||
-        loc.district.toLowerCase().includes(query.toLowerCase())
-      );
-      setResults(filtered);
-    } catch (error) {
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (searchQuery1.length > 0) {
-      searchLocations(searchQuery1, setSearchResults1, setLoading1);
-    } else {
-      setSearchResults1([]);
-    }
-  }, [searchQuery1]);
-
-  useEffect(() => {
-    if (searchQuery2.length > 0) {
-      searchLocations(searchQuery2, setSearchResults2, setLoading2);
-    } else {
-      setSearchResults2([]);
-    }
-  }, [searchQuery2]);
 
   const formatPrice = (price: number) => {
     if (price >= 1000000) {
@@ -128,18 +137,85 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
     return `$${(price / 1000).toFixed(0)}K`;
   };
 
+  // Helpers to update per-slot arrays
+  const setSlotLocation = (index: number, loc: LocationResult | null) => {
+    setSelectedLocations(prev => {
+      const copy = [...prev];
+      copy[index] = loc;
+      return copy;
+    });
+    // clear the search query/results for that slot
+    setSearchQueries(prev => {
+      const q = [...prev];
+      q[index] = '';
+      return q;
+    });
+    setSearchResults(prev => {
+      const r = [...prev];
+      r[index] = [];
+      return r;
+    });
+    setLoading(prev => {
+      const l = [...prev];
+      l[index] = false;
+      return l;
+    });
+  };
+
+  const addSlot = () => {
+    setSelectedLocations(prev => (prev.length < 5 ? [...prev, null] : prev));
+    setSearchQueries(prev => (prev.length < 5 ? [...prev, ''] : prev));
+    setSearchResults(prev => (prev.length < 5 ? [...prev, []] : prev));
+    setLoading(prev => (prev.length < 5 ? [...prev, false] : prev));
+  };
+
+  const searchLocations = async (index: number, query: string) => {
+    setLoading(prev => {
+      const copy = [...prev];
+      copy[index] = true;
+      return copy;
+    });
+    try {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const filtered = mockLocations.filter(loc =>
+        loc.street.toLowerCase().includes(query.toLowerCase()) ||
+        loc.area.toLowerCase().includes(query.toLowerCase()) ||
+        loc.district.toLowerCase().includes(query.toLowerCase())
+      );
+      setSearchResults(prev => {
+        const copy = [...prev];
+        copy[index] = filtered;
+        return copy;
+      });
+    } catch {
+      setSearchResults(prev => {
+        const copy = [...prev];
+        copy[index] = [];
+        return copy;
+      });
+    } finally {
+      setLoading(prev => {
+        const copy = [...prev];
+        copy[index] = false;
+        return copy;
+      });
+    }
+  };
+
   const renderSearchBox = (index: number) => {
-    const query = index === 0 ? searchQuery1 : searchQuery2;
-    const setQuery = index === 0 ? setSearchQuery1 : setSearchQuery2;
-    const results = index === 0 ? searchResults1 : searchResults2;
-    const loading = index === 0 ? loading1 : loading2;
-    const setLocation = index === 0 ? setLocation1 : setLocation2;
-    const currentLocation = index === 0 ? location1 : location2;
-    const alreadySelectedId = index === 0 ? (location2 ? location2.id : null) : (location1 ? location1.id : null);
+    const query = searchQueries[index] ?? '';
+    const results = searchResults[index] ?? [];
+    const isLoading = loading[index] ?? false;
+    const currentLocation = selectedLocations[index] ?? null;
+
+    // prevent selecting same location twice
+    const otherSelectedIds = selectedLocations
+      .map((s, i) => (i === index ? null : s?.id ?? null))
+      .filter(Boolean) as number[];
 
     if (currentLocation) {
       return (
-        <div className="flex-1 bg-white rounded-2xl p-6 border-2 border-purple-200 transition-all duration-300">
+        <div key={index} className="flex-1 bg-white rounded-2xl p-6 border-2 border-purple-200 transition-all duration-300">
           <div className="text-center">
             <h3 className="text-xl font-bold text-purple-900 mb-2">{currentLocation.street}</h3>
             <p className="text-purple-700 mb-3">{currentLocation.area}, {currentLocation.district}</p>
@@ -151,7 +227,7 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
             </div>
           </div>
           <button
-            onClick={() => setLocation(null)}
+            onClick={() => setSlotLocation(index, null)}
             className="w-full mt-4 bg-red-100 text-red-700 py-2 rounded-xl font-semibold hover:bg-red-200 transition-colors"
           >
             Remove
@@ -161,22 +237,33 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
     }
 
     return (
-      <div className="flex-1 bg-purple-50 rounded-2xl p-6 border-2 border-purple-300 border-dashed transition-all duration-300">
-        {/* Search Bar */}
+      <div key={index} className="flex-1 bg-purple-50 rounded-2xl p-6 border-2 border-purple-300 border-dashed transition-all duration-300">
         <div className="relative mb-4">
           <HiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setSearchQueries(prev => {
+                const copy = [...prev];
+                copy[index] = v;
+                return copy;
+              });
+              if (v.length > 0) searchLocations(index, v);
+              else setSearchResults(prev => {
+                const copy = [...prev];
+                copy[index] = [];
+                return copy;
+              });
+            }}
             placeholder={`Search for location ${index + 1}...`}
             className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           />
         </div>
 
-        {/* Search Results */}
         <div className="max-h-64 overflow-auto">
-          {loading ? (
+          {isLoading ? (
             <div className="text-center py-4">
               <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
               <p className="text-gray-600 text-sm mt-2">Searching...</p>
@@ -184,14 +271,13 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
           ) : results.length > 0 ? (
             <div className="space-y-2">
               {results.map(location => {
-                const disabled = alreadySelectedId !== null && location.id === alreadySelectedId;
+                const disabled = otherSelectedIds.includes(location.id);
                 return (
                   <div
                     key={location.id}
                     onClick={() => {
                       if (disabled) return;
-                      setLocation(location);
-                      setQuery('');
+                      setSlotLocation(index, location);
                     }}
                     className={
                       `p-3 rounded-lg border border-gray-200 transition-colors ` +
@@ -211,7 +297,7 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
                       </div>
                     </div>
                     {disabled && (
-                      <div className="mt-2 text-xs text-center text-gray-500">Already selected in the other slot</div>
+                      <div className="mt-2 text-xs text-center text-gray-500">Already selected in another slot</div>
                     )}
                   </div>
                 );
@@ -226,14 +312,11 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
             <div className="space-y-3">
               <p className="text-purple-700 font-medium text-sm">Suggested Locations:</p>
               {suggestedLocations.map(location => {
-                const disabled = alreadySelectedId !== null && location.id === alreadySelectedId;
+                const disabled = otherSelectedIds.includes(location.id);
                 return (
                   <div
                     key={location.id}
-                    onClick={() => {
-                      if (disabled) return;
-                      setLocation(location);
-                    }}
+                    onClick={() => { if (!disabled) setSlotLocation(index, location); }}
                     className={
                       `p-3 rounded-lg border border-gray-200 transition-colors ` +
                       (disabled
@@ -261,73 +344,74 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
     );
   };
 
+  const nonNullSelected = selectedLocations.filter((l): l is LocationResult => l !== null);
+  const canCompare = nonNullSelected.length >= 2;
+
   return (
     <div className="h-full flex flex-col bg-purple-50">
       {/* Header */}
       <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
         <div className="flex items-center justify-between w-full mb-3">
-          {/* Simple back arrow button - no background, no circle */}
-          <button
-            onClick={onBack}
-            className="text-purple-700 hover:text-purple-900 transition-colors"
-          >
+          <button onClick={onBack} className="text-purple-700 hover:text-purple-900 transition-colors">
             <HiChevronLeft className="w-6 h-6" />
           </button>
-          
+
           <div className="flex items-center text-purple-700">
             <HiChartBar className="w-5 h-5 mr-2" />
             <h1 className="text-lg font-bold">Compare Locations</h1>
           </div>
-          
-          <div className="w-6"></div> {/* Spacer for balance */}
+
+          <div className="w-6" />
         </div>
-        
+
         <p className="text-purple-600 text-sm text-center">
-          Select two locations to compare their features and amenities
+          Select two or more locations to compare their features and amenities
         </p>
       </div>
 
       {/* Comparison Content */}
       <div className="flex-1 overflow-auto p-4">
         <div className="flex flex-col lg:flex-row gap-6 max-w-6xl mx-auto">
-          {renderSearchBox(0)}
-          
-          {/* VS Separator */}
-          {location1 && location2 && (
-            <div className="flex items-center justify-center lg:flex-col lg:justify-center lg:py-8">
-              <div className="bg-purple-600 text-white px-4 py-2 rounded-full font-bold text-sm">
-                VS
-              </div>
-            </div>
-          )}
-          
-          {renderSearchBox(1)}
+          {selectedLocations.map((_, i) => renderSearchBox(i))}
         </div>
 
-        {/* Compare Button */}
-        {location1 && location2 && (
-          <div className="mt-8 text-center">
-            <button 
-              onClick ={() => setCompareLocations(true)}
-              disabled={location1.id === location2.id}
-              className={
-                `px-8 py-3 rounded-xl font-semibold text-lg transition-colors ` +
-                (location1.id === location2.id
-                  ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
-                  : 'bg-purple-600 text-white hover:bg-purple-700')
-              }
-            >
-              Compare Locations
-            </button>
-          </div>
-        )}
+        {/* Controls: Compare button always visible; + button to add slots */}
+        <div className="mt-8 flex items-center justify-center gap-4">
+          <button
+            onClick={() => setCompareOpen(true)}
+            disabled={!canCompare}
+            className={
+              `px-6 py-3 rounded-xl font-semibold text-lg transition-colors ` +
+              (!canCompare
+                ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                : 'bg-purple-600 text-white hover:bg-purple-700')
+            }
+          >
+            Compare Locations
+          </button>
+
+          <button
+            onClick={addSlot}
+            disabled={selectedLocations.length >= 5}
+            title={selectedLocations.length >= 5 ? 'Maximum 5 locations' : 'Add another location'}
+            className={
+              `flex items-center gap-2 px-4 py-2 rounded-xl border transition ` +
+              (selectedLocations.length >= 5
+                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                : 'bg-white text-purple-700 border-purple-200 hover:bg-purple-50')
+            }
+          >
+            <HiPlus className="w-5 h-5" />
+            <span className="font-medium">Add</span>
+          </button>
+        </div>
       </div>
-      {/* delegate modal to CompareLocations component */}
-      {compareLocations && location1 && location2 && (
+
+      {/* Compare modal */}
+      {compareOpen && (
         <CompareLocations
-          location1={location1}
-          location2={location2}
-          onClose={() => setCompareLocations(false)}
+          locations={nonNullSelected.length ? nonNullSelected : mockLocations.slice(0, 5)}
+          onClose={() => setCompareOpen(false)}
         />
       )}
     </div>
