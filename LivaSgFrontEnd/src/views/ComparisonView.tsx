@@ -135,6 +135,7 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
     const loading = index === 0 ? loading1 : loading2;
     const setLocation = index === 0 ? setLocation1 : setLocation2;
     const currentLocation = index === 0 ? location1 : location2;
+    const alreadySelectedId = index === 0 ? (location2 ? location2.id : null) : (location1 ? location1.id : null);
 
     if (currentLocation) {
       return (
@@ -182,27 +183,39 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
             </div>
           ) : results.length > 0 ? (
             <div className="space-y-2">
-              {results.map(location => (
-                <div
-                  key={location.id}
-                  onClick={() => {
-                    setLocation(location);
-                    setQuery('');
-                  }}
-                  className="p-3 bg-white rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 cursor-pointer transition-colors"
-                >
-                  <div className="font-semibold text-purple-900">{location.street}</div>
-                  <div className="text-sm text-purple-700">{location.area}, {location.district}</div>
-                  <div className="flex justify-between items-center mt-1">
-                    <div className="text-xs text-purple-600">
-                      {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
+              {results.map(location => {
+                const disabled = alreadySelectedId !== null && location.id === alreadySelectedId;
+                return (
+                  <div
+                    key={location.id}
+                    onClick={() => {
+                      if (disabled) return;
+                      setLocation(location);
+                      setQuery('');
+                    }}
+                    className={
+                      `p-3 rounded-lg border border-gray-200 transition-colors ` +
+                      (disabled
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                        : 'bg-white hover:border-purple-300 hover:bg-purple-50 cursor-pointer')
+                    }
+                  >
+                    <div className={`font-semibold ${disabled ? 'text-gray-600' : 'text-purple-900'}`}>{location.street}</div>
+                    <div className={`text-sm ${disabled ? 'text-gray-500' : 'text-purple-700'}`}>{location.area}, {location.district}</div>
+                    <div className="flex justify-between items-center mt-1">
+                      <div className={`text-xs ${disabled ? 'text-gray-500' : 'text-purple-600'}`}>
+                        {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
+                      </div>
+                      <div className={`text-xs ${disabled ? 'text-gray-500' : 'text-green-600'} font-semibold`}>
+                        +{location.growth}% ↗
+                      </div>
                     </div>
-                    <div className="text-xs text-green-600 font-semibold">
-                      +{location.growth}% ↗
-                    </div>
+                    {disabled && (
+                      <div className="mt-2 text-xs text-center text-gray-500">Already selected in the other slot</div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : query.length > 0 ? (
             <div className="text-center py-4">
@@ -212,24 +225,35 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
           ) : (
             <div className="space-y-3">
               <p className="text-purple-700 font-medium text-sm">Suggested Locations:</p>
-              {suggestedLocations.map(location => (
-                <div
-                  key={location.id}
-                  onClick={() => setLocation(location)}
-                  className="p-3 bg-white rounded-lg border border-gray-200 hover:border-purple-300 hover:bg-purple-50 cursor-pointer transition-colors"
-                >
-                  <div className="font-semibold text-purple-900">{location.street}</div>
-                  <div className="text-sm text-purple-700">{location.area}, {location.district}</div>
-                  <div className="flex justify-between items-center mt-1">
-                    <div className="text-xs text-purple-600">
-                      {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
-                    </div>
-                    <div className="text-xs text-green-600 font-semibold">
-                      +{location.growth}% ↗
+              {suggestedLocations.map(location => {
+                const disabled = alreadySelectedId !== null && location.id === alreadySelectedId;
+                return (
+                  <div
+                    key={location.id}
+                    onClick={() => {
+                      if (disabled) return;
+                      setLocation(location);
+                    }}
+                    className={
+                      `p-3 rounded-lg border border-gray-200 transition-colors ` +
+                      (disabled
+                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                        : 'bg-white hover:border-purple-300 hover:bg-purple-50 cursor-pointer')
+                    }
+                  >
+                    <div className={`font-semibold ${disabled ? 'text-gray-600' : 'text-purple-900'}`}>{location.street}</div>
+                    <div className={`text-sm ${disabled ? 'text-gray-500' : 'text-purple-700'}`}>{location.area}, {location.district}</div>
+                    <div className="flex justify-between items-center mt-1">
+                      <div className={`text-xs ${disabled ? 'text-gray-500' : 'text-purple-600'}`}>
+                        {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
+                      </div>
+                      <div className={`text-xs ${disabled ? 'text-gray-500' : 'text-green-600'} font-semibold`}>
+                        +{location.growth}% ↗
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -284,8 +308,15 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
         {location1 && location2 && (
           <div className="mt-8 text-center">
             <button 
-            onClick ={() => setCompareLocations(true)}
-            className="bg-purple-600 text-white px-8 py-3 rounded-xl font-semibold hover:bg-purple-700 transition-colors text-lg">
+              onClick ={() => setCompareLocations(true)}
+              disabled={location1.id === location2.id}
+              className={
+                `px-8 py-3 rounded-xl font-semibold text-lg transition-colors ` +
+                (location1.id === location2.id
+                  ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                  : 'bg-purple-600 text-white hover:bg-purple-700')
+              }
+            >
               Compare Locations
             </button>
           </div>
