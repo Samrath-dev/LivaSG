@@ -53,6 +53,8 @@ class LocationResult(BaseModel):
     description: str
     growth: float
     amenities: List[str]
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class CommunityCentre(BaseModel):

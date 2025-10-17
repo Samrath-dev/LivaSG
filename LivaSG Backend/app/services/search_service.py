@@ -25,7 +25,9 @@ class SearchService:
                     facilities=['Near MRT', 'Shopping Malls', 'Fine Dining', 'Entertainment'],
                     description='Prestigious address along Orchard Road with luxury condominiums and excellent connectivity to shopping malls and entertainment hubs.',
                     growth=5.2,
-                    amenities=['ION Orchard', 'Wheelock Place', 'Orchard MRT']
+                    amenities=['ION Orchard', 'Wheelock Place', 'Orchard MRT'],
+                    latitude=1.3047,
+                    longitude=103.8257
                 ),
                 LocationResult(
                     id=2,
@@ -37,7 +39,9 @@ class SearchService:
                     facilities=['Near MRT', 'Shopping Malls', 'Healthcare'],
                     description='Prime location with luxury hotels, shopping centers, and high-end residential developments.',
                     growth=4.9,
-                    amenities=['Scotts Square', 'Far East Plaza', 'Newton MRT']
+                    amenities=['Scotts Square', 'Far East Plaza', 'Newton MRT'],
+                    latitude=1.3094,
+                    longitude=103.8350
                 )
             ],
             'bukit panjang': [
@@ -51,7 +55,9 @@ class SearchService:
                     facilities=['Near MRT', 'Good Schools', 'Community Facilities'],
                     description='Family-friendly neighborhood with good amenities and convenient LRT connectivity to Bukit Panjang town center.',
                     growth=3.8,
-                    amenities=['Fajar LRT', 'Bukit Panjang Plaza', 'West Spring Primary']
+                    amenities=['Fajar LRT', 'Bukit Panjang Plaza', 'West Spring Primary'],
+                    latitude=1.3850,
+                    longitude=103.7714
                 ),
                 LocationResult(
                     id=4,
@@ -63,7 +69,9 @@ class SearchService:
                     facilities=['Parks', 'Shopping Malls', 'Sports Facilities'],
                     description='Well-established residential area with proximity to Bukit Panjang Integrated Transport Hub and recreational facilities.',
                     growth=4.1,
-                    amenities=['Bukit Panjang ITH', 'Segar LRT', 'Junction 10']
+                    amenities=['Bukit Panjang ITH', 'Segar LRT', 'Junction 10'],
+                    latitude=1.3792,
+                    longitude=103.7703
                 )
             ],
             'tampines': [
@@ -77,7 +85,9 @@ class SearchService:
                     facilities=['Near MRT', 'Good Schools', 'Sports Facilities'],
                     description='Central location in Tampines town with easy access to all amenities and excellent family facilities.',
                     growth=3.2,
-                    amenities=['Tampines Mall', 'Tampines MRT', 'Our Tampines Hub']
+                    amenities=['Tampines Mall', 'Tampines MRT', 'Our Tampines Hub'],
+                    latitude=1.3472,
+                    longitude=103.9447
                 ),
                 LocationResult(
                     id=7,
@@ -89,7 +99,9 @@ class SearchService:
                     facilities=['Parks', 'Sports Facilities', 'Hawker Centres'],
                     description='Quieter part of Tampines with proximity to Tampines Eco Green and various sports facilities.',
                     growth=3.6,
-                    amenities=['Tampines Eco Green', 'Safra Tampines', 'Tampines North CC']
+                    amenities=['Tampines Eco Green', 'Safra Tampines', 'Tampines North CC'],
+                    latitude=1.3569,
+                    longitude=103.9550
                 )
             ],
             'jurong': [
@@ -103,7 +115,9 @@ class SearchService:
                     facilities=['Near MRT', 'Shopping Malls', 'Healthcare'],
                     description='Heart of Jurong East regional centre with excellent connectivity and future growth potential from Jurong Lake District development.',
                     growth=7.8,
-                    amenities=['Jurong East MRT', 'JEM Mall', 'Westgate']
+                    amenities=['Jurong East MRT', 'JEM Mall', 'Westgate'],
+                    latitude=1.3364,
+                    longitude=103.7422
                 ),
                 LocationResult(
                     id=9,
@@ -115,7 +129,9 @@ class SearchService:
                     facilities=['Good Schools', 'Parks', 'Community Facilities'],
                     description='Mature residential area with established community facilities and good educational institutions.',
                     growth=4.2,
-                    amenities=['Pioneer Mall', 'Boon Lay MRT', 'Jurong West Sports Centre']
+                    amenities=['Pioneer Mall', 'Boon Lay MRT', 'Jurong West Sports Centre'],
+                    latitude=1.3419,
+                    longitude=103.6994
                 )
             ],
             'marine parade': [
@@ -129,7 +145,9 @@ class SearchService:
                     facilities=['Parks', 'Healthcare', 'Community Facilities'],
                     description='Prime seafront location with panoramic sea views and direct access to East Coast Park.',
                     growth=4.3,
-                    amenities=['East Coast Park', 'Parkway Parade', 'Katong Mall']
+                    amenities=['East Coast Park', 'Parkway Parade', 'Katong Mall'],
+                    latitude=1.3031,
+                    longitude=103.9075
                 ),
                 LocationResult(
                     id=11,
@@ -141,7 +159,9 @@ class SearchService:
                     facilities=['Hawker Centres', 'Shopping Malls', 'Community Facilities'],
                     description='Historic Katong area with rich Peranakan heritage, famous eateries, and charming shophouses.',
                     growth=4.0,
-                    amenities=['Katong I12', 'Roxy Square', 'Marine Parade CC']
+                    amenities=['Katong I12', 'Roxy Square', 'Marine Parade CC'],
+                    latitude=1.3064,
+                    longitude=103.9128
                 )
             ]
         }
