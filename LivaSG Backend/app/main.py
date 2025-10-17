@@ -2,8 +2,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# --- Existing Routers ---
+# --- Existing Routers (module imports only) ---
 from app.api import map_controller, details_controller, search_controller
+from app.api import onemap_controller  # keep after DI objects created if you prefer
 
 # --- Existing Memory Repositories ---
 from app.repositories.memory_impl import (
@@ -59,35 +60,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- IMPORT OneMap Controller (AFTER DI objects created) ----
-from app.api import onemap_controller
-
-# ---- Inject dependency BEFORE including any routers ----
+# ---- Dependency overrides (avoid circular imports) ----
+# onemap_controller uses a DI hook for the planning repo
 app.dependency_overrides[onemap_controller.get_planning_repo] = lambda: di_planning_repo
 
-# ---- Mount routers (order safe now) ----
-app.include_router(map_controller.router, prefix="/map", tags=["map"])
+# map_controller now exposes DI hooks; wire them here
+app.dependency_overrides[map_controller.get_engine] = lambda: di_engine
+app.dependency_overrides[map_controller.get_weights_service] = lambda: di_weights
+app.dependency_overrides[map_controller.get_planning_repo] = lambda: di_planning_repo
+
+# ---- Mount routers ----
+# map_controller already has prefix="/map" and tags=["map"] inside the file
+app.include_router(map_controller.router)
+
+# keep these with explicit prefixes only if their controllers DO NOT already define prefixes
 app.include_router(details_controller.router, prefix="/details", tags=["details"])
 app.include_router(search_controller.router, prefix="/search", tags=["search"])
-app.include_router(onemap_controller.router, tags=["onemap"])
+
+# onemap_controller already has prefix="/onemap" and tags=["onemap"] inside the file
+app.include_router(onemap_controller.router)
 
 # Health
 @app.get("/")
 def health():
     return {"ok": True}
 
-#my debugging for onemap
-
+# --- Dev-only: simple PopAPI debug probe ---
 @app.get("/test-onemap")
 async def test_onemap():
     import httpx
-    from app.main import di_onemap_client  # uses the hardcoded token client
-
-    url = "https://www.onemap.gov.sg/api/public/themes/planningarea?year=2020"
-
+    url = "https://www.onemap.gov.sg/api/public/popapi/getAllPlanningarea?year=2019"
+    headers = getattr(di_onemap_client, "_headers_pop", {})
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(url, headers=di_onemap_client._headers)  # <-- use exact header
+            r = await client.get(url, headers=headers)
             return {"status": r.status_code, "raw": r.text[:500]}
     except Exception as e:
         return {"error": str(e)}
