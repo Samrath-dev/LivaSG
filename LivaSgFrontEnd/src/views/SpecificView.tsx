@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { HiChevronLeft, HiStar, HiInformationCircle, HiBookmark } from 'react-icons/hi';
 import OneMapInteractive from '../components/OneMapInteractive';
+import CompareLocations from './CompareLocations';
+import DetailsView from './DetailsView';
 
 interface SpecificViewProps {
   areaName: string;
@@ -8,6 +10,22 @@ interface SpecificViewProps {
   onBack: () => void;
   onRatingClick: (areaName: string, coordinates: [number, number][]) => void;
   onDetailsClick: (areaName: string, coordinates: [number, number][]) => void;
+}
+
+interface LocationResult {
+  id: number;
+  street: string;
+  area: string;
+  district: string;
+  priceRange: [number, number];
+  avgPrice: number;
+  facilities: string[];
+  description: string;
+  growth: number;
+  amenities: string[];
+  transitScore: number;
+  schoolScore: number;
+  amenitiesScore: number; // Added this missing property
 }
 
 const SpecificView = ({ 
@@ -20,18 +38,98 @@ const SpecificView = ({
   const [mapCenter, setMapCenter] = useState<[number, number]>([1.3521, 103.8198]);
   const [mapZoom, setMapZoom] = useState<number>(14);
   const [isSaved, setIsSaved] = useState(false);
+  const [selectedAreaLocation, setSelectedAreaLocation] = useState<LocationResult | null>(null);
+  const [loadingAreaData, setLoadingAreaData] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsDragY, setDetailsDragY] = useState(0);
+  const [detailsIsDragging, setDetailsIsDragging] = useState(false);
+  const [detailsVisible, setDetailsVisible] = useState(false);
+  const detailsStartYRef = useRef(0);
+  const detailsModalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (coordinates && coordinates.length > 0) {
-      // Calculate centroid for the polygon
       const centroid = centroidOf(coordinates);
       setMapCenter(centroid);
-      
-      // Calculate appropriate zoom level to fit the polygon
       const targetZoom = computeZoomForBounds(coordinates, 0.9);
       setMapZoom(targetZoom);
     }
-  }, [coordinates]);
+
+    // Create mock location data for the area
+    const mockLocationData: LocationResult = {
+      id: Date.now(),
+      street: `${areaName} Central`,
+      area: areaName,
+      district: "District",
+      priceRange: [800000, 2000000],
+      avgPrice: 1200,
+      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
+      description: `${areaName} is a well-established planning area with excellent amenities and connectivity.`,
+      growth: 10.5,
+      amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
+      transitScore: 85,
+      schoolScore: 80,
+      amenitiesScore: 90 // Added the missing property
+    };
+    setSelectedAreaLocation(mockLocationData);
+  }, [coordinates, areaName]);
+
+  useEffect(() => {
+    if (detailsOpen) {
+      requestAnimationFrame(() => setDetailsVisible(true));
+    } else {
+      setDetailsVisible(false);
+      setDetailsDragY(0);
+      setDetailsIsDragging(false);
+    }
+  }, [detailsOpen]);
+
+  const handleDetailsPointerDown = (e: React.PointerEvent) => {
+    (e.currentTarget as Element & { setPointerCapture?: (id: number) => void })
+      .setPointerCapture?.(e.pointerId);
+    setDetailsIsDragging(true);
+    detailsStartYRef.current = e.clientY;
+  };
+
+  const handleDetailsPointerMove = (e: React.PointerEvent) => {
+    if (!detailsIsDragging) return;
+    const delta = Math.max(0, e.clientY - detailsStartYRef.current);
+    setDetailsDragY(delta);
+  };
+
+  const handleDetailsPointerUp = (e?: React.PointerEvent) => {
+    if (e) {
+      try {
+        (e.currentTarget as Element & { releasePointerCapture?: (id: number) => void })
+          .releasePointerCapture?.(e.pointerId);
+      } catch {}
+    }
+    setDetailsIsDragging(false);
+    const threshold = 120;
+    if (detailsDragY > threshold) {
+      setDetailsDragY(window.innerHeight);
+      setTimeout(() => setDetailsOpen(false), 180);
+      return;
+    }
+    setDetailsDragY(0);
+  };
+
+  // Overlay opacity tied to drag
+  const detailsModalMaxHeight = (typeof window !== 'undefined') ? window.innerHeight * 0.9 : 800;
+  const detailsBaseOverlayOpacity = 0.45;
+  const detailsDragFactor = Math.max(0, 1 - detailsDragY / detailsModalMaxHeight);
+  const detailsOverlayOpacity = detailsVisible ? detailsBaseOverlayOpacity * detailsDragFactor : 0;
+  const detailsOverlayTransition = detailsIsDragging ? 'none' : 'opacity 320ms cubic-bezier(0.2,0.9,0.2,1)';
+
+  const detailsModalTransform = detailsIsDragging
+    ? `translateY(${detailsDragY}px)`
+    : !detailsVisible
+    ? 'translateY(100%)'
+    : undefined;
+  
+  const detailsTransitionStyle = detailsIsDragging ? 'none' : 'transform 220ms cubic-bezier(.2,.9,.2,1)';
+  const detailsSheetTranslate = detailsVisible ? `translateY(${detailsDragY}px)` : 'translateY(100%)';
 
   const centroidOf = (coords: [number, number][]) => {
     const lats = coords.map(c => c[0]);
@@ -59,10 +157,8 @@ const SpecificView = ({
 
     const TILE_SIZE = 256;
 
-    // longitude-based zoom
     const zoomLon = Math.log2((360 * (viewportW * fraction)) / (TILE_SIZE * lonDelta));
 
-    // latitude-based zoom with Mercator projection
     const latToMerc = (lat: number) => {
       const rad = (lat * Math.PI) / 180;
       return Math.log(Math.tan(Math.PI / 4 + rad / 2));
@@ -75,21 +171,20 @@ const SpecificView = ({
     const zoomLat = Math.log2((worldMercatorHeight * (viewportH * fraction)) / (TILE_SIZE * mercDelta));
 
     const rawZoom = Math.min(zoomLon, zoomLat);
-    const zoom = Math.max(12, Math.min(18, Math.round(rawZoom))); // Higher minimum zoom for closer view
+    const zoom = Math.max(12, Math.min(18, Math.round(rawZoom)));
     return zoom;
   };
 
   const handleRatingClick = () => {
-    onRatingClick(areaName, coordinates);
+    setCompareOpen(true);
   };
 
   const handleDetailsClick = () => {
-    onDetailsClick(areaName, coordinates);
+    setDetailsOpen(true);
   };
 
   const handleSaveClick = () => {
     setIsSaved(!isSaved);
-    // You can add your save logic here
     console.log(`${areaName} ${isSaved ? 'unsaved' : 'saved'}`);
   };
 
@@ -149,7 +244,7 @@ const SpecificView = ({
       </div>
 
       {/* Zoomed Map */}
-      <div className="flex-1 bg-purple-50 relative">
+      <div className={`flex-1 bg-purple-50 relative ${(compareOpen || detailsOpen) ? 'pointer-events-none filter blur-sm brightness-90' : ''}`}>
         <OneMapInteractive 
           center={mapCenter}
           zoom={mapZoom}
@@ -158,6 +253,72 @@ const SpecificView = ({
           className="w-full h-full"
         />
       </div>
+
+      {/* Compare / Details overlays */}
+      {compareOpen && selectedAreaLocation && (
+        <CompareLocations
+          locations={[selectedAreaLocation]}
+          onClose={() => setCompareOpen(false)}
+        />
+      )}
+
+      {detailsOpen && selectedAreaLocation && (
+        <div
+          className="fixed inset-0 z-[2000] flex items-end justify-center"
+          onClick={() => setDetailsOpen(false)}
+          aria-hidden
+        >
+          <div
+            className="absolute inset-0 bg-black z-40"
+            style={{ opacity: detailsOverlayOpacity, transition: detailsOverlayTransition }}
+          />
+
+          <style>{`
+            @keyframes slideUp {
+              0% { transform: translateY(100%); }
+              100% { transform: translateY(0%); }
+            }
+            .sheet { animation-fill-mode: forwards; }
+            .sheet.enter { animation: slideUp 420ms cubic-bezier(0.2,0.9,0.2,1); }
+            .drag-handle { width: 48px; height: 6px; border-radius: 9999px; background: rgba(107,21,168,0.18); margin-top: 8px; margin-bottom: 8px; }
+          `}</style>
+
+          <div
+            ref={detailsModalRef}
+            className={`sheet bg-white rounded-t-2xl z-50 ${detailsVisible ? 'enter' : ''}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '90vw',
+              maxWidth: '90vw',
+              height: '90vh',
+              maxHeight: '90vh',
+              transform: detailsSheetTranslate,
+              transition: detailsVisible ? detailsTransitionStyle : undefined,
+              borderTopLeftRadius: 16,
+              borderTopRightRadius: 16,
+              overflow: 'hidden',
+              touchAction: 'none',
+            }}
+          >
+            <div
+              className="w-full flex items-center justify-center cursor-grab select-none"
+              onPointerDown={handleDetailsPointerDown}
+              onPointerMove={handleDetailsPointerMove}
+              onPointerUp={handleDetailsPointerUp}
+              onPointerCancel={handleDetailsPointerUp}
+            >
+              <div className="drag-handle" />
+            </div>
+
+            <div className="p-4 h-[calc(100%-40px)] overflow-auto">
+              <DetailsView
+                location={selectedAreaLocation}
+                onBack={() => setDetailsOpen(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
