@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { HiChevronLeft, HiSearch, HiChartBar, HiPlus } from 'react-icons/hi';
 import CompareLocations from './CompareLocations';
 
@@ -30,105 +30,43 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
   const [loading, setLoading] = useState<boolean[]>([false, false]);
   const [compareOpen, setCompareOpen] = useState(false);
 
-  // Mock data for demonstration - replace with actual API calls
-  const mockLocations: LocationResult[] = [
-    {
-      id: 1,
-      street: "Marine Parade Road",
-      area: "Marine Parade",
-      district: "D15",
-      priceRange: [1200000, 2500000],
-      avgPrice: 1500,
-      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
-      description: "Waterfront living with excellent amenities and schools.",
-      growth: 12.5,
-      amenities: ["East Coast Park", "Parkway Parade", "Marine Parade MRT"],
-      transitScore: 85,
-      schoolScore: 90,
-      amenitiesScore: 95
-    },
-    {
-      id: 2,
-      street: "Orchard Road",
-      area: "Orchard",
-      district: "D9",
-      priceRange: [2000000, 5000000],
-      avgPrice: 2800,
-      facilities: ['Near MRT', 'Shopping Malls', 'Healthcare', 'Parks'],
-      description: "Prime district with luxury shopping and central location.",
-      growth: 8.2,
-      amenities: ["ION Orchard", "Takashimaya", "Orchard MRT"],
-      transitScore: 95,
-      schoolScore: 75,
-      amenitiesScore: 98
-    },
-    {
-      id: 3,
-      street: "Tampines Street 42",
-      area: "Tampines",
-      district: "D18",
-      priceRange: [600000, 1200000],
-      avgPrice: 850,
-      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Sports Facilities'],
-      description: "Family-friendly neighborhood with great facilities.",
-      growth: 15.3,
-      amenities: ["Tampines Mall", "Our Tampines Hub", "Tampines MRT"],
-      transitScore: 80,
-      schoolScore: 85,
-      amenitiesScore: 88
-    },
-    {
-      id: 4,
-      street: "TEST1",
-      area: "Bishan",
-      district: "D21",
-      priceRange: [100000, 900000],
-      avgPrice: 1200,
-      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Sports Facilities'],
-      description: "Family-friendly neighborhood with great facilities.",
-      growth: 18.4,
-      amenities: ["Tampines Mall", "Our Tampines Hub", "Tampines MRT"],
-      transitScore: 90,
-      schoolScore: 60,
-      amenitiesScore: 43
-    },
-    {
-      id: 5,
-      street: "TEST2",
-      area: "Changi",
-      district: "D22",
-      priceRange: [300000, 1700000],
-      avgPrice: 620,
-      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Sports Facilities'],
-      description: "Family-friendly neighborhood with great facilities.",
-      growth: 2.3,
-      amenities: ["Tampines Mall", "Our Tampines Hub", "Tampines MRT"],
-      transitScore: 95,
-      schoolScore: 75,
-      amenitiesScore: 65
-    },
-    {
-      id: 6,
-      street: "TEST3",
-      area: "Atlantis",
-      district: "D23",
-      priceRange: [800000, 900000],
-      avgPrice: 1500,
-      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Sports Facilities'],
-      description: "Family-friendly neighborhood with great facilities.",
-      growth: 35.6,
-      amenities: ["Tampines Mall", "Our Tampines Hub", "Tampines MRT"],
-      transitScore: 100,
-      schoolScore: 70,
-      amenitiesScore: 75
-    }
-  ];
-
   // Suggested locations (top 3 by growth rate)
-  const suggestedLocations = mockLocations
-    .slice()
-    .sort((a, b) => b.growth - a.growth)
-    .slice(0, 3);
+  const [suggestedLocations, setSuggestedLocations] = useState<LocationResult[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchSuggestions = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/search/filter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            facilities: [],
+            price_range: [0, 99999999],
+            search_query: ''
+          })
+        });
+        if (!res.ok) throw new Error('Failed to fetch suggestions');
+        const json = await res.json();
+        const mapped = (json || []).map((loc: any) => ({
+          ...loc,
+          priceRange: loc.price_range ?? loc.priceRange,
+          avgPrice: loc.avg_price ?? loc.avgPrice,
+          growth: Number(loc.growth ?? 0),
+          transitScore: Number(loc.transit_score ?? loc.transitScore ?? 0),
+          schoolScore: Number(loc.school_score ?? loc.schoolScore ?? 0),
+          amenitiesScore: Number(loc.amenities_score ?? loc.amenitiesScore ?? 0),
+        })) as LocationResult[];
+
+        if (cancelled) return;
+        setSuggestedLocations(mapped.slice().sort((a, b) => b.growth - a.growth).slice(0, 3));
+      } catch (err) {
+        console.warn('fetchSuggestions error', err);
+      }
+    };
+    fetchSuggestions();
+    return () => { cancelled = true; };
+  }, []);
 
   const formatPrice = (price: number) => {
     if (price >= 1000000) {
@@ -170,35 +108,36 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
   };
 
   const searchLocations = async (index: number, query: string) => {
-    setLoading(prev => {
-      const copy = [...prev];
-      copy[index] = true;
-      return copy;
-    });
+    setLoading(prev => { const copy = [...prev]; copy[index] = true; return copy; });
     try {
-      await new Promise(resolve => setTimeout(resolve, 250));
-      const filtered = mockLocations.filter(loc =>
-        loc.street.toLowerCase().includes(query.toLowerCase()) ||
-        loc.area.toLowerCase().includes(query.toLowerCase()) ||
-        loc.district.toLowerCase().includes(query.toLowerCase())
-      );
-      setSearchResults(prev => {
-        const copy = [...prev];
-        copy[index] = filtered;
-        return copy;
+      const response = await fetch('http://localhost:8000/search/filter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          facilities: [],          // keep empty or expose filters if you add UI later
+          price_range: [0, 99999999],
+          search_query: query
+        })
       });
-    } catch {
-      setSearchResults(prev => {
-        const copy = [...prev];
-        copy[index] = [];
-        return copy;
-      });
+      if (!response.ok) throw new Error('Failed to fetch locations');
+      const json = await response.json();
+      const mapped = (json || []).map((loc: any) => ({
+        ...loc,
+        priceRange: loc.price_range ?? loc.priceRange,
+        avgPrice: loc.avg_price ?? loc.avgPrice,
+        // ensure numeric fields where possible
+        growth: Number(loc.growth ?? 0),
+        transitScore: Number(loc.transit_score ?? loc.transitScore ?? 0),
+        schoolScore: Number(loc.school_score ?? loc.schoolScore ?? 0),
+        amenitiesScore: Number(loc.amenities_score ?? loc.amenitiesScore ?? 0),
+      })) as LocationResult[];
+
+      setSearchResults(prev => { const copy = [...prev]; copy[index] = mapped; return copy; });
+    } catch (err) {
+      console.warn('searchLocations error', err);
+      setSearchResults(prev => { const copy = [...prev]; copy[index] = []; return copy; });
     } finally {
-      setLoading(prev => {
-        const copy = [...prev];
-        copy[index] = false;
-        return copy;
-      });
+      setLoading(prev => { const copy = [...prev]; copy[index] = false; return copy; });
     }
   };
 
@@ -410,7 +349,7 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
       {/* Compare modal */}
       {compareOpen && (
         <CompareLocations
-          locations={nonNullSelected.length ? nonNullSelected : mockLocations.slice(0, 5)}
+          locations={nonNullSelected.length ? nonNullSelected : suggestedLocations.slice(0, 5)}
           onClose={() => setCompareOpen(false)}
         />
       )}
