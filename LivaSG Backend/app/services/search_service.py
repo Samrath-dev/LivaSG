@@ -20,38 +20,172 @@ class SearchService:
     async def filter_locations(self, filters: SearchFilters) -> List[LocationResult]:
         """
         Filter locations based on search query and filters:
-        - If search_query exists: Return only OneMap results (no JSON data)
-        - If no search_query: Return only JSON data that matches filters
+        - If search_query exists: Only search by planning area name, or resolve postal code to planning area.
+        - If no search_query: Return all locations matching filters.
+        - If no planning area match: Return closest planning area to searched place.
         """
-        import os, json
-        from app.domain.models import LocationResult, OneMapSearchResult
+        import os, json, re, math
+        from app.domain.models import LocationResult, OneMapSearchResult, AreaCentroid
         results: List[LocationResult] = []
 
-        # Case 1: Search query exists - pull from OneMap API only
+        def is_postal_code(query):
+            return bool(re.fullmatch(r"\d{6}", query.strip()))
+
+        async def load_planning_areas_from_popapi():
+            # Get planning areas from PopAPI
+            try:
+                pa_names = await self.onemap_client.planning_area_names()
+                # Returns: [ { "id": 114, "pln_area_n": "BEDOK" }, ... ]
+                return {pa['pln_area_n'].title() for pa in pa_names}
+            except Exception:
+                return set()
+
+        async def calculate_planning_area_centroids():
+            # Get planning area polygons and calculate centroids
+            centroids = {}
+            try:
+                pa_data = await self.onemap_client.planning_areas()
+                # Returns: {"SearchResults": [ { "pln_area_n": "...", "geojson": "{...}" }, ... ]}
+                for area in pa_data.get('SearchResults', []):
+                    area_name = area['pln_area_n'].title()
+                    geojson_str = area.get('geojson', '{}')
+                    geojson = json.loads(geojson_str)
+                    # Calculate centroid from polygon coordinates
+                    coords = []
+                    if geojson.get('type') == 'MultiPolygon':
+                        for polygon in geojson.get('coordinates', []):
+                            for ring in polygon:
+                                coords.extend(ring)
+                    elif geojson.get('type') == 'Polygon':
+                        for ring in geojson.get('coordinates', []):
+                            coords.extend(ring)
+                    if coords:
+                        avg_lon = sum(c[0] for c in coords) / len(coords)
+                        avg_lat = sum(c[1] for c in coords) / len(coords)
+                        centroids[area_name] = (avg_lat, avg_lon)
+            except Exception:
+                pass
+            return centroids
+
+        def haversine(lat1, lon1, lat2, lon2):
+            R = 6371
+            phi1, phi2 = math.radians(lat1), math.radians(lat2)
+            dphi = math.radians(lat2 - lat1)
+            dlambda = math.radians(lon2 - lon1)
+            a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+            return 2*R*math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+        def point_in_polygon(lon, lat, polygon):
+            # Ray casting algorithm for point-in-polygon
+            # GeoJSON: [longitude, latitude]
+            num = len(polygon)
+            j = num - 1
+            inside = False
+            for i in range(num):
+                lon_i, lat_i = polygon[i][0], polygon[i][1]
+                lon_j, lat_j = polygon[j][0], polygon[j][1]
+                if ((lat_i > lat) != (lat_j > lat)) and (lon < (lon_j - lon_i) * (lat - lat_i) / (lat_j - lat_i + 1e-12) + lon_i):
+                    inside = not inside
+                j = i
+            return inside
+
+        async def find_area_by_point(lat, lon, pa_data):
+            # Check if point is inside any planning area polygon
+            for area in pa_data.get('SearchResults', []):
+                area_name = area['pln_area_n'].title()
+                geojson_str = area.get('geojson', '{}')
+                geojson = json.loads(geojson_str)
+                if geojson.get('type') == 'MultiPolygon':
+                    for polygon in geojson.get('coordinates', []):
+                        for ring in polygon:
+                            if point_in_polygon(lon, lat, ring):
+                                return area_name
+                elif geojson.get('type') == 'Polygon':
+                    for ring in geojson.get('coordinates', []):
+                        if point_in_polygon(lon, lat, ring):
+                            return area_name
+            return None
+
+        # Load all planning area names from PopAPI
+        planning_areas = await load_planning_areas_from_popapi()
+        centroids = await calculate_planning_area_centroids()
+
+        # Case 1: Search query exists
         if filters.search_query:
-            onemap_response = await self.search_onemap(filters.search_query)
-            # Convert OneMap results to LocationResult format
-            for idx, om in enumerate(onemap_response.results):
-                try:
-                    om_obj = OneMapSearchResult(**om) if isinstance(om, dict) else om
-                    results.append(self._convert_onemap_to_location_result(om_obj, idx+1))
-                except Exception:
-                    continue
-        
-        # Case 2: No search query - load from local JSON file only
+            query = filters.search_query.strip()
+            matched_area = None
+            # 1. Direct planning area name match
+            for area in planning_areas:
+                if query.lower() == area.lower():
+                    matched_area = area
+                    break
+            pa_data = await self.onemap_client.planning_areas()
+            # 2. If postal code, use OneMap /getPlanningarea endpoint
+            if not matched_area and is_postal_code(query):
+                onemap_response = await self.search_onemap(query)
+                if onemap_response.results:
+                    om = onemap_response.results[0]
+                    lat, lon = float(om.LATITUDE), float(om.LONGITUDE)
+                    try:
+                        pa_result = await self.onemap_client.planning_area_at(lat, lon)
+                        if pa_result and 'pln_area_n' in pa_result[0]:
+                            matched_area = pa_result[0]['pln_area_n'].title()
+                    except Exception:
+                        pass
+            # 3. If not matched, check polygon containment
+            if not matched_area:
+                onemap_response = await self.search_onemap(query)
+                if onemap_response.results:
+                    om = onemap_response.results[0]
+                    lat, lon = float(om.LATITUDE), float(om.LONGITUDE)
+                    matched_area = await find_area_by_point(lat, lon, pa_data)
+            # 4. If still not matched, fallback to closest centroid
+            if not matched_area:
+                onemap_response = await self.search_onemap(query)
+                if onemap_response.results:
+                    om = onemap_response.results[0]
+                    lat, lon = float(om.LATITUDE), float(om.LONGITUDE)
+                    min_dist, closest_area = float('inf'), None
+                    for area, (alat, alon) in centroids.items():
+                        dist = haversine(lat, lon, alat, alon)
+                        if dist < min_dist:
+                            min_dist, closest_area = dist, area
+                    matched_area = closest_area
+            # Return LocationResult for matched_area
+            if matched_area:
+                lat, lon = centroids.get(matched_area, (0.0, 0.0))
+                results.append(LocationResult(
+                    id=1,
+                    street=matched_area,
+                    area=matched_area,
+                    district=matched_area,
+                    price_range=[0, 0],
+                    avg_price=0,
+                    facilities=[],
+                    description=f"Planning area: {matched_area}",
+                    growth=0.0,
+                    amenities=[],
+                    latitude=lat if lat != 0.0 else None,
+                    longitude=lon if lon != 0.0 else None
+                ))
         else:
-            json_path = os.path.join(os.path.dirname(__file__), '../../onemap_locations.json')
-            if os.path.exists(json_path):
-                try:
-                    with open(json_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        for loc in data:
-                            try:
-                                results.append(LocationResult(**loc))
-                            except Exception:
-                                continue
-                except Exception:
-                    pass
+            # No search query: return all planning areas as LocationResults
+            for idx, area_name in enumerate(planning_areas, start=1):
+                lat, lon = centroids.get(area_name, (0.0, 0.0))
+                results.append(LocationResult(
+                    id=idx,
+                    street=area_name,
+                    area=area_name,
+                    district=area_name,
+                    price_range=[0, 0],
+                    avg_price=0,
+                    facilities=[],
+                    description=f"Planning area: {area_name}",
+                    growth=0.0,
+                    amenities=[],
+                    latitude=lat if lat != 0.0 else None,
+                    longitude=lon if lon != 0.0 else None
+                ))
 
         # Apply filter logic (price range, facilities)
         filtered_results = []
