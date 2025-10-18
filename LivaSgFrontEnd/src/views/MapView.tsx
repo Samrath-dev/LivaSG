@@ -1,6 +1,7 @@
 import { HiSearch, HiX, HiMap, HiCog, HiInformationCircle, HiChevronUp, HiChevronDown } from 'react-icons/hi';
 import { useState } from 'react';
 import OneMapInteractive from '../components/OneMapInteractive';
+import SpecificView from './SpecificView'; // Import the SpecificView
 
 interface MapViewProps {
   onSearchClick: () => void;
@@ -13,6 +14,10 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [showAreaInfo, setShowAreaInfo] = useState(false);
   const [isLegendOpen, setIsLegendOpen] = useState(false);
+  // New state for SpecificView
+  const [specificViewOpen, setSpecificViewOpen] = useState(false);
+  const [specificViewArea, setSpecificViewArea] = useState<string | null>(null);
+  const [specificViewCoords, setSpecificViewCoords] = useState<[number, number][] | null>(null);
 
   const clearSearch = () => {
     onSearchQueryChange('');
@@ -25,6 +30,8 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
   const handleAreaClick = (areaName: string, coordinates: [number, number][]) => {
     setSelectedArea(areaName);
     setShowAreaInfo(true);
+    // Store coordinates for SpecificView
+    setSpecificViewCoords(coordinates);
     console.log(`Selected area: ${areaName}`, coordinates);
   };
 
@@ -44,6 +51,46 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
   const toggleLegend = () => {
     setIsLegendOpen(!isLegendOpen);
   };
+
+  // Handler for opening SpecificView
+  const handleViewDetails = () => {
+    if (selectedArea && specificViewCoords) {
+      setSpecificViewArea(selectedArea);
+      setSpecificViewOpen(true);
+    }
+  };
+
+  // Handler for closing SpecificView
+  const handleBackFromSpecific = () => {
+    setSpecificViewOpen(false);
+    setSpecificViewArea(null);
+  };
+
+  // Handlers for SpecificView buttons
+  const handleSpecificRating = (areaName: string, coordinates: [number, number][]) => {
+    console.log('Opening rating for:', areaName);
+    // You can add your rating logic here
+    // For example: setRatingOpen(true);
+  };
+
+  const handleSpecificDetails = (areaName: string, coordinates: [number, number][]) => {
+    console.log('Opening details for:', areaName);
+    // You can add your details logic here
+    // For example: setDetailsOpen(true);
+  };
+
+  // If SpecificView is open, render it instead of the main map
+  if (specificViewOpen && specificViewArea && specificViewCoords) {
+    return (
+      <SpecificView
+        areaName={specificViewArea}
+        coordinates={specificViewCoords}
+        onBack={handleBackFromSpecific}
+        onRatingClick={handleSpecificRating}
+        onDetailsClick={handleSpecificDetails}
+      />
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-purple-50">
@@ -150,10 +197,13 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
                   </div>
                 </div>
 
-                {/* Single Action Button */}
+                {/* Updated Action Button - Now opens SpecificView */}
                 <div className="mt-3">
-                  <button className="w-full bg-purple-600 text-white py-2 px-3 rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
-                    View Properties
+                  <button 
+                    onClick={handleViewDetails}
+                    className="w-full bg-purple-600 text-white py-2 px-3 rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors"
+                  >
+                    View Details
                   </button>
                 </div>
               </div>
