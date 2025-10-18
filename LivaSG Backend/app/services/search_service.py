@@ -124,14 +124,15 @@ class SearchService:
         Helper method to convert OneMap search result to LocationResult format.
         Useful for integrating OneMap results with existing ranking system.
         """
-        # Extract area from address or use road name as fallback
+        # Area: extract from ROAD_NAME (first word, typical for Singapore)
         area = onemap_result.ROAD_NAME.split()[0] if onemap_result.ROAD_NAME else "Unknown"
-        
+        # Street: SEARCHVAL and BLK_NO (block number)
+        street = f"{onemap_result.SEARCHVAL} {onemap_result.BLK_NO}".strip()
         return LocationResult(
             id=idx,
-            street=onemap_result.SEARCHVAL or onemap_result.ROAD_NAME,
+            street=street,
             area=area,
-            district=onemap_result.ROAD_NAME,  # OneMap doesn't provide district directly
+            district=onemap_result.POSTAL or "Unknown",
             price_range=[0, 0],  # Would need to fetch from your pricing data
             avg_price=0,  # Would need to fetch from your pricing data
             facilities=[],  # Would need to fetch from amenities data
