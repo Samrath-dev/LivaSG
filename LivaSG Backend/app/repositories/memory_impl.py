@@ -1,7 +1,10 @@
 from datetime import date
+import math
+import requests
 from typing import List, Optional
 from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre, Transit, Carpark, AreaCentroid
 from .interfaces import IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo, ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo
+from ..integrations import onemap_client as onemap
 
 class MemoryPriceRepo(IPriceRepo):
     def series(self, area_id: str, months: int) -> List[PriceRecord]:
@@ -18,11 +21,188 @@ class MemoryPriceRepo(IPriceRepo):
         return out
 
 class MemoryAmenityRepo(IAmenityRepo):
-    def facilities_summary(self, area_id: str) -> FacilitiesSummary:
-        return FacilitiesSummary(
-            schools=5 if area_id=="Bedok" else 4,
-            sports=2, hawkers=3, healthcare=4, greenSpaces=6, carparks=8
+    def __init__(self):
+        self._schools_data = {}     # 724 schools in Singapore
+        self._sports_data = self.getSportFacilities()  # 35 sports facilities in Singapore
+        self._hawkers_data = self.getHawkerCentres()  # 129 hawker centres in Singapore
+        self._clinics_data = self.getHealthcareClinics()  # 1193 CHAS clinics in Singapore
+        self._parks_data = self.getParks()  # 441 parks in Singapore
+        self._carparks_data = {}  # 524 carparks in Singapore
+
+    async def facilities_summary(self, area_id: str) -> FacilitiesSummary:
+        if self._schools_data == {}:
+            self._schools_data = await self.getSchools()
+
+        if self._carparks_data == {}:
+            self._carparks_data = await self.getCarparks()
+
+        return FacilitiesSummary(   
+            schools=len(self.filterNearest(area_id, self._schools_data, threshold_km=2.0)),
+            sports=len(self.filterNearest(area_id, self._sports_data, threshold_km=5.0)),
+            hawkers=len(self.filterNearest(area_id, self._hawkers_data, threshold_km=5.0)),
+            healthcare=len(self.filterNearest(area_id, self._clinics_data, threshold_km=2.0)),
+            greenSpaces=len(self.filterNearest(area_id, self._parks_data, threshold_km=5.0)), 
+            carparks=len(self.filterNearest(area_id, self._carparks_data, threshold_km=5.0)),
         )
+    
+    @staticmethod
+    def haversine(lat1, lon1, lat2, lon2):
+        R = 6371
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+        return 2*R*math.atan2(math.sqrt(a), math.sqrt(1-a))
+    
+    def filterNearest(self, area_id: str, locations: List[dict], threshold_km: float) -> List[dict]:
+        area_centroid = MemoryAreaRepo().centroid(area_id)
+        if not area_centroid:
+            return []  # Return empty list if the area_id is invalid or not found
+
+        nearby_locations = []
+        for loc in locations:
+            try:
+                # Check if the location is an AreaCentroid object
+                if isinstance(loc, AreaCentroid):
+                    loc_lat = loc.latitude
+                    loc_lon = loc.longitude
+
+                else:  # Assume it's a dictionary
+                    loc_lat = float(loc.get("LATITUDE") or loc.get("latitude"))
+                    loc_lon = float(loc.get("LONGITUDE") or loc.get("longitude"))
+
+                # Calculate the distance
+                distance = self.haversine(
+                    area_centroid.latitude, area_centroid.longitude,
+                    loc_lat, loc_lon
+                )
+                if distance <= threshold_km:
+                    nearby_locations.append(loc)
+            except (KeyError, ValueError):
+                continue  # Skip locations with missing or invalid coordinates
+        return nearby_locations
+
+    # Search all pages for a given query for OneMap API
+    async def searchAllPages(self, query: str) -> List[dict]:
+        all_results = []
+        page = 1
+        onemap_client = onemap.OneMapClientHardcoded()
+
+        while True:
+            search_results = await onemap_client.search(query=query, page=page)
+
+            if not search_results or "results" not in search_results or len(search_results["results"]) == 0:
+                break  # No more results
+            all_results.extend(search_results["results"])
+            page += 1
+        return all_results
+
+    async def getSchools(self):
+        # Use OneMap Search API to find nearby schools
+        search_results = await self.searchAllPages(query="school")
+        return search_results
+    
+    def getSportFacilities(self):
+        dataset_id = "d_9b87bab59d036a60fad2a91530e10773"
+        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
+
+        response = requests.get(url)
+        json_data = response.json()
+        if json_data['code'] != 0:
+            print(json_data['errMsg'])
+            exit(1)
+
+        url = json_data['data']['url']
+        location_data = requests.get(url).json()
+
+        sportfacilities = [
+            {
+            "name": feature["properties"]["Description"].split("<td>")[1].split("</td>")[0],
+            "address": feature["properties"].get("address"),
+            "latitude": feature['geometry']['coordinates'][0][0][1] if feature['geometry']['type'] == "Polygon" else feature['geometry']['coordinates'][0][0][0][1],
+            "longitude": feature["geometry"]["coordinates"][0][0][0] if feature["geometry"]["type"] == "Polygon" else feature["geometry"]["coordinates"][0][0][0][0]
+            }
+            for feature in location_data["features"]
+        ]
+
+        return sportfacilities
+    
+    def getHawkerCentres(self):
+        dataset_id = "d_4a086da0a5553be1d89383cd90d07ecd"
+        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
+
+        response = requests.get(url)
+        json_data = response.json()
+        if json_data['code'] != 0:
+            print(json_data['errMsg'])
+            exit(1)
+
+        url = json_data['data']['url']
+        location_data = requests.get(url).json()
+
+        hawkers = [
+            {
+                "name": feature["properties"].get("NAME"),
+                "address": feature["properties"].get("address"),
+                "latitude": feature["geometry"]["coordinates"][1],
+                "longitude": feature["geometry"]["coordinates"][0]
+            }
+            for feature in location_data["features"]
+            if feature["geometry"]["type"] == "Point"
+        ]
+        return hawkers
+    
+    def getHealthcareClinics(self):
+        dataset_id = "d_548c33ea2d99e29ec63a7cc9edcccedc"
+        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
+
+        response = requests.get(url)
+        json_data = response.json()
+        if json_data['code'] != 0:
+            print(json_data['errMsg'])
+            exit(1)
+
+        url = json_data['data']['url']
+        location_data = requests.get(url).json()
+
+        clinics = [
+            {
+                "name": feature["properties"]["Description"].split("<td>")[2].split("</td>")[0],
+                "latitude": feature["geometry"]["coordinates"][1],
+                "longitude": feature["geometry"]["coordinates"][0]
+            }
+            for feature in location_data["features"]
+            if feature["geometry"]["type"] == "Point"
+        ]
+        return clinics
+    
+    def getParks(self):
+        dataset_id = "d_0542d48f0991541706b58059381a6eca"
+        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
+
+        response = requests.get(url)
+        json_data = response.json()
+        if json_data['code'] != 0:
+            print(json_data['errMsg'])
+            exit(1)
+
+        url = json_data['data']['url']
+        location_data = requests.get(url).json()
+
+        parks = [
+            {
+                "name": feature["properties"].get("NAME"),
+                "latitude": feature["geometry"]["coordinates"][1],
+                "longitude": feature["geometry"]["coordinates"][0]
+            }
+            for feature in location_data["features"]
+            if feature["geometry"]["type"] == "Point"
+        ]
+        return parks
+    
+    async def getCarparks(self):
+        search_results = await self.searchAllPages(query="carpark")
+        return search_results
 
 class MemoryWeightsRepo(IWeightsRepo):
     _profiles = [WeightsProfile()]
@@ -92,12 +272,25 @@ class MemoryCarparkRepo(ICarparkRepo):
 
 
 class MemoryAreaRepo(IAreaRepo):
+    dataset_id = "d_4765db0e87b9c86336792efe8a1f7a66"
+    url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
+    response = requests.get(url)
+    json_data = response.json()
+    if json_data['code'] != 0:
+        print(json_data['errMsg'])
+        exit(1)
+
+    url = json_data['data']['url']
+    location_data = requests.get(url).json()
+
     """In-memory mapping of areaId -> centroid coordinates."""
     _centroids: List[AreaCentroid] = [
-        AreaCentroid(areaId="Bukit Panjang", latitude=1.379, longitude=103.771),
-        AreaCentroid(areaId="Tampines", latitude=1.352, longitude=103.94),
-        AreaCentroid(areaId="Marine Parade", latitude=1.3005, longitude=103.9105),
-        AreaCentroid(areaId="Bedok", latitude=1.323, longitude=103.930)
+        AreaCentroid(
+            areaId=feature["properties"]["Description"].split("<td>")[1].split("</td>")[0].lower(),
+            latitude=feature['geometry']['coordinates'][0][0][1] if feature['geometry']['type'] == "Polygon" else feature['geometry']['coordinates'][0][0][0][1],
+            longitude=feature['geometry']['coordinates'][0][0][0] if feature['geometry']['type'] == "Polygon" else feature['geometry']['coordinates'][0][0][0][0]
+        )
+        for feature in location_data['features']
     ]
 
     def centroid(self, area_id: str) -> AreaCentroid | None:
