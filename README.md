@@ -112,7 +112,7 @@ npm run dev
 ## Authors
 ### Contributors names
 - Calvin Kuan Jiahui (U2421466L)
-- Jet Hee Fong
+- Jet Hee Fong (U2421248C)
 - Lee Loong Kiat (U2420557J)
 - Sam
 - Thum Mun Kuan (U2422906L)
