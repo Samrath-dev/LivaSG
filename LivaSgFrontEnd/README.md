@@ -1,6 +1,4 @@
-# LIVASG (2006-SCS3-06)
-
-# Frontend:
+# Frontend - LIVASG
 
 ## Table of Contents
 - [Overview](#overview)
@@ -15,7 +13,7 @@
   - [Personalised Recommendations](#personalised-recommendations)
   - [Comparison Features](#comparison-features)
   - [Data Management](#data-management)
-
+- [Authors](#authors)
 
 ## Overview
 
@@ -67,7 +65,6 @@ src/
 - npm or yarn
 - Backend API running on `http://localhost:8000`
 
-
 ### Installation
 ```bash
 # Clone the repository
@@ -111,77 +108,11 @@ npm run dev
 2. **Export Data**: Download your preferences and saved locations
 3. **Import Settings**: Restore previous configurations
 
-# Backend:
-
-## Table of Contents
-- [Overview](#overview)
-- [Project Structure](#project-structure)
-- [Installation and setup](#Installation)
-- [Run the Backend](#Run)
-
-## Overview
-The backend is a FastAPI service responsible for:
-	•	Serving neighbourhood scores, search rankings, and detailed breakdowns
-	•	Integrating OneMap PopAPI to fetch real planning area polygons and names
-	•	Serving data to the React frontend via REST endpoints
-	•	Providing modular architecture using Domain, Repositories, Services, and Controllers (API)
-
-It currently supports:
-	•	/map – Choropleth & score visualization
-	•	/details – Price trends & category breakdown
-	•	/search – Ranked search results
-	•	/onemap – Real Singapore planning areas via OneMap API
-
-## Project Structure
-
-LIVASG BACKEND/
-└── app/
-    ├── api/                          
-    │   ├── details_controller.py
-    │   ├── map_controller.py
-    │   ├── onemap_controller.py
-    │   └── search_controller.py
-    │
-    ├── domain/                       
-    │   ├── enums.py
-    │   └── models.py
-    │
-    ├── integrations/                 
-    │   └── onemap_client.py
-    │
-    ├── repositories/                 
-    │   ├── api_planning_repo.py
-    │   ├── interfaces.py
-    │   └── memory_impl.py
-    │
-    ├── services/                    
-    │   ├── rating_engine.py
-    │   ├── search_service.py
-    │   └── trend_service.py
-    │
-    └── main.py                      
-│
-├── planning_cache.db                
-├── onemap_locations.json             
-└── requirements.txt                  
-
-## Installation and setup
-'''bash
-python -m venv .venv
-source .venv/bin/activate
-
-'''bash
-pip install --upgrade pip
-pip install -r requirements.txt
-
-## Run the Backend
-'''bash
-uvicorn app.main:app --reload
 
 ## Authors
 ### Contributors names
 - Calvin Kuan Jiahui (U2421466L)
-- Jet Hee Fong (U2421248C)
+- Jet Hee Fong
 - Lee Loong Kiat (U2420557J)
 - Samrath Bose (U2423924F)
 - Thum Mun Kuan (U2422906L)
