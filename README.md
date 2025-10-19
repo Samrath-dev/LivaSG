@@ -146,28 +146,29 @@ It currently supports:
 
 ## Project Structure
 
+```
 LIVASG BACKEND/
 └── app/
 ├── api/  
- │ ├── details_controller.py
+│ ├── details_controller.py
 │ ├── map_controller.py
 │ ├── onemap_controller.py
 │ └── search_controller.py
 │
 ├── domain/  
- │ ├── enums.py
+│ ├── enums.py
 │ └── models.py
 │
 ├── integrations/  
- │ └── onemap_client.py
+│ └── onemap_client.py
 │
 ├── repositories/  
- │ ├── api_planning_repo.py
+│ ├── api_planning_repo.py
 │ ├── interfaces.py
 │ └── memory_impl.py
 │
 ├── services/  
- │ ├── rating_engine.py
+│ ├── rating_engine.py
 │ ├── search_service.py
 │ └── trend_service.py
 │
@@ -176,22 +177,25 @@ LIVASG BACKEND/
 ├── planning_cache.db  
 ├── onemap_locations.json  
 └── requirements.txt
+```
 
 ## Installation and setup
 
-'''bash
+```bash
+## Create and activate virtual environment
 python -m venv .venv
 source .venv/bin/activate
 
-'''bash
+## Upgrade pip
 pip install --upgrade pip
+
+## Install project dependencies
 pip install -r requirements.txt
 
 ## Run the Backend
-
-'''bash
 uvicorn app.main:app --reload
 
+```
 ## Authors
 
 ### Contributors names
