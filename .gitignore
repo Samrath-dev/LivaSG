@@ -1,5 +1,5 @@
 # Ignore the entire frontend folder
-LivaSgFrontEnd/
+#LivaSgFrontEnd/
 
 # Python cache files
 __pycache__/

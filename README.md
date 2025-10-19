@@ -3,6 +3,7 @@
 # Frontend:
 
 ## Table of Contents
+
 - [Overview](#overview)
 - [Features and Views](#features-and-views)
 - [Project Structure](#project-structure)
@@ -16,14 +17,14 @@
   - [Comparison Features](#comparison-features)
   - [Data Management](#data-management)
 
-
 ## Overview
 
 A react-based web application for exploring Singapore property with interactive maps, search functionality, compare functionality, detailed area information and many more!
 
 ## Features and Views
 
-### Views 
+### Views
+
 - **MapView**: Main exploration view with interactive Singapore map
 - **SearchView**: Advanced search with filters and location results
 - **SpecificView**: Zoomed-in view of individual areas with action buttons
@@ -32,43 +33,46 @@ A react-based web application for exploring Singapore property with interactive 
 - **CompareView**: Compare between numerous locations, to see price and score diferences
 - **PreferenceView**: Rank your preferences for the order of the 5 categories
 - **BookmarkView**: Saved locations, for future viewing
-- **SettingsView**: Import or export data 
+- **SettingsView**: Import or export data
 
 ## Project Structure
+
 ```
 src/
 ├── api
 | └── https.ts
 ├── components/
-│ ├── BottomNav.tsx 
+│ ├── BottomNav.tsx
 │ ├── OneMapEmbedded.tsx
-| └── OneMapInteractive.tsx 
+| └── OneMapInteractive.tsx
 ├── Layouts\PageLayout
 | └── PageLayout.tsx
 ├── utils
 | └── mapUtils.ts
 ├── views/
 | ├── BookmarkView.tsx
-| ├── CompareLocations.tsx 
+| ├── CompareLocations.tsx
 | ├── ComparisonView.tsx
-| ├── DetailsView.tsx 
-│ ├── MapView.tsx 
+| ├── DetailsView.tsx
+│ ├── MapView.tsx
 | ├── PolygonDetailsView.tsx
 | ├── PreferenceView.tsx
-│ ├── SearchView.tsx 
+│ ├── SearchView.tsx
 │ ├── SettingsView.tsx
-│ └── SpecificView.tsx 
-└── App.tsx 
+│ └── SpecificView.tsx
+└── App.tsx
 ```
 
-## Getting Started 
+## Getting Started
+
 ### Prequisities
-- Node.js 16+ 
+
+- Node.js 16+
 - npm or yarn
 - Backend API running on `http://localhost:8000`
 
-
 ### Installation
+
 ```bash
 # Clone the repository
 git clone https://github.com/softwarelab3/2006-SCS3-06.git
@@ -82,7 +86,9 @@ npm run dev
 ```
 
 ## Usage Guide
+
 ### Exploring Properties
+
 1. **Start with Explore Page**: Open the application to view Singapore map
 2. **Click Areas**: Select any polygon (planning area) to see basic information, further click "View properties" to view more details
 3. **View Details**: Click "Details" for comprehensive area analysis
@@ -90,6 +96,7 @@ npm run dev
 5. **Compare**: Use comparison tools to evaluate multiple areas
 
 ### Advanced Search
+
 1. **Access Search Function**: Use search bar at explore page
 2. **Apply Filters**:
    - Set budget range with sliders
@@ -97,16 +104,19 @@ npm run dev
 3. **Review Results**: Click on search results for detailed views
 
 ### Personalised Recommendations
+
 1. **Set Preferences**: Navigate to Preferred tab on navigation bar
 2. **Rank Categories**: Order the 5 evaluation categories by importance
 3. **Get Custom Scores**: View personalised area rankings
 
 ### Comparison Features
+
 1. **Select Locations**: Choose areas to compare in Compare tab on navigation bar
 2. **View Radar Charts**: Visual comparison of category scores
 3. **Analyse Differences**: Overlay of price trend and radar chart
 
 ### Data Management
+
 1. **Bookmark Locations**: Save interesting areas for quick access
 2. **Export Data**: Download your preferences and saved locations
 3. **Import Settings**: Restore previous configurations
@@ -114,58 +124,61 @@ npm run dev
 # Backend:
 
 ## Table of Contents
+
 - [Overview](#overview)
 - [Project Structure](#project-structure)
 - [Installation and setup](#Installation)
 - [Run the Backend](#Run)
 
 ## Overview
+
 The backend is a FastAPI service responsible for:
-	•	Serving neighbourhood scores, search rankings, and detailed breakdowns
-	•	Integrating OneMap PopAPI to fetch real planning area polygons and names
-	•	Serving data to the React frontend via REST endpoints
-	•	Providing modular architecture using Domain, Repositories, Services, and Controllers (API)
+• Serving neighbourhood scores, search rankings, and detailed breakdowns
+• Integrating OneMap PopAPI to fetch real planning area polygons and names
+• Serving data to the React frontend via REST endpoints
+• Providing modular architecture using Domain, Repositories, Services, and Controllers (API)
 
 It currently supports:
-	•	/map – Choropleth & score visualization
-	•	/details – Price trends & category breakdown
-	•	/search – Ranked search results
-	•	/onemap – Real Singapore planning areas via OneMap API
+• /map – Choropleth & score visualization
+• /details – Price trends & category breakdown
+• /search – Ranked search results
+• /onemap – Real Singapore planning areas via OneMap API
 
 ## Project Structure
 
 LIVASG BACKEND/
 └── app/
-    ├── api/                          
-    │   ├── details_controller.py
-    │   ├── map_controller.py
-    │   ├── onemap_controller.py
-    │   └── search_controller.py
-    │
-    ├── domain/                       
-    │   ├── enums.py
-    │   └── models.py
-    │
-    ├── integrations/                 
-    │   └── onemap_client.py
-    │
-    ├── repositories/                 
-    │   ├── api_planning_repo.py
-    │   ├── interfaces.py
-    │   └── memory_impl.py
-    │
-    ├── services/                    
-    │   ├── rating_engine.py
-    │   ├── search_service.py
-    │   └── trend_service.py
-    │
-    └── main.py                      
+├── api/  
+ │ ├── details_controller.py
+│ ├── map_controller.py
+│ ├── onemap_controller.py
+│ └── search_controller.py
 │
-├── planning_cache.db                
-├── onemap_locations.json             
-└── requirements.txt                  
+├── domain/  
+ │ ├── enums.py
+│ └── models.py
+│
+├── integrations/  
+ │ └── onemap_client.py
+│
+├── repositories/  
+ │ ├── api_planning_repo.py
+│ ├── interfaces.py
+│ └── memory_impl.py
+│
+├── services/  
+ │ ├── rating_engine.py
+│ ├── search_service.py
+│ └── trend_service.py
+│
+└── main.py  
+│
+├── planning_cache.db  
+├── onemap_locations.json  
+└── requirements.txt
 
 ## Installation and setup
+
 '''bash
 python -m venv .venv
 source .venv/bin/activate
@@ -175,11 +188,14 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 ## Run the Backend
+
 '''bash
 uvicorn app.main:app --reload
 
 ## Authors
+
 ### Contributors names
+
 - Calvin Kuan Jiahui (U2421466L)
 - Jet Hee Fong (U2421248C)
 - Lee Loong Kiat (U2420557J)
