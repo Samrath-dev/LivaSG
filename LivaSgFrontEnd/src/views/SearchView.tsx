@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { HiFilter, HiChevronLeft, HiX, HiHome, HiSearch, HiCog } from 'react-icons/hi';
 import { FaSubway, FaSchool, FaShoppingBag, FaTree, FaUtensils, FaHospital, FaDumbbell } from 'react-icons/fa';
-import SpecificView from './SpecificView'; // Import SpecificView
+import SpecificView from './SpecificView';
 
 interface SearchViewProps {
   searchQuery: string;
@@ -32,7 +32,23 @@ interface LocationResult {
   longitude?: number;
   lat?: number;
   lng?: number;
-  coordinates?: [number, number][]; // Add coordinates for SpecificView
+  coordinates?: [number, number][];
+}
+
+interface PlanningAreaFeature {
+  type: "Feature";
+  properties: {
+    pln_area_n: string;
+  };
+  geometry: {
+    type: "MultiPolygon";
+    coordinates: number[][][][];
+  };
+}
+
+interface PlanningAreaResponse {
+  type: "FeatureCollection";
+  features: PlanningAreaFeature[];
 }
 
 const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, onSettingsClick }: SearchViewProps) => {
@@ -43,7 +59,8 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
   });
   const [locationResults, setLocationResults] = useState<LocationResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState<LocationResult | null>(null); // New state for SpecificView
+  const [selectedLocation, setSelectedLocation] = useState<LocationResult | null>(null);
+  const [planningAreas, setPlanningAreas] = useState<PlanningAreaFeature[]>([]);
 
   const facilitiesList = [
     { key: 'mrt', label: 'Near MRT', icon: <FaSubway />, count: 15 },
@@ -54,6 +71,47 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
     { key: 'healthcare', label: 'Healthcare', icon: <FaHospital />, count: 6 },
     { key: 'sports', label: 'Sports Facilities', icon: <FaDumbbell />, count: 7 }
   ];
+
+  // Fetch planning areas data on component mount
+  useEffect(() => {
+    const fetchPlanningAreas = async () => {
+      try {
+        const response = await fetch('http://localhost:8000/onemap/planning-areas?year=2019');
+        if (!response.ok) throw new Error('Failed to fetch planning areas');
+        const data: PlanningAreaResponse = await response.json();
+        setPlanningAreas(data.features);
+      } catch (error) {
+        console.error('Error fetching planning areas:', error);
+      }
+    };
+
+    fetchPlanningAreas();
+  }, []);
+
+  // Get actual coordinates for an area from planning areas data
+  const getActualCoordinates = (areaName: string): [number, number][] | null => {
+    const areaFeature = planningAreas.find(
+      feature => feature.properties.pln_area_n.toUpperCase() === areaName.toUpperCase()
+    );
+    
+    if (!areaFeature) {
+      console.warn(`No coordinates found for area: ${areaName}`);
+      return null;
+    }
+
+    // Extract coordinates from MultiPolygon geometry
+    const multiPolygonCoords = areaFeature.geometry.coordinates;
+    if (multiPolygonCoords.length === 0 || multiPolygonCoords[0].length === 0) {
+      console.warn(`No coordinates in geometry for area: ${areaName}`);
+      return null;
+    }
+
+    // Convert from [lng, lat] to [lat, lng] format expected by your components
+    const exteriorRing = multiPolygonCoords[0][0]; // First polygon, first ring
+    const coordinates: [number, number][] = exteriorRing.map(coord => [coord[1], coord[0]]); // Swap to [lat, lng]
+    
+    return coordinates;
+  };
 
   // Fetch filtered locations from backend
   const fetchFilteredLocations = async () => {
@@ -72,53 +130,51 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
       });
       if (!response.ok) throw new Error('Failed to fetch locations');
       const data = await response.json();
-      // Map backend fields to frontend fields and add mock coordinates
-      const mappedData = data.map((loc: any) => ({
-        ...loc,
-        priceRange: loc.price_range,
-        avgPrice: loc.avg_price,
-        // Add mock coordinates for the area (you can replace this with actual coordinates from your backend)
-        coordinates: generateMockCoordinates(loc.area)
-      }));
+      
+      // Map backend fields to frontend fields with ACTUAL coordinates
+      const mappedData = data.map((loc: any) => {
+        const actualCoordinates = getActualCoordinates(loc.area);
+
+        return {
+          ...loc,
+          priceRange: loc.price_range,
+          avgPrice: loc.avg_price,
+          coordinates: actualCoordinates || generateFallbackCoordinates(loc.area) // Fallback if no real data
+        };
+      });
+      
       setLocationResults(mappedData);
     } catch (error) {
+      console.error('Error fetching locations:', error);
       setLocationResults([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Generate mock coordinates for an area (replace with actual data from your backend)
-  const generateMockCoordinates = (areaName: string): [number, number][] => {
-    // Simple hash function to generate consistent coordinates based on area name
-    const hash = areaName.split('').reduce((a, b) => {
-      a = ((a << 5) - a) + b.charCodeAt(0);
-      return a & a;
-    }, 0);
-    
-    const baseLat = 1.3521 + (hash % 100) / 1000;
-    const baseLng = 103.8198 + (hash % 100) / 1000;
-    
-    // Return a simple polygon (square) around the base coordinates
+  // Fallback coordinates in case no planning area data is found
+  const generateFallbackCoordinates = (areaName: string): [number, number][] => {
+    // Return a simple square around Singapore center as fallback
     return [
-      [baseLat - 0.01, baseLng - 0.01],
-      [baseLat - 0.01, baseLng + 0.01],
-      [baseLat + 0.01, baseLng + 0.01],
-      [baseLat + 0.01, baseLng - 0.01],
-      [baseLat - 0.01, baseLng - 0.01] // Close the polygon
+      [1.35, 103.80],
+      [1.35, 103.85],
+      [1.40, 103.85],
+      [1.40, 103.80],
+      [1.35, 103.80]
     ];
   };
 
   useEffect(() => {
     // Debounce the API call - wait 500ms after user stops typing
     const debounceTimer = setTimeout(() => {
-      fetchFilteredLocations();
+      if (planningAreas.length > 0) { // Only fetch when we have planning area data
+        fetchFilteredLocations();
+      }
     }, 500);
 
     // Cleanup: cancel the timer if searchQuery or filters change again
     return () => clearTimeout(debounceTimer);
-    // eslint-disable-next-line
-  }, [filters, searchQuery]);
+  }, [filters, searchQuery, planningAreas]);
 
   const handleFacilityToggle = (facility: string) => {
     setFilters(prev => ({
@@ -160,13 +216,11 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
   // Handle rating click in SpecificView
   const handleRatingClick = (areaName: string, coordinates: [number, number][]) => {
     console.log('Opening rating for:', areaName);
-    // You can add your rating logic here
   };
 
   // Handle details click in SpecificView
   const handleDetailsClick = (areaName: string, coordinates: [number, number][]) => {
     console.log('Opening details for:', areaName);
-    // You can add your details logic here
   };
 
   const formatPrice = (price: number) => {
@@ -456,7 +510,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
                 >
                   <div className="text-center">
                     <span className="text-purple-900 font-semibold text-lg">
-                      {location.street}
+                      {location.area} {/* Just display the area name without "Central" */}
                     </span>
                   </div>
                 </div>

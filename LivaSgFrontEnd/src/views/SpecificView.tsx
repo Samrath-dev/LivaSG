@@ -25,7 +25,7 @@ interface LocationResult {
   amenities: string[];
   transitScore: number;
   schoolScore: number;
-  amenitiesScore: number; // Added this missing property
+  amenitiesScore: number;
 }
 
 const SpecificView = ({ 
@@ -56,10 +56,10 @@ const SpecificView = ({
       setMapZoom(targetZoom);
     }
 
-    // Create mock location data for the area
+    // Create mock location data for the area - removed "Central" from street name
     const mockLocationData: LocationResult = {
       id: Date.now(),
-      street: `${areaName} Central`,
+      street: areaName, // Just the area name, no "Central"
       area: areaName,
       district: "District",
       priceRange: [800000, 2000000],
@@ -70,7 +70,7 @@ const SpecificView = ({
       amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
       transitScore: 85,
       schoolScore: 80,
-      amenitiesScore: 90 // Added the missing property
+      amenitiesScore: 90
     };
     setSelectedAreaLocation(mockLocationData);
   }, [coordinates, areaName]);
