@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { HiFilter, HiChevronLeft, HiX, HiHome, HiSearch, HiCog } from 'react-icons/hi';
 import { FaSubway, FaSchool, FaShoppingBag, FaTree, FaUtensils, FaHospital, FaDumbbell } from 'react-icons/fa';
+import SpecificView from './SpecificView'; // Import SpecificView
 
 interface SearchViewProps {
   searchQuery: string;
   onBack: () => void;
   onViewDetails: (location: any) => void;
   onSearchQueryChange: (query: string) => void;
-  onSettingsClick: () => void; // Add this prop
+  onSettingsClick: () => void;
 }
 
 interface Filters {
@@ -31,6 +32,7 @@ interface LocationResult {
   longitude?: number;
   lat?: number;
   lng?: number;
+  coordinates?: [number, number][]; // Add coordinates for SpecificView
 }
 
 const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, onSettingsClick }: SearchViewProps) => {
@@ -41,6 +43,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
   });
   const [locationResults, setLocationResults] = useState<LocationResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState<LocationResult | null>(null); // New state for SpecificView
 
   const facilitiesList = [
     { key: 'mrt', label: 'Near MRT', icon: <FaSubway />, count: 15 },
@@ -69,11 +72,13 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
       });
       if (!response.ok) throw new Error('Failed to fetch locations');
       const data = await response.json();
-      // Map backend fields to frontend fields
+      // Map backend fields to frontend fields and add mock coordinates
       const mappedData = data.map((loc: any) => ({
         ...loc,
         priceRange: loc.price_range,
         avgPrice: loc.avg_price,
+        // Add mock coordinates for the area (you can replace this with actual coordinates from your backend)
+        coordinates: generateMockCoordinates(loc.area)
       }));
       setLocationResults(mappedData);
     } catch (error) {
@@ -83,8 +88,35 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
     }
   };
 
+  // Generate mock coordinates for an area (replace with actual data from your backend)
+  const generateMockCoordinates = (areaName: string): [number, number][] => {
+    // Simple hash function to generate consistent coordinates based on area name
+    const hash = areaName.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & a;
+    }, 0);
+    
+    const baseLat = 1.3521 + (hash % 100) / 1000;
+    const baseLng = 103.8198 + (hash % 100) / 1000;
+    
+    // Return a simple polygon (square) around the base coordinates
+    return [
+      [baseLat - 0.01, baseLng - 0.01],
+      [baseLat - 0.01, baseLng + 0.01],
+      [baseLat + 0.01, baseLng + 0.01],
+      [baseLat + 0.01, baseLng - 0.01],
+      [baseLat - 0.01, baseLng - 0.01] // Close the polygon
+    ];
+  };
+
   useEffect(() => {
-    fetchFilteredLocations();
+    // Debounce the API call - wait 500ms after user stops typing
+    const debounceTimer = setTimeout(() => {
+      fetchFilteredLocations();
+    }, 500);
+
+    // Cleanup: cancel the timer if searchQuery or filters change again
+    return () => clearTimeout(debounceTimer);
     // eslint-disable-next-line
   }, [filters, searchQuery]);
 
@@ -113,6 +145,28 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
       facilities: [],
       priceRange: [500000, 3000000]
     });
+  };
+
+  // Handle location click - open SpecificView
+  const handleLocationClick = (location: LocationResult) => {
+    setSelectedLocation(location);
+  };
+
+  // Handle back from SpecificView
+  const handleBackFromSpecific = () => {
+    setSelectedLocation(null);
+  };
+
+  // Handle rating click in SpecificView
+  const handleRatingClick = (areaName: string, coordinates: [number, number][]) => {
+    console.log('Opening rating for:', areaName);
+    // You can add your rating logic here
+  };
+
+  // Handle details click in SpecificView
+  const handleDetailsClick = (areaName: string, coordinates: [number, number][]) => {
+    console.log('Opening details for:', areaName);
+    // You can add your details logic here
   };
 
   const formatPrice = (price: number) => {
@@ -170,6 +224,19 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
     </label>
   );
 
+  // Render SpecificView if a location is selected
+  if (selectedLocation && selectedLocation.coordinates) {
+    return (
+      <SpecificView
+        areaName={selectedLocation.area}
+        coordinates={selectedLocation.coordinates}
+        onBack={handleBackFromSpecific}
+        onRatingClick={handleRatingClick}
+        onDetailsClick={handleDetailsClick}
+      />
+    );
+  }
+
   return (
     <div className="h-full flex flex-col bg-purple-50">
       {/* Header */}
@@ -222,7 +289,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
           {/* Settings Gear Icon */}
           <button
             className="p-3 rounded-xl text-purple-600 hover:text-purple-800 hover:bg-purple-100 transition-all duration-200 border border-purple-200"
-            onClick={onSettingsClick} // Use the new prop
+            onClick={onSettingsClick}
           >
             <HiCog className="w-5 h-5" />
           </button>
@@ -255,7 +322,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
         </div>
       </div>
 
-      {/* Full-page Filters Overlay - Updated to match DetailsView */}
+      {/* Full-page Filters Overlay */}
       {showFilters && (
         <div className="fixed inset-0 z-50 bg-gray-600 bg-opacity-50 flex items-start justify-center p-4 overflow-auto"
           role="dialog"
@@ -318,7 +385,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
                 </div>
               </div>
 
-              {/* Facilities Filter - Updated to match DetailsView */}
+              {/* Facilities Filter */}
               <div>
                 <h3 className="font-bold text-lg mb-4 text-gray-900">Preferred Amenities</h3>
                 <div className="space-y-3">
@@ -385,7 +452,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
                 <div 
                   key={location.id} 
                   className="bg-white rounded-xl p-4 border border-purple-200 hover:border-purple-300 hover:shadow-md transition-all duration-200 cursor-pointer"
-                  onClick={() => onViewDetails(location)}
+                  onClick={() => handleLocationClick(location)}
                 >
                   <div className="text-center">
                     <span className="text-purple-900 font-semibold text-lg">
