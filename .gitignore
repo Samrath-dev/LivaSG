@@ -102,3 +102,15 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+# macOS junk
+.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Environment secrets
+.env
