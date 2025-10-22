@@ -61,10 +61,10 @@ class MemoryAmenityRepo(IAmenityRepo):
 
         return FacilitiesSummary(   
             schools=len(self.filterInside(areaPolygon, self._schools_data)),
-            sports=len(self.filterInside(areaPolygon, MemoryAmenityRepo._sports_data)),
-            hawkers=len(self.filterInside(areaPolygon, MemoryAmenityRepo._hawkers_data)),
-            healthcare=len(self.filterInside(areaPolygon, MemoryAmenityRepo._clinics_data)),
-            greenSpaces=len(self.filterInside(areaPolygon, MemoryAmenityRepo._parks_data)), 
+            sports=len(self.filterInside(areaPolygon, self._sports_data)),
+            hawkers=len(self.filterInside(areaPolygon, self._hawkers_data)),
+            healthcare=len(self.filterInside(areaPolygon, self._clinics_data)),
+            greenSpaces=len(self.filterInside(areaPolygon, self._parks_data)), 
             carparks=len(cp_repo.list_near_area(area_id)),
         )
     
