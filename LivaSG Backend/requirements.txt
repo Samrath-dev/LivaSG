@@ -4,5 +4,5 @@ pydantic>=2,<3
 pydantic-settings
 httpx
 requests
-
+shapely
 
