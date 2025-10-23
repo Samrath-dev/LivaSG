@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { HiChevronLeft, HiSearch, HiChartBar, HiPlus } from 'react-icons/hi';
+import { HiChevronLeft, HiSearch, HiChartBar, HiPlus, HiMinus } from 'react-icons/hi';
 import CompareLocations from './CompareLocations';
+
+const MAXSLOTS = 5;
+const MINSLOTS = 2;
 
 interface ComparisonViewProps {
   onBack: () => void;
@@ -101,10 +104,17 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
   };
 
   const addSlot = () => {
-    setSelectedLocations(prev => (prev.length < 5 ? [...prev, null] : prev));
-    setSearchQueries(prev => (prev.length < 5 ? [...prev, ''] : prev));
-    setSearchResults(prev => (prev.length < 5 ? [...prev, []] : prev));
-    setLoading(prev => (prev.length < 5 ? [...prev, false] : prev));
+    setSelectedLocations(prev => (prev.length < MAXSLOTS ? [...prev, null] : prev));
+    setSearchQueries(prev => (prev.length < MAXSLOTS ? [...prev, ''] : prev));
+    setSearchResults(prev => (prev.length < MAXSLOTS ? [...prev, []] : prev));
+    setLoading(prev => (prev.length < MAXSLOTS ? [...prev, false] : prev));
+  };
+
+  const removeSlot = () => {
+    setSelectedLocations(prev => (prev.length > MINSLOTS ? prev.slice(0, -1) : prev));
+    setSearchQueries(prev => (prev.length > MINSLOTS ? prev.slice(0, -1) : prev));
+    setSearchResults(prev => (prev.length > MINSLOTS ? prev.slice(0, -1) : prev));
+    setLoading(prev => (prev.length > MINSLOTS ? prev.slice(0, -1) : prev));
   };
 
   const searchLocations = async (index: number, query: string) => {
@@ -284,7 +294,8 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
   };
 
   const nonNullSelected = selectedLocations.filter((l): l is LocationResult => l !== null);
-  const canCompare = nonNullSelected.length >= 2;
+  const allSlotsFilled = nonNullSelected.length === selectedLocations.length;
+  const canCompare = allSlotsFilled && nonNullSelected.length >= 2;
 
   return (
     <div className="h-full flex flex-col bg-purple-50">
@@ -317,6 +328,21 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
         {/* Controls: Compare button always visible; + button to add slots */}
         <div className="mt-8 flex items-center justify-center gap-4">
           <button
+            onClick={removeSlot}
+            disabled={selectedLocations.length <= 2}
+            title={selectedLocations.length <= 2 ? 'Minimum 2 locations' : 'Remove last location'}
+            className={
+              `flex items-center gap-2 px-4 py-2 rounded-xl border transition ` +
+              (selectedLocations.length <= 2
+                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                : 'bg-red-600 text-white border-red-700 hover:bg-red-700')
+            }
+          >
+            <HiMinus className="w-5 h-5" />
+            <span className="font-medium">Slots</span>
+          </button>
+
+          <button
             onClick={() => setCompareOpen(true)}
             disabled={!canCompare}
             className={
@@ -337,11 +363,11 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
               `flex items-center gap-2 px-4 py-2 rounded-xl border transition ` +
               (selectedLocations.length >= 5
                 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                : 'bg-white text-purple-700 border-purple-200 hover:bg-purple-50')
+                : 'bg-green-600 text-white border-green-700 hover:bg-green-700')
             }
           >
             <HiPlus className="w-5 h-5" />
-            <span className="font-medium">Add</span>
+            <span className="font-medium">Slots</span>
           </button>
         </div>
       </div>

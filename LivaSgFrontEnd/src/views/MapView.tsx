@@ -78,51 +78,14 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
   };
 
   const animateTo = (targetCenter: [number, number], targetZoom: number, duration = 800) => {
-    const FRAME_MS = 1000 / 120;
-
     if (animRef.current) {
       window.cancelAnimationFrame(animRef.current as number);
       animRef.current = null;
     }
 
-    animatingRef.current = true;
-    lastUpdateRef.current = 0;
-
-    return new Promise<void>((resolve) => {
-      const fromCenter = mapCenter;
-      const fromZoom = mapZoom;
-      const start = performance.now();
-
-      const step = (now: number) => {
-        const elapsed = now - start;
-        const tRaw = Math.min(1, Math.max(0, elapsed / duration));
-        const eased = easeInOutQuad(tRaw);
-
-        const lat = fromCenter[0] + (targetCenter[0] - fromCenter[0]) * eased;
-        const lng = fromCenter[1] + (targetCenter[1] - fromCenter[1]) * eased;
-        const z = fromZoom + (targetZoom - fromZoom) * eased;
-
-        // Throttle updates to reduce re-render pressure on the map component
-        if (tRaw >= 1 || (performance.now() - lastUpdateRef.current) >= FRAME_MS) {
-          lastUpdateRef.current = performance.now();
-          setMapCenter([Number(lat.toFixed(6)), Number(lng.toFixed(6))]);
-          setMapZoom(Number(z.toFixed(4)));
-        }
-
-        if (tRaw < 1) {
-          animRef.current = window.requestAnimationFrame(step);
-        } else {
-          animRef.current = null;
-          animatingRef.current = false;
-          // ensure final exact values
-          setMapCenter([Number(targetCenter[0].toFixed(6)), Number(targetCenter[1].toFixed(6))]);
-          setMapZoom(Number(targetZoom.toFixed(4)));
-          resolve();
-        }
-      };
-
-      animRef.current = window.requestAnimationFrame(step);
-    });
+    setMapCenter([Number(targetCenter[0].toFixed(6)), Number(targetCenter[1].toFixed(6))]);
+    setMapZoom(Number(targetZoom.toFixed(4)));
+    return Promise.resolve();
   };
 
   const handleAreaClick = (areaName: string, coordinates: [number, number][]) => {
