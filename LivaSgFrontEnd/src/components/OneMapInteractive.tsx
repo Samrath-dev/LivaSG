@@ -56,11 +56,20 @@ interface OneMapInteractiveProps {
   onMapClick?: (lat: number, lng: number) => void;
   onAreaClick?: (areaName: string, coordinates: [number, number][], rating?: number) => void;
   className?: string;
+  // New locking props
+  locked?: boolean;
+  dragging?: boolean;
+  touchZoom?: boolean;
+  scrollWheelZoom?: boolean;
+  doubleClickZoom?: boolean;
+  boxZoom?: boolean;
+  keyboard?: boolean;
+  zoomControl?: boolean;
 }
 
 const OneMapInteractive = ({ 
   center = [1.3521, 103.8198], // Singapore center
-  zoom = 12,
+  zoom = 13, // Increased default zoom to prevent starting too far out
   markers = [],
   polygons = [],
   showPlanningAreas = true,
@@ -68,17 +77,37 @@ const OneMapInteractive = ({
   weightsProfileId = 'default',
   onMapClick,
   onAreaClick,
-  className = ''
+  className = '',
+  // New locking props with defaults
+  locked = false,
+  dragging = true,
+  touchZoom = true,
+  scrollWheelZoom = true,
+  doubleClickZoom = true,
+  boxZoom = true,
+  keyboard = true,
+  zoomControl = true
 }: OneMapInteractiveProps) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Marker[]>([]);
   const polygonsRef = useRef<L.Polygon[]>([]);
   const planningAreasRef = useRef<L.Polygon[]>([]);
+  const zoomControlRef = useRef<L.Control.Zoom | null>(null);
   const [planningAreas, setPlanningAreas] = useState<PlanningAreaFeature[]>([]);
   const [choroplethData, setChoroplethData] = useState<ChoroplethData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingChoropleth, setIsLoadingChoropleth] = useState(false);
+
+  // Singapore bounds to prevent grey areas - using LatLng objects
+  const singaporeBounds = L.latLngBounds(
+    L.latLng(1.15, 103.6), // Southwest corner
+    L.latLng(1.48, 104.1)  // Northeast corner
+  );
+
+  // Stricter zoom limits - prevent excessive zoom out
+  const MIN_ZOOM = 12; 
+  const MAX_ZOOM = 18;
 
   // Fetch planning areas from API
   useEffect(() => {
@@ -135,6 +164,72 @@ const OneMapInteractive = ({
 
     fetchChoroplethData();
   }, [showPlanningAreas, weightsProfileId]);
+
+  // Apply map locking settings
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    const map = mapRef.current;
+
+    // Apply all the interactive settings based on locked state and individual props
+    const shouldDisable = locked || !dragging;
+    if (map.dragging) {
+      shouldDisable ? map.dragging.disable() : map.dragging.enable();
+    }
+
+    if (map.touchZoom) {
+      const shouldDisableTouch = locked || !touchZoom;
+      shouldDisableTouch ? map.touchZoom.disable() : map.touchZoom.enable();
+    }
+
+    if (map.scrollWheelZoom) {
+      const shouldDisableScroll = locked || !scrollWheelZoom;
+      shouldDisableScroll ? map.scrollWheelZoom.disable() : map.scrollWheelZoom.enable();
+    }
+
+    if (map.doubleClickZoom) {
+      const shouldDisableDoubleClick = locked || !doubleClickZoom;
+      shouldDisableDoubleClick ? map.doubleClickZoom.disable() : map.doubleClickZoom.enable();
+    }
+
+    if (map.boxZoom) {
+      const shouldDisableBox = locked || !boxZoom;
+      shouldDisableBox ? map.boxZoom.disable() : map.boxZoom.enable();
+    }
+
+    if (map.keyboard) {
+      const shouldDisableKeyboard = locked || !keyboard;
+      shouldDisableKeyboard ? map.keyboard.disable() : map.keyboard.enable();
+    }
+
+    // Handle zoom control
+    const shouldShowZoomControl = !locked && zoomControl;
+    
+    // Remove existing zoom control if it exists
+    if (zoomControlRef.current) {
+      map.removeControl(zoomControlRef.current);
+      zoomControlRef.current = null;
+    }
+    
+    // Add zoom control if needed
+    if (shouldShowZoomControl) {
+      zoomControlRef.current = L.control.zoom({
+        position: 'topright'
+      });
+      zoomControlRef.current.addTo(map);
+    }
+
+    // Add/remove CSS class for visual feedback when locked
+    const container = map.getContainer();
+    if (locked) {
+      container.classList.add('map-locked');
+      container.style.cursor = 'not-allowed';
+    } else {
+      container.classList.remove('map-locked');
+      container.style.cursor = 'grab';
+    }
+
+  }, [locked, dragging, touchZoom, scrollWheelZoom, doubleClickZoom, boxZoom, keyboard, zoomControl]);
 
   // Convert GeoJSON coordinates to Leaflet positions
   const convertCoordinates = (coords: number[][][][] | number[][][]): [number, number][][] => {
@@ -196,47 +291,108 @@ const OneMapInteractive = ({
     return 1 + (rating * 2); // 1 to 3 weight based on rating
   };
 
-  // Initialize map
+  // Initialize map with STRONG bounds and zoom restrictions
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
     if (!mapRef.current) {
       mapRef.current = L.map(mapContainerRef.current, {
         center: center,
-        zoom: zoom,
-        zoomControl: true,
+        zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom)), // Enforce zoom limits immediately
+        zoomControl: false, // We'll control this manually
+        // Add bounds restriction to prevent grey areas
+        maxBounds: singaporeBounds,
+        maxBoundsViscosity: 1.0, // Prevents dragging outside bounds
+        // STRONG zoom restrictions
+        minZoom: MIN_ZOOM,
+        maxZoom: MAX_ZOOM,
+        // Disable some zoom methods that might allow bypassing limits
+        boxZoom: false, // Disable shift-drag to zoom
       });
 
-      // Add OneMap tiles
-      L.tileLayer('https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png', {
-        detectRetina: true,
-        maxZoom: 19,
-        minZoom: 11,
-        attribution: '<img src="https://www.onemap.gov.sg/web-assets/images/logo/om_logo.png" style="height:20px;width:20px;"/> OneMap | Map data © contributors, <a href="http://SLA.gov.sg">Singapore Land Authority</a>'
-      }).addTo(mapRef.current);
+      // Set min and max zoom explicitly (redundant but ensures it's set)
+      mapRef.current.setMinZoom(MIN_ZOOM);
+      mapRef.current.setMaxZoom(MAX_ZOOM);
 
-      // Add click handler
+      // SET BLUE BACKGROUND COLOR - Key change here
+      if (mapContainerRef.current) {
+        mapContainerRef.current.style.backgroundColor = '#6da7e3';
+      }
+
+      // Add OneMap tiles with matching zoom restrictions
+      const oneMapLayer = L.tileLayer('https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png', {
+        detectRetina: true,
+        maxZoom: MAX_ZOOM,
+        minZoom: MIN_ZOOM,
+        bounds: singaporeBounds, // Restrict tiles to Singapore bounds
+        attribution: '<img src="https://www.onemap.gov.sg/web-assets/images/logo/om_logo.png" style="height:20px;width:20px;"/> OneMap | Map data © contributors, <a href="http://SLA.gov.sg">Singapore Land Authority</a>'
+      });
+
+      oneMapLayer.addTo(mapRef.current);
+
+      // Add event to keep map within bounds
+      mapRef.current.on('drag', () => {
+        mapRef.current!.panInsideBounds(singaporeBounds, { animate: false });
+      });
+
+      // STRONG zoom enforcement - catch any zoom events and enforce limits
+      mapRef.current.on('zoom', () => {
+        const currentZoom = mapRef.current!.getZoom();
+        if (currentZoom < MIN_ZOOM) {
+          mapRef.current!.setZoom(MIN_ZOOM, { animate: false });
+        } else if (currentZoom > MAX_ZOOM) {
+          mapRef.current!.setZoom(MAX_ZOOM, { animate: false });
+        }
+      });
+
+      // Additional protection on zoom end
+      mapRef.current.on('zoomend', () => {
+        const currentZoom = mapRef.current!.getZoom();
+        if (currentZoom < MIN_ZOOM) {
+          mapRef.current!.setZoom(MIN_ZOOM);
+        } else if (currentZoom > MAX_ZOOM) {
+          mapRef.current!.setZoom(MAX_ZOOM);
+        }
+      });
+
+      // Add click handler (only if not locked)
       if (onMapClick) {
         mapRef.current.on('click', (e: L.LeafletMouseEvent) => {
-          onMapClick(e.latlng.lat, e.latlng.lng);
+          if (!locked) {
+            onMapClick(e.latlng.lat, e.latlng.lng);
+          }
         });
       }
     }
 
     return () => {
       if (mapRef.current) {
+        // Clean up zoom control
+        if (zoomControlRef.current) {
+          mapRef.current.removeControl(zoomControlRef.current);
+          zoomControlRef.current = null;
+        }
         mapRef.current.remove();
         mapRef.current = null;
       }
     };
   }, []);
 
-  // Update center and zoom
+  // Update center and zoom (only if not locked)
   useEffect(() => {
-    if (mapRef.current) {
-      mapRef.current.setView(center, zoom);
+    if (mapRef.current && !locked) {
+      // Ensure center is within Singapore bounds
+      const centerLatLng = L.latLng(center[0], center[1]);
+      const validCenter: [number, number] = singaporeBounds.contains(centerLatLng) 
+        ? [center[0], center[1]] 
+        : [1.3521, 103.8198];
+      
+      // STRONG zoom enforcement
+      const validZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+      
+      mapRef.current.setView(validCenter, validZoom);
     }
-  }, [center, zoom]);
+  }, [center, zoom, locked]);
 
   // Update markers
   useEffect(() => {
@@ -314,43 +470,61 @@ const OneMapInteractive = ({
             opacity: 0.8
           });
 
-          // Add click handler for area selection
+          // Add click handler for area selection (only if not locked)
           polygon.on('click', (e: L.LeafletMouseEvent) => {
             L.DomEvent.stopPropagation(e);
-            if (onAreaClick) {
+            if (onAreaClick && !locked) {
               onAreaClick(area.properties.pln_area_n, polygonCoords, areaRating || undefined);
             }
           });
 
-          // Add hover effects
-          polygon.on('mouseover', function (this: L.Polygon, e: L.LeafletMouseEvent) {
-            this.setStyle({
-              fillOpacity: Math.min(0.8, fillOpacity + 0.2),
-              weight: borderWeight + 1
+          // Add hover effects (only if not locked)
+          if (!locked) {
+            polygon.on('mouseover', function (this: L.Polygon, e: L.LeafletMouseEvent) {
+              this.setStyle({
+                fillOpacity: Math.min(0.8, fillOpacity + 0.2),
+                weight: borderWeight + 1
+              });
             });
-          });
 
-          polygon.on('mouseout', function (this: L.Polygon, e: L.LeafletMouseEvent) {
-            this.setStyle({
-              fillOpacity: fillOpacity,
-              weight: borderWeight
+            polygon.on('mouseout', function (this: L.Polygon, e: L.LeafletMouseEvent) {
+              this.setStyle({
+                fillOpacity: fillOpacity,
+                weight: borderWeight
+              });
             });
-          });
+          }
 
           polygon.addTo(mapRef.current!);
           planningAreasRef.current.push(polygon);
         });
       }
     });
-  }, [planningAreas, choroplethData, showPlanningAreas, onAreaClick]);
+  }, [planningAreas, choroplethData, showPlanningAreas, onAreaClick, locked]);
 
   return (
     <div className="relative w-full h-full">
       <div 
         ref={mapContainerRef} 
         className={className}
-        style={{ width: '100%', height: '100%' }}
+        style={{ 
+          width: '100%', 
+          height: '100%',
+          backgroundColor: '#6da7e3' // Added blue background here
+        }}
       />
+      
+      {/* Lock indicator */}
+      {locked && (
+        <div className="absolute top-4 right-4 bg-yellow-500 text-white rounded-lg shadow-lg px-3 py-2 z-[1000]">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+            </svg>
+            <span className="text-sm font-medium">Map Locked</span>
+          </div>
+        </div>
+      )}
       
       {/* Loading overlay */}
       {(isLoading || isLoadingChoropleth) && showPlanningAreas && (

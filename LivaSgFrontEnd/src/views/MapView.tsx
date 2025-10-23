@@ -151,11 +151,11 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
       </div>
 
       {/* Map Content */}
-      <div className="flex-1 bg-purple-50 relative">
-        <div className="w-full h-full">
+      <div className="flex-1 bg-[#6da7e3] relative">
+        <div className="w-full h-full" style={{ backgroundColor: '#6da7e3' }}>
           <OneMapInteractive 
             center={[1.3521, 103.8198]}
-            zoom={11}
+            zoom={13}
             showPlanningAreas={true}
             planningAreasYear={2019}
             onAreaClick={handleAreaClick}
