@@ -47,25 +47,52 @@ const SpecificView = ({
   const [detailsVisible, setDetailsVisible] = useState(false);
   const detailsStartYRef = useRef(0);
   const detailsModalRef = useRef<HTMLDivElement | null>(null);
+  const [currentArea, setCurrentArea] = useState<string>(areaName);
+  const [currentCoords, setCurrentCoords] = useState<[number, number][]>(coordinates);
+
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const bottomToolbarRef = useRef<HTMLElement | null>(null);
+
+  // Overlay opacity tied to drag
+  const detailsModalMaxHeight = (typeof window !== 'undefined') ? window.innerHeight * 0.9 : 800;
+  const detailsBaseOverlayOpacity = 0.45;
+  const detailsDragFactor = Math.max(0, 1 - detailsDragY / detailsModalMaxHeight);
+  const detailsOverlayOpacity = detailsVisible ? detailsBaseOverlayOpacity * detailsDragFactor : 0;
+  const detailsOverlayTransition = detailsIsDragging ? 'none' : 'opacity 320ms cubic-bezier(0.2,0.9,0.2,1)';
+
+  const detailsModalTransform = detailsIsDragging
+    ? `translateY(${detailsDragY}px)`
+    : !detailsVisible
+    ? 'translateY(100%)'
+    : undefined;
+  
+  const detailsTransitionStyle = detailsIsDragging ? 'none' : 'transform 220ms cubic-bezier(.2,.9,.2,1)';
+  const detailsSheetTranslate = detailsVisible ? `translateY(${detailsDragY}px)` : 'translateY(100%)';
 
   useEffect(() => {
-    if (coordinates && coordinates.length > 0) {
-      const centroid = centroidOf(coordinates);
+    setCurrentArea(areaName);
+    setCurrentCoords(coordinates);
+  }, [areaName, coordinates]);
+
+  useEffect(() => {
+    if (currentCoords && currentCoords.length > 0) {
+      const centroid = centroidOf(currentCoords);
       setMapCenter(centroid);
-      const targetZoom = computeZoomForBounds(coordinates, 0.9);
+      const targetZoom = computeZoomForBounds(currentCoords, 0.9);
       setMapZoom(targetZoom);
     }
 
-    // Create mock location data for the area - removed "Central" from street name
     const mockLocationData: LocationResult = {
       id: Date.now(),
-      street: areaName, // Just the area name, no "Central"
-      area: areaName,
+      street: currentArea,
+      area: currentArea,
       district: "District",
       priceRange: [800000, 2000000],
       avgPrice: 1200,
       facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
-      description: `${areaName} is a well-established planning area with excellent amenities and connectivity.`,
+      description: `${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
       growth: 10.5,
       amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
       transitScore: 85,
@@ -73,7 +100,7 @@ const SpecificView = ({
       amenitiesScore: 90
     };
     setSelectedAreaLocation(mockLocationData);
-  }, [coordinates, areaName]);
+  }, [currentCoords, currentArea]);
 
   useEffect(() => {
     if (detailsOpen) {
@@ -115,22 +142,6 @@ const SpecificView = ({
     setDetailsDragY(0);
   };
 
-  // Overlay opacity tied to drag
-  const detailsModalMaxHeight = (typeof window !== 'undefined') ? window.innerHeight * 0.9 : 800;
-  const detailsBaseOverlayOpacity = 0.45;
-  const detailsDragFactor = Math.max(0, 1 - detailsDragY / detailsModalMaxHeight);
-  const detailsOverlayOpacity = detailsVisible ? detailsBaseOverlayOpacity * detailsDragFactor : 0;
-  const detailsOverlayTransition = detailsIsDragging ? 'none' : 'opacity 320ms cubic-bezier(0.2,0.9,0.2,1)';
-
-  const detailsModalTransform = detailsIsDragging
-    ? `translateY(${detailsDragY}px)`
-    : !detailsVisible
-    ? 'translateY(100%)'
-    : undefined;
-  
-  const detailsTransitionStyle = detailsIsDragging ? 'none' : 'transform 220ms cubic-bezier(.2,.9,.2,1)';
-  const detailsSheetTranslate = detailsVisible ? `translateY(${detailsDragY}px)` : 'translateY(100%)';
-
   const centroidOf = (coords: [number, number][]) => {
     const lats = coords.map(c => c[0]);
     const lngs = coords.map(c => c[1]);
@@ -151,13 +162,27 @@ const SpecificView = ({
     const lonDelta = Math.max(0.00001, lonMax - lonMin);
     const latDelta = Math.max(0.00001, latMax - latMin);
 
-    const padding = 32;
-    const viewportW = Math.max(320, (window.innerWidth || 1024) - padding * 2);
-    const viewportH = Math.max(320, (window.innerHeight || 768) - padding * 2);
-
     const TILE_SIZE = 256;
 
-    const zoomLon = Math.log2((360 * (viewportW * fraction)) / (TILE_SIZE * lonDelta));
+    const container = mapContainerRef.current;
+    let viewportW = container ? Math.max(320, container.clientWidth) : Math.max(320, window.innerWidth || 1024);
+    let viewportH = container ? Math.max(200, container.clientHeight) : Math.max(320, window.innerHeight || 768);
+
+    const headerEl = headerRef.current;
+    const bottomEl = bottomToolbarRef.current;
+    const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+    const bottomH = bottomEl ? bottomEl.getBoundingClientRect().height : 0;
+
+    if (!container) {
+      viewportH = Math.max(200, viewportH - headerH - bottomH);
+    }
+
+    const padding = 32;
+    const frac = Math.max(0.5, Math.min(0.95, fraction));
+    const availableW = Math.max(240, viewportW - padding * 2);
+    const availableH = Math.max(200, viewportH - padding * 2);
+
+    const zoomLon = Math.log2((360 * (availableW * frac)) / (TILE_SIZE * lonDelta));
 
     const latToMerc = (lat: number) => {
       const rad = (lat * Math.PI) / 180;
@@ -168,24 +193,59 @@ const SpecificView = ({
     const mercDelta = Math.max(1e-8, Math.abs(mercMax - mercMin));
 
     const worldMercatorHeight = 2 * Math.PI;
-    const zoomLat = Math.log2((worldMercatorHeight * (viewportH * fraction)) / (TILE_SIZE * mercDelta));
+    const zoomLat = Math.log2((worldMercatorHeight * (availableH * frac)) / (TILE_SIZE * mercDelta));
 
     const rawZoom = Math.min(zoomLon, zoomLat);
-    const zoom = Math.max(12, Math.min(18, Math.round(rawZoom)));
+    const zoom = Math.max(2, Math.min(18, Math.round(rawZoom)));
     return zoom;
   };
 
+  const fitPolygonToView = () => {
+    if (!currentCoords || currentCoords.length === 0) return;
+    // Compute centroid & set center
+    const centroid = centroidOf(currentCoords);
+    setMapCenter(centroid);
+
+    const newZoom = computeZoomForBounds(currentCoords, 0.9);
+    setMapZoom(newZoom);
+  };
+
+  useEffect(() => {
+    fitPolygonToView();
+
+    const onResize = () => {
+      if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current);
+      resizeRafRef.current = requestAnimationFrame(() => {
+        fitPolygonToView();
+        resizeRafRef.current = null;
+      });
+    };
+
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current);
+    };
+  }, [currentCoords, currentArea]);
+
   const handleRatingClick = () => {
+    if (currentArea && currentCoords) onRatingClick(currentArea, currentCoords);
     setCompareOpen(true);
   };
 
   const handleDetailsClick = () => {
+    if (currentArea && currentCoords) onDetailsClick(currentArea, currentCoords);
     setDetailsOpen(true);
   };
 
   const handleSaveClick = () => {
     setIsSaved(!isSaved);
-    console.log(`${areaName} ${isSaved ? 'unsaved' : 'saved'}`);
+    console.log(`${currentArea} ${isSaved ? 'unsaved' : 'saved'}`);
+  };
+
+  const handleInnerAreaClick = (areaNameInner: string, coordsInner: [number, number][]) => {
+    setCurrentArea(areaNameInner);
+    setCurrentCoords(coordsInner);
   };
 
   return (
@@ -203,7 +263,7 @@ const SpecificView = ({
 
           {/* Title - Centered */}
           <div className="flex items-center text-purple-700">
-            <h1 className="text-lg font-bold">{areaName}</h1>
+            <h1 className="text-lg font-bold">{currentArea}</h1>
           </div>
 
           {/* Save Button - Top Right */}
@@ -220,7 +280,7 @@ const SpecificView = ({
         </div>
 
         <p className="text-purple-600 text-sm text-center">
-          Zoomed view of {areaName} planning area
+          Zoomed view of {currentArea} planning area
         </p>
 
         {/* Action Buttons */}
@@ -244,12 +304,16 @@ const SpecificView = ({
       </div>
 
       {/* Zoomed Map */}
-      <div className={`flex-1 bg-purple-50 relative ${(compareOpen || detailsOpen) ? 'pointer-events-none filter blur-sm brightness-90' : ''}`}>
+      <div
+        ref={mapContainerRef}
+        className={`flex-1 bg-purple-50 relative ${(compareOpen || detailsOpen) ? 'pointer-events-none filter blur-sm brightness-90' : ''}`}
+      >
         <OneMapInteractive 
           center={mapCenter}
           zoom={mapZoom}
           showPlanningAreas={true}
           planningAreasYear={2019}
+          onAreaClick={handleInnerAreaClick}
           className="w-full h-full"
         />
       </div>
