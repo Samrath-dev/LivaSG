@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { HiChevronLeft, HiSearch, HiBookmark, HiX, HiFilter } from 'react-icons/hi';
 import { FaSubway, FaSchool, FaShoppingBag, FaTree, FaUtensils, FaHospital, FaDumbbell } from 'react-icons/fa';
 import DetailsView from './DetailsView';
+import SpecificView from './SpecificView';
 
 interface BookmarkViewProps {
   onBack: () => void;
@@ -30,6 +31,7 @@ interface Filters {
 
 const BookmarkView = ({ onBack }: BookmarkViewProps) => {
   const [locations, setLocations] = useState<LocationData[]>([]);
+  const [savedLocations, setSavedLocations] = useState<number[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
@@ -37,6 +39,11 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
     priceRange: [500, 3000000],
   });
   const [selectedLocation, setSelectedLocation] = useState<LocationData | null>(null);
+  const [showSpecificView, setShowSpecificView] = useState(false);
+  const [selectedAreaData, setSelectedAreaData] = useState<{
+    areaName: string;
+    coordinates: [number, number][];
+  } | null>(null);
 
   // Mock data for demonstration - replace with actual API calls
   useEffect(() => {
@@ -88,7 +95,91 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
       }
     ];
     setLocations(mockLocations);
+    
+    // Load saved locations from localStorage or initialize with some saved locations
+    const initialSavedLocations = [1, 2]; // Default saved locations
+    setSavedLocations(initialSavedLocations);
   }, []);
+
+  // Mock coordinates for different areas - you can replace with actual coordinates
+  const getAreaCoordinates = (areaName: string): [number, number][] => {
+    const coordinatesMap: { [key: string]: [number, number][] } = {
+      "Marine Parade": [
+        [1.3025, 103.9028],
+        [1.3035, 103.9128],
+        [1.3125, 103.9128],
+        [1.3125, 103.9028]
+      ],
+      "Orchard": [
+        [1.3045, 103.8328],
+        [1.3045, 103.8428],
+        [1.3145, 103.8428],
+        [1.3145, 103.8328]
+      ],
+      "Tampines": [
+        [1.3521, 103.9452],
+        [1.3521, 103.9552],
+        [1.3621, 103.9552],
+        [1.3621, 103.9452]
+      ]
+    };
+    
+    return coordinatesMap[areaName] || [
+      [1.3521, 103.8198],
+      [1.3521, 103.8298],
+      [1.3621, 103.8298],
+      [1.3621, 103.8198]
+    ];
+  };
+
+  // Handle location click - route to SpecificView
+  const handleLocationClick = (location: LocationData) => {
+    const coordinates = getAreaCoordinates(location.area);
+    setSelectedAreaData({
+      areaName: location.area,
+      coordinates: coordinates
+    });
+    setShowSpecificView(true);
+  };
+
+  // Handle back from SpecificView
+  const handleBackFromSpecificView = () => {
+    setShowSpecificView(false);
+    setSelectedAreaData(null);
+  };
+
+  // Handle rating click in SpecificView
+  const handleRatingClick = (areaName: string, coordinates: [number, number][]) => {
+    console.log('Rating clicked for:', areaName);
+    // This will be handled within SpecificView
+  };
+
+  // Handle details click in SpecificView
+  const handleDetailsClick = (areaName: string, coordinates: [number, number][]) => {
+    console.log('Details clicked for:', areaName);
+    // This will be handled within SpecificView
+  };
+
+  // Toggle save/unsave for a location
+  const toggleSaveLocation = (locationId: number, event?: React.MouseEvent) => {
+    if (event) {
+      event.stopPropagation();
+    }
+    setSavedLocations(prev => {
+      if (prev.includes(locationId)) {
+        // Remove from saved
+        return prev.filter(id => id !== locationId);
+      } else {
+        // Add to saved
+        return [...prev, locationId];
+      }
+    });
+  };
+
+  // Check if a location is saved
+  const isLocationSaved = (locationId: number) => {
+    return savedLocations.includes(locationId);
+  };
 
   const facilitiesList = [
     { key: 'mrt', label: 'Near MRT', icon: <FaSubway />, count: 15 },
@@ -123,7 +214,13 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
     });
   };
 
+  // Only show saved locations that match filters
   const filteredLocations = locations.filter((loc) => {
+    // Only show saved locations
+    if (!savedLocations.includes(loc.id)) {
+      return false;
+    }
+
     // Search filters
     const matchesSearch =
       loc.street.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -197,7 +294,20 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
     </label>
   );
 
-  // Render DetailsView if a location is selected
+  // Render SpecificView if a location is selected
+  if (showSpecificView && selectedAreaData) {
+    return (
+      <SpecificView
+        areaName={selectedAreaData.areaName}
+        coordinates={selectedAreaData.coordinates}
+        onBack={handleBackFromSpecificView}
+        onRatingClick={handleRatingClick}
+        onDetailsClick={handleDetailsClick}
+      />
+    );
+  }
+
+  // Render DetailsView if a location is selected (keeping this for backward compatibility)
   if (selectedLocation) {
     return (
       <DetailsView
@@ -221,14 +331,14 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
           
           <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center text-purple-700">
             <HiBookmark className="w-5 h-5 mr-2" />
-            <h1 className="text-lg font-bold">Saved</h1>
+            <h1 className="text-lg font-bold">Saved Locations</h1>
           </div>
           
           <div className="w-6"></div>
         </div>
         
         <p className="text-purple-600 text-sm text-center">
-          View saved locations
+          {savedLocations.length} saved location{savedLocations.length !== 1 ? 's' : ''}
         </p>
       </div>   
 
@@ -239,7 +349,7 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
             <HiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-purple-400" />
             <input
               type="text"
-              placeholder="Search locations..."
+              placeholder="Search saved locations..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -253,7 +363,7 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
             )}
           </div>
           
-          {/* Filter button - Updated to match SearchView */}
+          {/* Filter button */}
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center px-4 py-2 rounded-xl border transition-all duration-200 font-semibold ${
@@ -273,7 +383,7 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
         </div>
       </div>
 
-      {/* Updated Filter Overlay to match SearchView */}
+      {/* Filter Overlay */}
       {showFilters && (
         <div className="fixed inset-0 z-50 bg-gray-600 bg-opacity-50 flex items-start justify-center p-4 overflow-auto"
           role="dialog"
@@ -336,7 +446,7 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
                 </div>
               </div>
 
-              {/* Facilities Filter - Updated to match SearchView */}
+              {/* Facilities Filter */}
               <div>
                 <h3 className="font-bold text-lg mb-4 text-gray-900">Preferred Amenities</h3>
                 <div className="space-y-3">
@@ -372,26 +482,27 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
         </div>
       )}
       
-      {/* List of locations - Keep original styling */}
+      {/* List of saved locations - Simplified */}
       <div className="flex-1 overflow-auto p-4 space-y-4">
-        {locations.length === 0 ? (
-          <div className="text-center text-purple-600">
+        {savedLocations.length === 0 ? (
+          <div className="text-center text-purple-600 py-8">
+            <HiBookmark className="w-12 h-12 mx-auto mb-4 text-purple-400" />
             <p className="text-lg font-bold">You have no saved locations</p>
             <p className="text-sm">Start bookmarking your favorite locations to see them here!</p>
           </div>
         ) : filteredLocations.length === 0 ? (
           filters.facilities.length > 0 || filters.priceRange[0] > 500 || filters.priceRange[1] < 3000000 ? (
-            <div className="text-center text-purple-600">
-              <p className="text-lg font-bold">No locations match your filters</p>
+            <div className="text-center text-purple-600 py-8">
+              <p className="text-lg font-bold">No saved locations match your filters</p>
               <p className="text-sm">Try adjusting your filters to find more locations.</p>
             </div>
           ) : searchTerm ? (
-            <div className="text-center text-purple-600">
-              <p className="text-lg font-bold">No locations match your search</p>
+            <div className="text-center text-purple-600 py-8">
+              <p className="text-lg font-bold">No saved locations match your search</p>
               <p className="text-sm">Try searching with different keywords.</p>
             </div>
           ) : (
-            <div className="text-center text-purple-600">
+            <div className="text-center text-purple-600 py-8">
               <p className="text-lg font-bold">No locations found</p>
             </div>
           )
@@ -399,12 +510,28 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
           filteredLocations.map((loc) => (
             <div
               key={loc.id}
-              onClick={() => setSelectedLocation(loc)}
-              className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => handleLocationClick(loc)}
+              className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer border border-purple-100"
             >
-              <h2 className="font-bold text-purple-800">{loc.street}</h2>
-              <p className="text-sm text-purple-700">{loc.area} • {loc.district}</p>
-              <p className="text-sm text-purple-600 mt-1">{loc.description}</p>
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <h2 className="font-bold text-purple-800 text-lg">{loc.street}</h2>
+                  <p className="text-sm text-purple-700">{loc.area} • {loc.district}</p>
+                  <p className="text-sm text-purple-600 mt-1">{loc.description}</p>
+                </div>
+                
+                {/* Save/Unsave Button */}
+                <button
+                  onClick={(e) => toggleSaveLocation(loc.id, e)}
+                  className={`ml-4 p-2 rounded-full transition-all duration-200 ${
+                    isLocationSaved(loc.id)
+                      ? 'bg-purple-100 text-purple-600 hover:bg-purple-200'
+                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  }`}
+                >
+                  <HiBookmark className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           ))
         )}
