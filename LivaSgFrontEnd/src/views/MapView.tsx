@@ -1,5 +1,5 @@
 import { HiSearch, HiX, HiMap, HiCog, HiInformationCircle, HiChevronUp, HiChevronDown } from 'react-icons/hi';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import OneMapInteractive from '../components/OneMapInteractive';
 import SpecificView from './SpecificView'; // Import the SpecificView
 
@@ -18,6 +18,113 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
   const [specificViewOpen, setSpecificViewOpen] = useState(false);
   const [specificViewArea, setSpecificViewArea] = useState<string | null>(null);
   const [specificViewCoords, setSpecificViewCoords] = useState<[number, number][] | null>(null);
+  const [mapCenter, setMapCenter] = useState<[number, number]>([1.3521, 103.8198]);
+  const [mapZoom, setMapZoom] = useState<number>(12);
+
+  // smooth pan/zoom animation state refs
+  const animRef = useRef<number | null>(null);
+  const animatingRef = useRef<boolean>(false);
+  const lastUpdateRef = useRef<number>(0);
+  const animStartRef = useRef<number | null>(null);
+  const animFromCenter = useRef<[number, number] | null>(null);
+  const animToCenter = useRef<[number, number] | null>(null);
+  const animFromZoom = useRef<number | null>(null);
+  const animToZoom = useRef<number | null>(null);
+  const defaultInitializedRef = useRef<boolean>(false);
+  const defaultCenterRef = useRef<[number, number]>(mapCenter);
+  const defaultZoomRef = useRef<number>(mapZoom);
+
+  useEffect(() => {
+    return () => {
+      if (animRef.current) {
+        window.cancelAnimationFrame(animRef.current as number);
+        animRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!defaultInitializedRef.current) {
+      defaultCenterRef.current = mapCenter;
+      defaultZoomRef.current = mapZoom;
+      defaultInitializedRef.current = true;
+    }
+  }, []);
+
+  const easeInOutQuad = (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
+
+  const computeZoomForBounds = (coords: [number, number][], fraction = 0.8) => {
+    if (!coords || coords.length === 0) return 11;
+    const lats = coords.map(c => c[0]);
+    const lngs = coords.map(c => c[1]);
+    const latMin = Math.min(...lats), latMax = Math.max(...lats);
+    const lonMin = Math.min(...lngs), lonMax = Math.max(...lngs);
+    const lonDelta = Math.max(0.00001, lonMax - lonMin);
+    const latToMerc = (lat: number) => {
+      const rad = (lat * Math.PI) / 180;
+      return Math.log(Math.tan(Math.PI / 4 + rad / 2));
+    };
+    const mercMin = latToMerc(latMin), mercMax = latToMerc(latMax);
+    const mercDelta = Math.max(1e-8, Math.abs(mercMax - mercMin));
+    const TILE_SIZE = 256;
+    const viewportW = Math.max(320, (window.innerWidth || 1024) * fraction);
+    const viewportH = Math.max(320, (window.innerHeight || 768) * fraction);
+    const zoomLon = Math.log2((360 * viewportW) / (TILE_SIZE * lonDelta));
+    const worldMercatorHeight = 2 * Math.PI;
+    const zoomLat = Math.log2((worldMercatorHeight * viewportH) / (TILE_SIZE * mercDelta));
+    const rawZoom = Math.min(zoomLon, zoomLat);
+    const clamped = Math.max(2, Math.min(18, rawZoom));
+    return Number(clamped.toFixed(4));
+  };
+
+  const animateTo = (targetCenter: [number, number], targetZoom: number, duration = 800) => {
+    if (animRef.current) {
+      window.cancelAnimationFrame(animRef.current as number);
+      animRef.current = null;
+    }
+
+    setMapCenter([Number(targetCenter[0].toFixed(6)), Number(targetCenter[1].toFixed(6))]);
+    setMapZoom(Number(targetZoom.toFixed(4)));
+    return Promise.resolve();
+  };
+
+  const handleAreaClick = (areaName: string, coordinates: [number, number][]) => {
+    setSelectedArea(areaName);
+    setShowAreaInfo(false);
+    
+    const lats = coordinates.map(c => c[0]);
+    const lngs = coordinates.map(c => c[1]);
+    const c: [number, number] = [
+      (Math.min(...lats) + Math.max(...lats)) / 2,
+      (Math.min(...lngs) + Math.max(...lngs)) / 2
+    ];
+
+    let targetZoom = 14;
+    try {
+      // if computeZoomForBounds exists in this file, use it; otherwise fallback
+      // @ts-ignore
+      if (typeof computeZoomForBounds === 'function') {
+        // @ts-ignore
+        targetZoom = computeZoomForBounds(coordinates, 0.8);
+      }
+    } catch {}
+
+    if (animRef.current) {
+      window.cancelAnimationFrame(animRef.current as number);
+      animRef.current = null;
+    }
+
+    animateTo(c, targetZoom, 900).then(() => {
+      setSpecificViewCoords(coordinates);
+      setSpecificViewArea(areaName);
+      setSpecificViewOpen(true);
+      console.log(`Opening SpecificView for area: ${areaName}`, coordinates);
+    }).catch(() => {
+      setSpecificViewCoords(coordinates);
+      setSpecificViewArea(areaName);
+      setSpecificViewOpen(true);
+    });
+  };
 
   const clearSearch = () => {
     onSearchQueryChange('');
@@ -25,14 +132,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
 
   const handleInputFocus = () => {
     onSearchClick();
-  };
-
-  const handleAreaClick = (areaName: string, coordinates: [number, number][]) => {
-    setSelectedArea(areaName);
-    setShowAreaInfo(true);
-    // Store coordinates for SpecificView
-    setSpecificViewCoords(coordinates);
-    console.log(`Selected area: ${areaName}`, coordinates);
   };
 
   const clearSelectedArea = () => {
@@ -62,8 +161,26 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
 
   // Handler for closing SpecificView
   const handleBackFromSpecific = () => {
-    setSpecificViewOpen(false);
-    setSpecificViewArea(null);
+    if (animRef.current) {
+      window.cancelAnimationFrame(animRef.current as number);
+      animRef.current = null;
+    }
+
+    // keep SpecificView visible while animation runs; hide after animation completes
+    animateTo(defaultCenterRef.current, defaultZoomRef.current, 800).then(() => {
+      setSpecificViewOpen(false);
+      setSpecificViewArea(null);
+      setSpecificViewCoords(null);
+      setSelectedArea(null);
+      setShowAreaInfo(false);
+    }).catch(() => {
+      // fallback: hide if animation fails
+      setSpecificViewOpen(false);
+      setSpecificViewArea(null);
+      setSpecificViewCoords(null);
+      setSelectedArea(null);
+      setShowAreaInfo(false);
+    });
   };
 
   // Handlers for SpecificView buttons
@@ -154,8 +271,8 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
       <div className="flex-1 bg-[#6da7e3] relative">
         <div className="w-full h-full" style={{ backgroundColor: '#6da7e3' }}>
           <OneMapInteractive 
-            center={[1.3521, 103.8198]}
-            zoom={13}
+            center={mapCenter}
+            zoom={mapZoom}
             showPlanningAreas={true}
             planningAreasYear={2019}
             onAreaClick={handleAreaClick}
@@ -167,46 +284,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
           {searchQuery && (
             <div className="absolute top-4 left-4 bg-purple-600 text-white px-4 py-2 rounded-xl shadow-lg z-[1000]">
               <p className="text-sm font-medium">Searching: <span className="font-semibold">"{searchQuery}"</span></p>
-            </div>
-          )}
-
-          {/* Selected Area Indicator */}
-          {selectedArea && (
-            <div className="absolute top-4 left-4 bg-white border border-purple-200 rounded-xl shadow-lg z-[1000] max-w-sm">
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-bold text-purple-900 text-lg">{selectedArea}</h3>
-                  <button
-                    onClick={clearSelectedArea}
-                    className="text-purple-400 hover:text-purple-600 transition-colors"
-                  >
-                    <HiX className="w-5 h-5" />
-                  </button>
-                </div>
-                <p className="text-sm text-purple-600 mb-3">Planning Area</p>
-                
-                {/* Area Statistics */}
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="bg-green-50 p-2 rounded-lg">
-                    <div className="text-green-500">Avg Price</div>
-                    <div className="font-semibold text-green-900">$850k</div>
-                  </div>
-                  <div className="bg-blue-50 p-2 rounded-lg">
-                    <div className="text-blue-500">Amenities</div>
-                    <div className="font-semibold text-blue-900">45</div>
-                  </div>
-                </div>
-
-                {/* Updated Action Button - Now opens SpecificView */}
-                <div className="mt-3">
-                  <button 
-                    onClick={handleViewDetails}
-                    className="w-full bg-purple-600 text-white py-2 px-3 rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors"
-                  >
-                    View Details
-                  </button>
-                </div>
-              </div>
             </div>
           )}
 
