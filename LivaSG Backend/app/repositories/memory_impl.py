@@ -1,14 +1,64 @@
 from datetime import date
 import math
+import os
+import time
 from typing import List, Optional
 
 import requests
 from shapely import MultiPolygon, Point, Polygon
 
-from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre, Transit, Carpark, AreaCentroid
-from .interfaces import IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo, ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo
+# NEW
+from ..cache.paths import cache_file
+from ..cache.disk_cache import load_cache, save_cache
+
+from ..domain.models import (
+    PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore,
+    CommunityCentre, Transit, Carpark, AreaCentroid
+)
+from .interfaces import (
+    IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo,
+    ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo
+)
 from ..integrations import onemap_client as onemap
 
+# -------------- Cache helpers & settings --------------
+
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "86400"))  # 24h default
+DEBUG_AMEN = os.getenv("DEBUG_AMEN", "0") == "1"
+
+def _cache_get(name: str, ttl: Optional[int] = None):
+    """
+    Return cached payload if exists and is fresh; else None.
+    """
+    p = cache_file(name, version=1)
+    blob = load_cache(p)
+    if not blob:
+        return None
+    meta = blob.get("meta") or {}
+    built_at = float(meta.get("built_at", 0))
+    max_age = CACHE_TTL_SECONDS if ttl is None else ttl
+    if built_at and (time.time() - built_at) <= max_age:
+        return blob.get("payload")
+    return None
+
+def _cache_put(name: str, payload, extra_meta=None):
+    p = cache_file(name, version=1)
+    save_cache(p, payload=payload, meta=(extra_meta or {}))
+
+def _fetch_json_cached(cache_name: str, url: str, *, ttl: Optional[int] = None):
+    """
+    Cache the JSON result of a GET request (for open data endpoints).
+    """
+    cached = _cache_get(cache_name, ttl=ttl)
+    if cached is not None:
+        return cached
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    _cache_put(cache_name, data, {"url": url})
+    return data
+
+# -------------- Repositories --------------
 
 class MemoryPriceRepo(IPriceRepo):
     def series(self, area_id: str, months: int) -> List[PriceRecord]:
@@ -21,17 +71,18 @@ class MemoryPriceRepo(IPriceRepo):
                 medianResale=base + i*1200, p25=base-40_000, p75=base+40_000, volume=50-i%5
             ))
             m += 1
-            if m > 12: m, y = 1, y+1
+            if m > 12:
+                m, y = 1, y+1
         return out
 
 
 class MemoryAmenityRepo(IAmenityRepo):
-    _schools_data = None    # 724 schools in Singapore #uses OneMap API
-    _sports_data = None     # 35 sports facilities in Singapore
-    _hawkers_data = None    # 129 hawker centres in Singapore
-    _clinics_data = None    # 1193 CHAS clinics in Singapore
-    _parks_data = None      # 441 parks in Singapore
-    _carparks_data = None   # 2249 carparks in Singapore
+    _schools_data = None    # OneMap API
+    _sports_data = None     # data.gov.sg
+    _hawkers_data = None    # data.gov.sg
+    _clinics_data = None    # data.gov.sg
+    _parks_data = None      # data.gov.sg
+    _carparks_data = None   # not used here (carparks in MemoryCarparkRepo)
 
     @classmethod
     async def initialize(cls):
@@ -46,112 +97,146 @@ class MemoryAmenityRepo(IAmenityRepo):
         if cls._parks_data is None:
             cls._parks_data = cls.getParks()
 
+    def _snapshot_id(self) -> str:
+        """
+        Lightweight snapshot string used to invalidate per-area summaries
+        when upstream datasets change (length-based; cheap & sufficient).
+        """
+        s = len(self._schools_data or [])
+        sp = len(self._sports_data or [])
+        h = len(self._hawkers_data or [])
+        c = len(self._clinics_data or [])
+        p = len(self._parks_data or [])
+        return f"s{s}-sp{sp}-h{h}-c{c}-p{p}"
+
     async def facilities_summary(self, area_id: str) -> FacilitiesSummary:
         await MemoryAmenityRepo.initialize()
 
+        # Per-area cached summary (fast path)
+        cache_key = f"fac_summary_{area_id.title()}"
+        cached = _cache_get(cache_key, ttl=int(os.getenv("FAC_SUMMARY_TTL", "86400")))
+        if cached is not None:
+            meta = cached.get("_meta") or {}
+            if meta.get("snapshot") == self._snapshot_id():
+                # Reconstruct FacilitiesSummary from cached dict
+                d = cached["data"]
+                return FacilitiesSummary(**d)
+
         area_repo = MemoryAreaRepo()
-        areaPolygon, areaCentroid = area_repo.getAreaGeometry(area_id)
+        areaPolygon, _areaCentroid = area_repo.getAreaGeometry(area_id)
 
         cp_repo = MemoryCarparkRepo()
-        cc_repo = MemoryCommunityRepo()
+        # (Optional) remove noisy prints of CCs
+        # cc_repo = MemoryCommunityRepo()
+        # if DEBUG_AMEN:
+        #     for cc in cc_repo.list_near_area(area_id):
+        #         print(cc.name)
 
-        # for testing purposes
-        for cc in cc_repo.list_near_area(area_id):
-            print(cc.name)
-
-        return FacilitiesSummary(   
+        # Compute fresh
+        summary = FacilitiesSummary(
             schools=len(self.filterInside(areaPolygon, self._schools_data)),
             sports=len(self.filterInside(areaPolygon, self._sports_data)),
             hawkers=len(self.filterInside(areaPolygon, self._hawkers_data)),
             healthcare=len(self.filterInside(areaPolygon, self._clinics_data)),
-            greenSpaces=len(self.filterInside(areaPolygon, self._parks_data)), 
+            greenSpaces=len(self.filterInside(areaPolygon, self._parks_data)),
             carparks=len(cp_repo.list_near_area(area_id)),
         )
+
+        # Save to cache
+        _cache_put(cache_key, {
+            "_meta": {"snapshot": self._snapshot_id()},
+            "data": {
+                "schools": summary.schools,
+                "sports": summary.sports,
+                "hawkers": summary.hawkers,
+                "healthcare": summary.healthcare,
+                "greenSpaces": summary.greenSpaces,
+                "carparks": summary.carparks,
+            }
+        })
+        return summary
     
     @staticmethod
     def filterInside(polygon, locations: List[dict]) -> List[dict]:
-        if locations is None:
+        if polygon is None or locations is None:
             return []
-        
-        inside_locations = []
+        inside = []
         for loc in locations:
             try:
-                loc_lat = float(loc.get("LATITUDE") or loc.get("latitude"))
-                loc_lon = float(loc.get("LONGITUDE") or loc.get("longitude"))
-                point = Point(loc_lon, loc_lat)  # Create a shapely Point (longitude first)
+                lat = float(loc.get("LATITUDE") or loc.get("latitude"))
+                lon = float(loc.get("LONGITUDE") or loc.get("longitude"))
+                if polygon.contains(Point(lon, lat)):
+                    inside.append(loc)
+            except (KeyError, ValueError, TypeError):
+                continue
+        return inside
 
-                if polygon.contains(point):
-                    inside_locations.append(loc)
-                    #print(loc['SEARCHVAL'] if 'SEARCHVAL' in loc else loc.get('name', 'Unknown')) #for debugging
-
-            except (KeyError, ValueError):
-                continue  # Skip locations with missing or invalid coordinates
-        return inside_locations
-
-    # Search all pages for a given query for OneMap API
+    # -------- Cached OneMap search paging --------
     @staticmethod
     async def searchAllPages(query: str) -> List[dict]:
+        """
+        Cached aggregator across OneMap paging; key is the query string.
+        """
+        cache_key = f"onemap_search_{query.replace(' ', '_').lower()}"
+        cached = _cache_get(cache_key, ttl=int(os.getenv("ONEMAP_SEARCH_TTL", str(7*24*3600))))
+        if cached is not None:
+            if DEBUG_AMEN:
+                print(f"[cache] {query}: {len(cached)} results")
+            return cached
+
         all_results = []
         page = 1
         onemap_client = onemap.OneMapClientHardcoded()
 
         while True:
             search_results = await onemap_client.search(query=query, page=page)
-
-            if not search_results or "results" not in search_results or len(search_results["results"]) == 0:
-                break  # No more results
+            if not search_results or "results" not in search_results or not search_results["results"]:
+                break
             all_results.extend(search_results["results"])
-            print(f"Page {page} of {query} loaded") #for debugging
+            if DEBUG_AMEN:
+                print(f"Page {page} of {query} loaded")
             page += 1
+
+        _cache_put(cache_key, all_results, {"type": "onemap_search_allpages"})
         return all_results
 
+    # -------- Dataset loaders (cached via _fetch_json_cached) --------
     @staticmethod
     async def getSchools():
-        # Use OneMap Search API to find nearby schools
-        search_results = await MemoryAmenityRepo.searchAllPages(query="school")
-        return search_results
+        return await MemoryAmenityRepo.searchAllPages(query="school")
     
     @staticmethod
     def getSportFacilities():
         dataset_id = "d_9b87bab59d036a60fad2a91530e10773"
-        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
-
-        response = requests.get(url)
-        json_data = response.json()
-        if json_data['code'] != 0:
-            print(json_data['errMsg'])
+        poll_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
+        poll_json = _fetch_json_cached("sports_poll", poll_url)
+        if poll_json.get('code') != 0:
+            print(poll_json.get('errMsg', 'poll-download failed'))
             exit(1)
-
-        url = json_data['data']['url']
-        location_data = requests.get(url).json()
-
+        data_url = poll_json['data']['url']
+        location_data = _fetch_json_cached("sports_dataset", data_url)
         sportfacilities = [
             {
-            "name": feature["properties"]["Description"].split("<td>")[1].split("</td>")[0],
-            "address": feature["properties"].get("address"),
-            "latitude": feature['geometry']['coordinates'][0][0][1] if feature['geometry']['type'] == "Polygon" else feature['geometry']['coordinates'][0][0][0][1],
-            "longitude": feature["geometry"]["coordinates"][0][0][0] if feature["geometry"]["type"] == "Polygon" else feature["geometry"]["coordinates"][0][0][0][0]
+                "name": feature["properties"]["Description"].split("<td>")[1].split("</td>")[0],
+                "address": feature["properties"].get("address"),
+                "latitude": feature['geometry']['coordinates'][0][0][1] if feature['geometry']['type'] == "Polygon" else feature['geometry']['coordinates'][0][0][0][1],
+                "longitude": feature["geometry"]["coordinates"][0][0][0] if feature["geometry"]["type"] == "Polygon" else feature["geometry"]["coordinates"][0][0][0][0]
             }
             for feature in location_data["features"]
         ]
-
         return sportfacilities
 
     @staticmethod
     def getHawkerCentres():
         dataset_id = "d_4a086da0a5553be1d89383cd90d07ecd"
-        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
-
-        response = requests.get(url)
-        json_data = response.json()
-        if json_data['code'] != 0:
-            print(json_data['errMsg'])
+        poll_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
+        poll_json = _fetch_json_cached("hawkers_poll", poll_url)
+        if poll_json.get('code') != 0:
+            print(poll_json.get('errMsg'))
             exit(1)
-
-        url = json_data['data']['url']
-        location_data = requests.get(url).json()
-
-        hawkers = [
+        data_url = poll_json['data']['url']
+        location_data = _fetch_json_cached("hawkers_dataset", data_url)
+        return [
             {
                 "name": feature["properties"].get("NAME"),
                 "address": feature["properties"].get("address"),
@@ -161,23 +246,18 @@ class MemoryAmenityRepo(IAmenityRepo):
             for feature in location_data["features"]
             if feature["geometry"]["type"] == "Point"
         ]
-        return hawkers
 
     @staticmethod
     def getChasClinics():
         dataset_id = "d_548c33ea2d99e29ec63a7cc9edcccedc"
-        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
-
-        response = requests.get(url)
-        json_data = response.json()
-        if json_data['code'] != 0:
-            print(json_data['errMsg'])
+        poll_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
+        poll_json = _fetch_json_cached("chas_poll", poll_url)
+        if poll_json.get('code') != 0:
+            print(poll_json.get('errMsg'))
             exit(1)
-
-        url = json_data['data']['url']
-        location_data = requests.get(url).json()
-
-        clinics = [
+        data_url = poll_json['data']['url']
+        location_data = _fetch_json_cached("chas_dataset", data_url)
+        return [
             {
                 "name": feature["properties"]["Description"].split("<td>")[2].split("</td>")[0],
                 "latitude": feature["geometry"]["coordinates"][1],
@@ -186,23 +266,18 @@ class MemoryAmenityRepo(IAmenityRepo):
             for feature in location_data["features"]
             if feature["geometry"]["type"] == "Point"
         ]
-        return clinics
 
     @staticmethod
     def getParks():
         dataset_id = "d_0542d48f0991541706b58059381a6eca"
-        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
-
-        response = requests.get(url)
-        json_data = response.json()
-        if json_data['code'] != 0:
-            print(json_data['errMsg'])
+        poll_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
+        poll_json = _fetch_json_cached("parks_poll", poll_url)
+        if poll_json.get('code') != 0:
+            print(poll_json.get('errMsg'))
             exit(1)
-
-        url = json_data['data']['url']
-        location_data = requests.get(url).json()
-
-        parks = [
+        data_url = poll_json['data']['url']
+        location_data = _fetch_json_cached("parks_dataset", data_url)
+        return [
             {
                 "name": feature["properties"].get("NAME"),
                 "latitude": feature["geometry"]["coordinates"][1],
@@ -211,13 +286,14 @@ class MemoryAmenityRepo(IAmenityRepo):
             for feature in location_data["features"]
             if feature["geometry"]["type"] == "Point"
         ]
-        return parks
+
 
 class MemoryWeightsRepo(IWeightsRepo):
     _profiles = [WeightsProfile()]
     def get_active(self) -> WeightsProfile: return self._profiles[0]
     def list(self) -> List[WeightsProfile]: return list(self._profiles)
     def save(self, p: WeightsProfile) -> None: self._profiles.insert(0, p)
+
 
 class MemoryScoreRepo(IScoreRepo):
     _scores: List[NeighbourhoodScore] = []
@@ -238,8 +314,7 @@ class MemoryCommunityRepo(ICommunityRepo):
         return [c.name for c in self._centres]
 
     def exists(self, area_id: str) -> bool:
-        # case-insensitive check
-        return any(c.areaId.lower() == area_id.lower() for c in self._centres)
+        return any(c.areaId and c.areaId.lower() == area_id.lower() for c in self._centres)
     
     def list_near_area(self, area_id: str) -> List[CommunityCentre]:
         return [c for c in self._centres if c.areaId and c.areaId.lower() == area_id.lower()]
@@ -247,22 +322,18 @@ class MemoryCommunityRepo(ICommunityRepo):
     @classmethod
     def updateCommunityCentres(cls):
         dataset_id = "d_f706de1427279e61fe41e89e24d440fa"
-        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
-
-        response = requests.get(url)
-        json_data = response.json()
-        if json_data['code'] != 0:
-            print(json_data['errMsg'])
+        poll_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
+        poll_json = _fetch_json_cached("cc_poll", poll_url)
+        if poll_json.get('code') != 0:
+            print(poll_json.get('errMsg'))
             exit(1)
+        data_url = poll_json['data']['url']
+        location_data = _fetch_json_cached("cc_dataset", data_url)
 
-        url = json_data['data']['url']
-        location_data = requests.get(url).json()
-
-        communitycentres = []
-
+        communitycentres: List[CommunityCentre] = []
         for feature in location_data["features"]:
             if feature["geometry"]["type"] == "Point":
-                community_centre = CommunityCentre(
+                communitycentres.append(CommunityCentre(
                     id = feature["properties"]['Name'],
                     name = feature["properties"]["Description"].split("<th>NAME</th> <td>")[1].split("</td>")[0],
                     areaId = MemoryAreaRepo.getArea(feature["geometry"]["coordinates"][0], feature["geometry"]["coordinates"][1]),
@@ -271,93 +342,98 @@ class MemoryCommunityRepo(ICommunityRepo):
                                 + feature["properties"]["Description"].split("<th>ADDRESSPOSTALCODE</th> <td>")[1].split("</td>")[0],
                     latitude = feature["geometry"]["coordinates"][1],
                     longitude = feature["geometry"]["coordinates"][0]
-                    )
-                communitycentres.append(community_centre)
+                ))
         cls._centres = communitycentres
 
 
-#TODO WIP, doesnt work, and need add initialization
 class MemoryTransitRepo(ITransitRepo):
-    _transit_data = []
-    """Hardcoded transit nodes (MRT/LRT/Bus) and simple area mapping."""
-    # a few sample transit nodes with lat/lon
+    _transit_data = []  # unused, keeping for compatibility
     _nodes: List[Transit] = [
+        # default seed; will be extended/replaced by cached build
         Transit(id="mrt_bukit_panjang", type="mrt", name="Bukit Panjang MRT", areaId="Bukit Panjang", latitude=1.38, longitude=103.77),
         Transit(id="lrt_bukit_panjang", type="lrt", name="Bukit Panjang LRT", areaId="Bukit Panjang", latitude=1.379, longitude=103.771),
         Transit(id="mrt_tampines", type="mrt", name="Tampines MRT", areaId="Tampines", latitude=1.352, longitude=103.94),
-        Transit(id="bus_marine_parade_1", type="bus", name="Marine Parade Bus Stop 1", areaId="Marine Parade", latitude=1.3005, longitude=103.9105)
+        Transit(id="bus_marine_parade_1", type="bus", name="Marine Parade Bus Stop 1", areaId="Marine Parade", latitude=1.3005, longitude=103.9105),
     ]
 
     def list_near_area(self, area_id: str) -> List[Transit]:
-        # return nodes that have matching areaId (case-insensitive), else empty
         return [n for n in self._nodes if n.areaId and n.areaId.lower() == area_id.lower()]
 
     def all(self) -> List[Transit]:
         return list(self._nodes)
-    
+
+    @classmethod
+    async def initialize(cls):
+        """
+        Load transit nodes from cache if available, else build (then cache).
+        """
+        cache_key = "transit_nodes_v1"
+        ttl = int(os.getenv("TRANSIT_TTL", str(7*24*3600)))
+        cached = _cache_get(cache_key, ttl=ttl)
+        if cached is not None and isinstance(cached, list) and cached:
+            # hydrate objects
+            cls._nodes = [
+                Transit(
+                    id=it.get("id"), type=it.get("type"), name=it.get("name"),
+                    areaId=it.get("areaId"), latitude=it.get("latitude"), longitude=it.get("longitude")
+                ) for it in cached
+            ]
+            return
+        # else build and cache
+        await cls.updateTransits()
+        _cache_put(cache_key, [
+            {
+                "id": n.id, "type": n.type, "name": n.name,
+                "areaId": n.areaId, "latitude": n.latitude, "longitude": n.longitude
+            } for n in cls._nodes
+        ], {"source": "onemap_search_mrt"})
+
     @classmethod
     async def updateTransits(cls):
-        _trains = await cls.getTrains()
-        _buses = []
-        #_buses = await cls.getBus() #need to change to LTA DATAMALL API
+        """
+        Build nodes from OneMap 'MRT' (and later buses); quiet + cached via Amenity search.
+        """
+        trains = await cls.getTrains()
+        buses: List[dict] = []  # placeholder for future LTA DataMall
 
-        for train in _trains: 
-            if "EXIT" in train['SEARCHVAL']: #skip exits
+        built: List[Transit] = []
+        for t in trains:
+            name = t.get('SEARCHVAL', '')
+            if not name:
                 continue
-
-            if "MRT" not in train['SEARCHVAL'].upper() and "LRT" not in train['SEARCHVAL'].upper(): #skip non-MRT/LRT
+            u = name.upper()
+            if "EXIT" in u:       # skip exits
                 continue
-
-            if "LRT" in train['SEARCHVAL']:
-                print(train["SEARCHVAL"] + " LRT")
-    
-            transit_node = Transit(
-                id = train['SEARCHVAL'],
-                type = 'mrt' if 'MRT' in train['SEARCHVAL'].upper() else 'lrt' if 'LRT' in train['SEARCHVAL'].upper() else '',
-                name = train['SEARCHVAL'],
-                areaId = MemoryAreaRepo.getArea(float(train['LONGITUDE']), float(train['LATITUDE'])),
-                latitude = float(train['LATITUDE']),
-                longitude = float(train['LONGITUDE'])
-            )
-            cls._nodes.append(transit_node)
-
-        for bus in _buses: #TODO rmb to update this 
-            print(bus["SEARCHVAL"] + " BUS STOP")
-            transit_node = Transit(
-                id = bus['SEARCHVAL'],
-                type = 'bus',
-                name = bus['SEARCHVAL'],
-                areaId = MemoryAreaRepo.getArea(float(bus['LONGITUDE']), float(bus['LATITUDE'])),
-                latitude = float(bus['LATITUDE']),
-                longitude = float(bus['LONGITUDE'])
-            )
-            cls._nodes.append(transit_node)
+            if "MRT" not in u and "LRT" not in u:
+                continue
+            try:
+                lat = float(t['LATITUDE'])
+                lon = float(t['LONGITUDE'])
+            except Exception:
+                continue
+            built.append(Transit(
+                id=name,
+                type='mrt' if 'MRT' in u else 'lrt' if 'LRT' in u else '',
+                name=name,
+                areaId=MemoryAreaRepo.getArea(lon, lat),
+                latitude=lat,
+                longitude=lon
+            ))
+        # (future) add buses similarly with a cap
+        cls._nodes = built or cls._nodes  # keep seeds if nothing built
 
     @staticmethod
     async def searchAllPages(query: str) -> List[dict]:
-        all_results = []
-        page = 1
-        onemap_client = onemap.OneMapClientHardcoded()
-
-        while True:
-            search_results = await onemap_client.search(query=query, page=page)
-
-            if not search_results or "results" not in search_results or len(search_results["results"]) == 0:
-                break  # No more results
-            all_results.extend(search_results["results"])
-            print(f"Page {page} of {query} loaded")
-            page += 1
-        return all_results
+        # Reuse the cached OneMap search in MemoryAmenityRepo
+        return await MemoryAmenityRepo.searchAllPages(query)
     
     @staticmethod
-    async def getTrains(): #try find another way
-        search_results = await MemoryAmenityRepo.searchAllPages(query="MRT")
-        return search_results
+    async def getTrains():
+        return await MemoryAmenityRepo.searchAllPages(query="MRT")
     
     @staticmethod
-    async def getBus(): #need to change to LTA DATAMALL API or something
-        search_results = await MemoryAmenityRepo.searchAllPages(query="BUS STOP")
-        return search_results
+    async def getBus():
+        return await MemoryAmenityRepo.searchAllPages(query="BUS STOP")
 
 
 class MemoryCarparkRepo(ICarparkRepo):
@@ -366,7 +442,6 @@ class MemoryCarparkRepo(ICarparkRepo):
     def __init__(self):
         if not MemoryCarparkRepo._carparks:
             MemoryCarparkRepo.updateCarparks()
-            pass
 
     def list_near_area(self, area_id: str) -> List[Carpark]:
         return [p for p in self._carparks if p.areaId and p.areaId.lower() == area_id.lower()]
@@ -376,55 +451,67 @@ class MemoryCarparkRepo(ICarparkRepo):
     
     @classmethod
     def updateCarparks(cls):
-        # Fetch carpark availability data
-        url = "https://api.data.gov.sg/v1/transport/carpark-availability"
-        response = requests.get(url)
+        # 1) availability (live) — keep uncached to stay current
+        avail_url = "https://api.data.gov.sg/v1/transport/carpark-availability"
+        response = requests.get(avail_url, timeout=30)
+        response.raise_for_status()
         carpark_data = response.json()
 
         # Initialize carpark lots dictionary
         carpark_lots = {}
-
-        # iterate through carpark availability data
         for record in carpark_data["items"][0]["carpark_data"]:
             carpark_number = record["carpark_number"]
             available_lots = 0
-
-            # Sum up available lots across all lot types
             for lots in record["carpark_info"]:
                 available_lots += int(lots["lots_available"])
-            
-            # Add to dictionary
             carpark_lots[carpark_number] = available_lots
 
-        # Now fetch HDB carpark information to get names and coordinates
-        dataset_id = "d_23f946fa557947f93a8043bbef41dd09" #HDB Carpark Information
+        # 2) HDB carpark information (heavy, paginated) — cache combined records
+        dataset_id = "d_23f946fa557947f93a8043bbef41dd09" # HDB Carpark Information
         base_url = "https://data.gov.sg/"
-        curr_url = "api/action/datastore_search?resource_id=" + dataset_id
+        start_url = "api/action/datastore_search?resource_id=" + dataset_id
 
-        while True:
-            url = base_url + curr_url
-            response = requests.get(url)
-            location_data = response.json()
-            curr_url = location_data["result"]["_links"]["next"]
+        records_cache_key = "hdb_carparks_records"
+        cached_records = _cache_get(records_cache_key, ttl=int(os.getenv("HDB_CARPARKS_TTL", str(7*24*3600))))
+        if cached_records is None:
+            curr_url = start_url
+            all_records = []
+            total = None
 
-            print(len(cls._carparks), "/", location_data["result"]["total"], "carparks loaded")
-            if len(cls._carparks) >= int(location_data["result"]["total"]):
-                break  # Exit if we've reached the max number of carparks
+            while True:
+                url = base_url + curr_url
+                resp = requests.get(url, timeout=60)
+                resp.raise_for_status()
+                location_data = resp.json()
+                result = location_data["result"]
+                total = result.get("total", total)
+                all_records.extend(result.get("records", []))
+                if DEBUG_AMEN:
+                    print(len(all_records), "/", total, "carparks loaded")
+                curr_url = result["_links"]["next"]
+                if len(all_records) >= int(total or 0):
+                    break
 
-            for record in location_data["result"]["records"]:
+            _cache_put(records_cache_key, all_records, {"dataset": dataset_id, "total": len(all_records)})
+            records = all_records
+        else:
+            records = cached_records
+
+        # Build in-memory objects
+        for record in records:
+            try:
                 easting = float(record['x_coord'])
                 northing = float(record['y_coord'])
                 lat, lon = svy21_to_wgs84(easting, northing)
-
-                carpark = Carpark(
+                cls._carparks.append(Carpark(
                     id = record['address'],
                     areaId = MemoryAreaRepo.getArea(lon, lat),
                     latitude = lat,
                     longitude = lon,
-                    capacity = carpark_lots.get(record['car_park_no'], 0)
-                )
-                
-                cls._carparks.append(carpark)
+                    capacity = carpark_lots.get(record.get('car_park_no', ''), 0)
+                ))
+            except Exception:
+                continue
 
 
 class MemoryAreaRepo(IAreaRepo):
@@ -438,16 +525,16 @@ class MemoryAreaRepo(IAreaRepo):
     @classmethod
     def updateArea(cls):
         dataset_id = "d_4765db0e87b9c86336792efe8a1f7a66"
-        url = "https://api-open.data.gov.sg/v1/public/api/datasets/" + dataset_id + "/poll-download"
-        response = requests.get(url)
-        json_data = response.json()
-        if json_data['code'] != 0:
-            print(json_data['errMsg'])
+        poll_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
+
+        poll_json = _fetch_json_cached("areas_poll", poll_url)
+        if poll_json.get('code') != 0:
+            print(poll_json.get('errMsg'))
             exit(1)
 
-        url = json_data['data']['url']
-        location_data = requests.get(url).json()
-        
+        data_url = poll_json['data']['url']
+        location_data = _fetch_json_cached("areas_dataset", data_url)
+
         # Convert geojson to Polygon or MultiPolygon
         for feature in location_data['features']:
             area_name = feature["properties"]["Description"].split("<td>")[1].split("</td>")[0].title()
@@ -458,11 +545,10 @@ class MemoryAreaRepo(IAreaRepo):
                     for ring in polygon_coords:
                         polygons.append(Polygon(ring))
                 cls._polygons[area_name] = MultiPolygon(polygons)
-            
             elif feature['geometry']['type'] == "Polygon":
                 cls._polygons[area_name] = Polygon(feature['geometry']['coordinates'][0])
 
-        # Calculate centroid from polygon coordinates
+            # Calculate centroid
             coords = []
             if feature['geometry']['type'] == "MultiPolygon":
                 for polygon_coords in feature['geometry']['coordinates']:
@@ -483,36 +569,36 @@ class MemoryAreaRepo(IAreaRepo):
     def getArea(cls, longitude: float, latitude: float) -> str:
         if not cls._polygons:
             cls.updateArea()
-
         area_id = "None"
         point = Point(longitude, latitude)
-
         for area_name, polygon in cls._polygons.items():
-            if polygon.contains(point):
-                area_id = area_name
-                break
-
+            try:
+                if polygon.contains(point):
+                    area_id = area_name
+                    break
+            except Exception:
+                continue
         return area_id
 
     @classmethod
-    def getAreaGeometry(cls, area_id: str): #returns the polygon and centroid for a given area ID
+    def getAreaGeometry(cls, area_id: str):
         area_id = area_id.title()
         return cls._polygons.get(area_id), cls._centroids.get(area_id)
 
     @classmethod
-    def list_all(cls) -> List[AreaCentroid]: #TODO update this
+    def list_all(cls) -> List[AreaCentroid]:
         return list(cls._centroids)
 
 
 # Convert X Y to Latitude Longitude
 def svy21_to_wgs84(E, N):
     # Constants
-    a = 6378137.0  # semi-major axis
-    f = 1 / 298.257223563  # flattening
-    e2 = 2*f - f**2  # eccentricity squared
-    phi0 = math.radians(1 + 22/60 + 0/3600)  # reference latitude in radians
-    lambda0 = math.radians(103 + 50/60 + 0/3600)  # reference longitude in radians
-    k0 = 1.0  # scale factor
+    a = 6378137.0
+    f = 1 / 298.257223563
+    e2 = 2*f - f**2
+    phi0 = math.radians(1 + 22/60 + 0/3600)
+    lambda0 = math.radians(103 + 50/60 + 0/3600)
+    k0 = 1.0
     N0 = 38744.572
     E0 = 28001.642
 

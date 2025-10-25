@@ -6,6 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import map_controller, details_controller, search_controller
 from app.api import onemap_controller  # keep after DI objects created if you prefer
 
+# --- new
+from app.api import weights_controller  
+
 # --- Existing Memory Repositories ---
 from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
@@ -61,31 +64,29 @@ app.add_middleware(
 )
 
 # ---- Dependency overrides (avoid circular imports) ----
-# onemap_controller uses a DI hook for the planning repo
 app.dependency_overrides[onemap_controller.get_planning_repo] = lambda: di_planning_repo
-
-# map_controller now exposes DI hooks; wire them here
 app.dependency_overrides[map_controller.get_engine] = lambda: di_engine
 app.dependency_overrides[map_controller.get_weights_service] = lambda: di_weights
 app.dependency_overrides[map_controller.get_planning_repo] = lambda: di_planning_repo
 
-# ---- Mount routers ----
-# map_controller already has prefix="/map" and tags=["map"] inside the file
-app.include_router(map_controller.router)
+# new
+app.dependency_overrides[weights_controller.get_weights_repo] = lambda: di_weights
 
-# keep these with explicit prefixes only if their controllers DO NOT already define prefixes
+# ---- Mount routers ----
+app.include_router(map_controller.router)
 app.include_router(details_controller.router, prefix="/details", tags=["details"])
 app.include_router(search_controller.router, prefix="/search", tags=["search"])
-
-# onemap_controller already has prefix="/onemap" and tags=["onemap"] inside the file
 app.include_router(onemap_controller.router)
+
+# new
+app.include_router(weights_controller.router)
 
 # Health
 @app.get("/")
 def health():
     return {"ok": True}
 
-# --- Dev-only: simple PopAPI debug probe ---
+# --- simple PopAPI debug probe ---
 @app.get("/test-onemap")
 async def test_onemap():
     import httpx
