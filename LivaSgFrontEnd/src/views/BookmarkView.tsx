@@ -44,6 +44,7 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
     areaName: string;
     coordinates: [number, number][];
   } | null>(null);
+  const [showRemoveConfirmation, setShowRemoveConfirmation] = useState<number | null>(null);
 
   // Mock data for demonstration - replace with actual API calls
   useEffect(() => {
@@ -160,20 +161,21 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
     // This will be handled within SpecificView
   };
 
-  // Toggle save/unsave for a location
-  const toggleSaveLocation = (locationId: number, event?: React.MouseEvent) => {
-    if (event) {
-      event.stopPropagation();
-    }
-    setSavedLocations(prev => {
-      if (prev.includes(locationId)) {
-        // Remove from saved
-        return prev.filter(id => id !== locationId);
-      } else {
-        // Add to saved
-        return [...prev, locationId];
-      }
-    });
+  // Show confirmation dialog before removing
+  const handleRemoveClick = (locationId: number, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setShowRemoveConfirmation(locationId);
+  };
+
+  // Confirm removal
+  const confirmRemoveLocation = (locationId: number) => {
+    setSavedLocations(prev => prev.filter(id => id !== locationId));
+    setShowRemoveConfirmation(null);
+  };
+
+  // Cancel removal
+  const cancelRemoveLocation = () => {
+    setShowRemoveConfirmation(null);
   };
 
   // Check if a location is saved
@@ -481,6 +483,36 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
           </div>
         </div>
       )}
+
+      {/* Remove Confirmation Dialog */}
+      {showRemoveConfirmation && (
+        <div className="fixed inset-0 z-50 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm mx-auto shadow-2xl border border-gray-300 p-6">
+            <div className="text-center">
+              <HiBookmark className="w-12 h-12 mx-auto mb-4 text-purple-500" />
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Remove from Saved?</h3>
+              <p className="text-gray-600 mb-6">
+                This location will be removed from your saved locations. You can save it again later if needed.
+              </p>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={cancelRemoveLocation}
+                  className="flex-1 px-4 py-3 text-purple-700 bg-white border border-purple-300 rounded-xl font-semibold hover:bg-purple-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => confirmRemoveLocation(showRemoveConfirmation)}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* List of saved locations - Simplified */}
       <div className="flex-1 overflow-auto p-4 space-y-4">
@@ -520,14 +552,11 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
                   <p className="text-sm text-purple-600 mt-1">{loc.description}</p>
                 </div>
                 
-                {/* Save/Unsave Button */}
+                {/* Remove Button */}
                 <button
-                  onClick={(e) => toggleSaveLocation(loc.id, e)}
-                  className={`ml-4 p-2 rounded-full transition-all duration-200 ${
-                    isLocationSaved(loc.id)
-                      ? 'bg-purple-100 text-purple-600 hover:bg-purple-200'
-                      : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                  }`}
+                  onClick={(e) => handleRemoveClick(loc.id, e)}
+                  className="ml-4 p-2 rounded-full transition-all duration-200 bg-purple-100 text-purple-600 hover:bg-purple-200 hover:text-purple-700"
+                  title="Remove from saved locations"
                 >
                   <HiBookmark className="w-5 h-5" />
                 </button>
