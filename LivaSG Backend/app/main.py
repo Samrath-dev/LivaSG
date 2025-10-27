@@ -69,6 +69,9 @@ app.dependency_overrides[map_controller.get_engine] = lambda: di_engine
 app.dependency_overrides[map_controller.get_weights_service] = lambda: di_weights
 app.dependency_overrides[map_controller.get_planning_repo] = lambda: di_planning_repo
 
+# Provide the OneMap client instance to controllers that depend on it
+app.dependency_overrides[onemap_controller.get_onemap_client] = lambda: di_onemap_client
+
 # new
 app.dependency_overrides[weights_controller.get_weights_repo] = lambda: di_weights
 
