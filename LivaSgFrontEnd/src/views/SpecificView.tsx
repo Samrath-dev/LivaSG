@@ -49,6 +49,7 @@ const SpecificView = ({
   const detailsModalRef = useRef<HTMLDivElement | null>(null);
   const [currentArea, setCurrentArea] = useState<string>(areaName);
   const [currentCoords, setCurrentCoords] = useState<[number, number][]>(coordinates);
+  const [highlightedArea, setHighlightedArea] = useState<string>(areaName);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const resizeRafRef = useRef<number | null>(null);
@@ -74,6 +75,7 @@ const SpecificView = ({
   useEffect(() => {
     setCurrentArea(areaName);
     setCurrentCoords(coordinates);
+    setHighlightedArea(areaName);
   }, [areaName, coordinates]);
 
   useEffect(() => {
@@ -246,6 +248,30 @@ const SpecificView = ({
   const handleInnerAreaClick = (areaNameInner: string, coordsInner: [number, number][]) => {
     setCurrentArea(areaNameInner);
     setCurrentCoords(coordsInner);
+    setHighlightedArea(areaNameInner);
+  };
+
+  // Custom styling function for polygons
+  const getPolygonStyle = (areaName: string) => {
+    if (areaName === highlightedArea) {
+      // Current selected area - purple with highlight
+      return {
+        fillColor: '#8B5CF6', // Purple-500
+        fillOpacity: 0.7,
+        color: '#7C3AED', // Purple-600
+        weight: 3,
+        opacity: 1
+      };
+    } else {
+      // Surrounding areas - greyed out
+      return {
+        fillColor: '#9CA3AF', // Gray-400
+        fillOpacity: 0.4,
+        color: '#6B7280', // Gray-500
+        weight: 1,
+        opacity: 0.6
+      };
+    }
   };
 
   return (
@@ -314,6 +340,7 @@ const SpecificView = ({
           showPlanningAreas={true}
           planningAreasYear={2019}
           onAreaClick={handleInnerAreaClick}
+          getPolygonStyle={getPolygonStyle} // Pass the custom styling function
           className="w-full h-full"
         />
       </div>

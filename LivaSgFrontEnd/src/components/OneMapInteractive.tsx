@@ -35,6 +35,15 @@ interface ChoroplethData {
   computedAt: string;
 }
 
+// Interface for polygon styling
+interface PolygonStyle {
+  fillColor: string;
+  fillOpacity: number;
+  color: string;
+  weight: number;
+  opacity: number;
+}
+
 interface OneMapInteractiveProps {
   center?: [number, number];
   zoom?: number;
@@ -65,6 +74,8 @@ interface OneMapInteractiveProps {
   boxZoom?: boolean;
   keyboard?: boolean;
   zoomControl?: boolean;
+  // New polygon styling prop
+  getPolygonStyle?: (areaName: string) => PolygonStyle;
 }
 
 const OneMapInteractive = ({ 
@@ -86,7 +97,9 @@ const OneMapInteractive = ({
   doubleClickZoom = true,
   boxZoom = true,
   keyboard = true,
-  zoomControl = true
+  zoomControl = true,
+  // New polygon styling prop
+  getPolygonStyle
 }: OneMapInteractiveProps) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -291,6 +304,30 @@ const OneMapInteractive = ({
     return 1 + (rating * 2); // 1 to 3 weight based on rating
   };
 
+  // Default polygon styling when no custom styling is provided
+  const getDefaultPolygonStyle = (areaName: string): PolygonStyle => {
+    const areaRating = getAreaRating(areaName);
+    const areaColor = getRatingColor(areaRating);
+    const fillOpacity = getFillOpacity(areaRating);
+    const borderWeight = getBorderWeight(areaRating);
+    
+    return {
+      fillColor: areaColor,
+      fillOpacity: fillOpacity,
+      color: '#000000', // Black borders for separation
+      weight: borderWeight,
+      opacity: 0.8
+    };
+  };
+
+  // Get the final polygon style - uses custom styling if provided, otherwise default
+  const getFinalPolygonStyle = (areaName: string): PolygonStyle => {
+    if (getPolygonStyle) {
+      return getPolygonStyle(areaName);
+    }
+    return getDefaultPolygonStyle(areaName);
+  };
+
   // Initialize map with STRONG bounds and zoom restrictions
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -444,7 +481,7 @@ const OneMapInteractive = ({
     });
   }, [polygons]);
 
-  // Update planning areas polygons with choropleth coloring
+  // Update planning areas polygons with custom or default styling
   useEffect(() => {
     if (!mapRef.current || !showPlanningAreas) return;
 
@@ -452,22 +489,20 @@ const OneMapInteractive = ({
     planningAreasRef.current.forEach(polygon => polygon.remove());
     planningAreasRef.current = [];
 
-    // Add planning area polygons with choropleth coloring
+    // Add planning area polygons with styling
     planningAreas.forEach(area => {
       if (mapRef.current) {
         const coordinates = convertCoordinates(area.geometry.coordinates);
         const areaRating = getAreaRating(area.properties.pln_area_n);
-        const areaColor = getRatingColor(areaRating);
-        const fillOpacity = getFillOpacity(areaRating);
-        const borderWeight = getBorderWeight(areaRating);
+        const style = getFinalPolygonStyle(area.properties.pln_area_n);
         
         coordinates.forEach(polygonCoords => {
           const polygon = L.polygon(polygonCoords, {
-            color: '#000000', // Black borders for separation
-            fillColor: areaColor,
-            fillOpacity: fillOpacity,
-            weight: borderWeight,
-            opacity: 0.8
+            color: style.color,
+            fillColor: style.fillColor,
+            fillOpacity: style.fillOpacity,
+            weight: style.weight,
+            opacity: style.opacity
           });
 
           // Add click handler for area selection (only if not locked)
@@ -482,15 +517,15 @@ const OneMapInteractive = ({
           if (!locked) {
             polygon.on('mouseover', function (this: L.Polygon, e: L.LeafletMouseEvent) {
               this.setStyle({
-                fillOpacity: Math.min(0.8, fillOpacity + 0.2),
-                weight: borderWeight + 1
+                fillOpacity: Math.min(0.8, style.fillOpacity + 0.2),
+                weight: style.weight + 1
               });
             });
 
             polygon.on('mouseout', function (this: L.Polygon, e: L.LeafletMouseEvent) {
               this.setStyle({
-                fillOpacity: fillOpacity,
-                weight: borderWeight
+                fillOpacity: style.fillOpacity,
+                weight: style.weight
               });
             });
           }
@@ -500,7 +535,7 @@ const OneMapInteractive = ({
         });
       }
     });
-  }, [planningAreas, choroplethData, showPlanningAreas, onAreaClick, locked]);
+  }, [planningAreas, choroplethData, showPlanningAreas, onAreaClick, locked, getPolygonStyle]);
 
   return (
     <div className="relative w-full h-full">
