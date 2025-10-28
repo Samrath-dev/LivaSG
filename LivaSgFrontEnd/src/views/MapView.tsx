@@ -20,16 +20,9 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
   const [specificViewCoords, setSpecificViewCoords] = useState<[number, number][] | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number]>([1.3521, 103.8198]);
   const [mapZoom, setMapZoom] = useState<number>(12);
-  const [isAnimating, setIsAnimating] = useState(false);
 
-  // Animation refs
+  // Animation refs (keeping for back navigation)
   const animRef = useRef<number | null>(null);
-  const animatingRef = useRef<boolean>(false);
-  const animStartRef = useRef<number | null>(null);
-  const animFromCenter = useRef<[number, number] | null>(null);
-  const animToCenter = useRef<[number, number] | null>(null);
-  const animFromZoom = useRef<number | null>(null);
-  const animToZoom = useRef<number | null>(null);
   const defaultInitializedRef = useRef<boolean>(false);
   const defaultCenterRef = useRef<[number, number]>(mapCenter);
   const defaultZoomRef = useRef<number>(mapZoom);
@@ -53,34 +46,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
 
   const easeInOutQuad = (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
 
-  const computeZoomForBounds = (coords: [number, number][], fraction = 0.8) => {
-    if (!coords || coords.length === 0) return 14;
-    const lats = coords.map(c => c[0]);
-    const lngs = coords.map(c => c[1]);
-    const latMin = Math.min(...lats), latMax = Math.max(...lats);
-    const lonMin = Math.min(...lngs), lonMax = Math.max(...lngs);
-    const lonDelta = Math.max(0.00001, lonMax - lonMin);
-    
-    const latToMerc = (lat: number) => {
-      const rad = (lat * Math.PI) / 180;
-      return Math.log(Math.tan(Math.PI / 4 + rad / 2));
-    };
-    const mercMin = latToMerc(latMin), mercMax = latToMerc(latMax);
-    const mercDelta = Math.max(1e-8, Math.abs(mercMax - mercMin));
-    
-    const TILE_SIZE = 256;
-    const viewportW = Math.max(320, (window.innerWidth || 1024) * fraction);
-    const viewportH = Math.max(320, (window.innerHeight || 768) * fraction);
-    
-    const zoomLon = Math.log2((360 * viewportW) / (TILE_SIZE * lonDelta));
-    const worldMercatorHeight = 2 * Math.PI;
-    const zoomLat = Math.log2((worldMercatorHeight * viewportH) / (TILE_SIZE * mercDelta));
-    
-    const rawZoom = Math.min(zoomLon, zoomLat);
-    const clamped = Math.max(11, Math.min(16, rawZoom)); // Adjusted zoom range for better polygon visibility
-    return Number(clamped.toFixed(4));
-  };
-
   const animateTo = (targetCenter: [number, number], targetZoom: number, duration = 1200): Promise<void> => {
     return new Promise((resolve) => {
       if (animRef.current) {
@@ -88,40 +53,28 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
         animRef.current = null;
       }
 
-      setIsAnimating(true);
-      animatingRef.current = true;
-      animStartRef.current = performance.now();
-      animFromCenter.current = [...mapCenter];
-      animToCenter.current = targetCenter;
-      animFromZoom.current = mapZoom;
-      animToZoom.current = targetZoom;
+      const animStartTime = performance.now();
+      const animFromCenter = [...mapCenter];
+      const animFromZoom = mapZoom;
 
       const animate = (currentTime: number) => {
-        if (!animStartRef.current) {
-          animStartRef.current = currentTime;
-        }
-
-        const elapsed = currentTime - animStartRef.current;
+        const elapsed = currentTime - animStartTime;
         const progress = Math.min(elapsed / duration, 1);
         const eased = easeInOutQuad(progress);
 
-        if (animFromCenter.current && animToCenter.current && animFromZoom.current !== null && animToZoom.current !== null) {
-          const newLat = animFromCenter.current[0] + (animToCenter.current[0] - animFromCenter.current[0]) * eased;
-          const newLng = animFromCenter.current[1] + (animToCenter.current[1] - animFromCenter.current[1]) * eased;
-          const newZoom = animFromZoom.current + (animToZoom.current - animFromZoom.current) * eased;
+        const newLat = animFromCenter[0] + (targetCenter[0] - animFromCenter[0]) * eased;
+        const newLng = animFromCenter[1] + (targetCenter[1] - animFromCenter[1]) * eased;
+        const newZoom = animFromZoom + (targetZoom - animFromZoom) * eased;
 
-          setMapCenter([Number(newLat.toFixed(6)), Number(newLng.toFixed(6))]);
-          setMapZoom(Number(newZoom.toFixed(4)));
+        setMapCenter([Number(newLat.toFixed(6)), Number(newLng.toFixed(6))]);
+        setMapZoom(Number(newZoom.toFixed(4)));
 
-          if (progress < 1) {
-            animRef.current = window.requestAnimationFrame(animate);
-          } else {
-            // Animation complete
-            setIsAnimating(false);
-            animatingRef.current = false;
-            animRef.current = null;
-            resolve();
-          }
+        if (progress < 1) {
+          animRef.current = window.requestAnimationFrame(animate);
+        } else {
+          // Animation complete
+          animRef.current = null;
+          resolve();
         }
       };
 
@@ -133,38 +86,10 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
     setSelectedArea(areaName);
     setShowAreaInfo(false);
     
-    // Calculate centroid of the polygon
-    const lats = coordinates.map(c => c[0]);
-    const lngs = coordinates.map(c => c[1]);
-    const centroid: [number, number] = [
-      (Math.min(...lats) + Math.max(...lats)) / 2,
-      (Math.min(...lngs) + Math.max(...lngs)) / 2
-    ];
-
-    // Calculate optimal zoom level to fit the polygon
-    const targetZoom = computeZoomForBounds(coordinates, 0.7); // Slightly tighter fit
-
-    console.log(`Zooming to area: ${areaName}`, { centroid, targetZoom });
-
-    try {
-      // First zoom into the polygon with a smooth animation
-      await animateTo(centroid, targetZoom, 1000);
-      
-      // Small delay to let user see the zoomed polygon
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      // Then open SpecificView
-      setSpecificViewCoords(coordinates);
-      setSpecificViewArea(areaName);
-      setSpecificViewOpen(true);
-      
-    } catch (error) {
-      console.error('Animation error:', error);
-      // Fallback: open SpecificView immediately
-      setSpecificViewCoords(coordinates);
-      setSpecificViewArea(areaName);
-      setSpecificViewOpen(true);
-    }
+    // Directly open SpecificView without zooming animation
+    setSpecificViewCoords(coordinates);
+    setSpecificViewArea(areaName);
+    setSpecificViewOpen(true);
   };
 
   const clearSearch = () => {
@@ -199,19 +124,15 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
       animRef.current = null;
     }
 
-    try {
-      // Zoom back to default view
-      await animateTo(defaultCenterRef.current, defaultZoomRef.current, 800);
-    } catch (error) {
-      console.error('Return animation error:', error);
-    } finally {
-      // Always close SpecificView
-      setSpecificViewOpen(false);
-      setSpecificViewArea(null);
-      setSpecificViewCoords(null);
-      setSelectedArea(null);
-      setShowAreaInfo(false);
-    }
+    // Zoom back to default view with animation
+    await animateTo(defaultCenterRef.current, defaultZoomRef.current, 800);
+    
+    // Close SpecificView
+    setSpecificViewOpen(false);
+    setSpecificViewArea(null);
+    setSpecificViewCoords(null);
+    setSelectedArea(null);
+    setShowAreaInfo(false);
   };
 
   // Handlers for SpecificView buttons
@@ -305,16 +226,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
             className="w-full h-full"
           />
           
-          {/* Animation Overlay */}
-          {isAnimating && (
-            <div className="absolute inset-0 bg-black bg-opacity-10 z-[999] pointer-events-none flex items-center justify-center">
-              <div className="bg-white rounded-lg px-4 py-2 shadow-lg flex items-center gap-2">
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-500 border-t-transparent"></div>
-                <span className="text-sm text-purple-700 font-medium">Zooming to area...</span>
-              </div>
-            </div>
-          )}
-
           {/* Search Indicator */}
           {searchQuery && (
             <div className="absolute top-4 left-4 bg-purple-600 text-white px-4 py-2 rounded-xl shadow-lg z-[1000]">
