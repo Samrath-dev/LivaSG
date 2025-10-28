@@ -91,15 +91,15 @@ const SpecificView = ({
       street: currentArea,
       area: currentArea,
       district: "District",
-      priceRange: [800000, 2000000],
-      avgPrice: 1200,
+      priceRange: [12345, 678901],
+      avgPrice: 12345,
       facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
-      description: `${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
-      growth: 10.5,
+      description: `[MOCK DESCRIPTION] ${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
+      growth: 100,
       amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
-      transitScore: 85,
-      schoolScore: 80,
-      amenitiesScore: 90
+      transitScore: 100,
+      schoolScore: 100,
+      amenitiesScore: 100
     };
     setSelectedAreaLocation(mockLocationData);
   }, [currentCoords, currentArea]);
