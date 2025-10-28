@@ -112,3 +112,13 @@ class AreaCentroid(BaseModel):
     areaId: str
     latitude: float
     longitude: float
+
+
+from pydantic import BaseModel, Field
+class RankProfile(BaseModel):
+    # 1 = highest priority … 5 = lowest. Duplicates allowed.
+    rAff: int = Field(..., ge=1, le=5)
+    rAcc: int = Field(..., ge=1, le=5)
+    rAmen: int = Field(..., ge=1, le=5)
+    rEnv: int  = Field(..., ge=1, le=5)
+    rCom: int  = Field(..., ge=1, le=5)

@@ -2,6 +2,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+#-----
+from app.repositories.memory_impl import MemoryRankRepo   # NEW
+from app.api import ranks_controller  
+
 # --- Existing Routers (module imports only) ---
 from app.api import map_controller, details_controller, search_controller
 from app.api import onemap_controller  # keep after DI objects created if you prefer
@@ -101,3 +105,18 @@ async def test_onemap():
             return {"status": r.status_code, "raw": r.text[:500]}
     except Exception as e:
         return {"error": str(e)}
+
+di_ranks = MemoryRankRepo()                               # NEW
+di_engine = RatingEngine(
+    di_price,
+    di_amenity,
+    di_scores,
+    di_community,
+    di_transit,
+    di_carpark,
+    di_area,
+    ranks=di_ranks,                                       # NEW
+)
+
+app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks  # NEW
+app.include_router(ranks_controller.router)                                           # NEW

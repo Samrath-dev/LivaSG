@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, conint, confloat
+from pydantic import BaseModel, Field, confloat
 from typing import Optional, Dict
 from uuid import uuid4
 
@@ -18,47 +18,34 @@ def get_weights_repo() -> IWeightsRepo:
 # -------- Request models --------
 
 class WeightValues(BaseModel):
-    # Accept normalized weights in [0,1]; they don't have to sum to 1—we'll normalize
+    # Accept normalized weights in [0,1]; they don't have to sum to 1—we'll normalize.
     wAff: confloat(ge=0.0, le=1.0)
     wAcc: confloat(ge=0.0, le=1.0)
     wAmen: confloat(ge=0.0, le=1.0)
     wEnv: confloat(ge=0.0, le=1.0)
     wCom: confloat(ge=0.0, le=1.0)
 
-class WeightRanks(BaseModel):
-    # Accept user “priority” ranks (1–5). Higher means more important.
-    aff: conint(ge=1, le=5) = Field(..., description="Affordability rank 1-5")
-    acc: conint(ge=1, le=5) = Field(..., description="Accessibility rank 1-5")
-    amen: conint(ge=1, le=5) = Field(..., description="Amenities rank 1-5")
-    env: conint(ge=1, le=5) = Field(..., description="Environment rank 1-5")
-    com: conint(ge=1, le=5) = Field(..., description="Community rank 1-5")
-
 class WeightsUpsert(BaseModel):
-    # Either provide explicit weights OR ranks. If both are provided, `weights` wins.
-    weights: Optional[WeightValues] = None
-    ranks: Optional[WeightRanks] = None
+    """
+    Weights-only endpoint.
+    NOTE: 'ranks' are NOT accepted here; use /ranks instead.
+    """
+    weights: WeightValues
     profileName: Optional[str] = Field(None, description="Optional label to show in UI")
+    # trap accidental ranks usage so we can error cleanly instead of silently converting
+    ranks: Optional[dict] = Field(None, description="Do not send. Use /ranks endpoint.")
+
+    class Config:
+        extra = "forbid"  # reject any unexpected fields
 
 # -------- Helpers --------
 
 def _normalize(d: Dict[str, float]) -> Dict[str, float]:
     s = sum(max(0.0, v) for v in d.values())
     if s <= 0:
-        # fallback to equal weighting
         n = len(d)
         return {k: 1.0 / n for k in d}
     return {k: max(0.0, v) / s for k, v in d.items()}
-
-def _from_ranks(r: WeightRanks) -> Dict[str, float]:
-    # Simple, predictable mapping: weight = rank / sum(ranks)
-    raw = {
-        "wAff": float(r.aff),
-        "wAcc": float(r.acc),
-        "wAmen": float(r.amen),
-        "wEnv": float(r.env),
-        "wCom": float(r.com),
-    }
-    return _normalize(raw)
 
 # -------- Routes --------
 
@@ -71,22 +58,23 @@ def get_active(repo: IWeightsRepo = Depends(get_weights_repo)) -> WeightsProfile
 def upsert_weights(body: WeightsUpsert, repo: IWeightsRepo = Depends(get_weights_repo)) -> WeightsProfile:
     """
     Create a new weights profile and make it active.
-    - If `weights` provided, we normalize and use them.
-    - Else if `ranks` provided, we convert ranks (1-5) → normalized weights.
+    Only explicit `weights` are accepted here.
+    If you want to set user ranks, call the /ranks endpoint instead.
     """
-    if body.weights:
-        w_raw = {
-            "wAff": body.weights.wAff,
-            "wAcc": body.weights.wAcc,
-            "wAmen": body.weights.wAmen,
-            "wEnv": body.weights.wEnv,
-            "wCom": body.weights.wCom,
-        }
-        w_norm = _normalize(w_raw)
-    elif body.ranks:
-        w_norm = _from_ranks(body.ranks)
-    else:
-        raise HTTPException(status_code=400, detail="Provide either `weights` or `ranks`.")
+    if body.ranks is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="`ranks` are not accepted on /weights. Use the /ranks endpoint."
+        )
+
+    w_raw = {
+        "wAff": float(body.weights.wAff),
+        "wAcc": float(body.weights.wAcc),
+        "wAmen": float(body.weights.wAmen),
+        "wEnv": float(body.weights.wEnv),
+        "wCom": float(body.weights.wCom),
+    }
+    w_norm = _normalize(w_raw)
 
     profile = WeightsProfile(
         id=str(uuid4()),
@@ -99,21 +87,3 @@ def upsert_weights(body: WeightsUpsert, repo: IWeightsRepo = Depends(get_weights
     )
     repo.save(profile)           # MemoryWeightsRepo inserts newest at index 0
     return repo.get_active()     # return the active one (just saved)
-
-
-"""
-Instructions for frontend:
-use GET /weights
-update using POST /weights
-example:
-{
-  "ranks": { "aff": 5, "acc": 4, "amen": 3, "env": 2, "com": 1 },
-  "profileName": "My Priorities"
-}
-
-{
-  "weights": { "wAff": 0.4, "wAcc": 0.2, "wAmen": 0.2, "wEnv": 0.1, "wCom": 0.1 },
-  "profileName": "Power User"
-}
-
-"""
