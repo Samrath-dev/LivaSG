@@ -254,11 +254,11 @@ const SpecificView = ({
   // Custom styling function for polygons
   const getPolygonStyle = (areaName: string) => {
     if (areaName === highlightedArea) {
-      // Current selected area - purple with highlight
+      // Current selected area - white with highlight
       return {
-        fillColor: '#8B5CF6', // Purple-500
+        fillColor: '#ffff', // white
         fillOpacity: 0.7,
-        color: '#7C3AED', // Purple-600
+        color: '#030303ff', // black
         weight: 3,
         opacity: 1
       };
