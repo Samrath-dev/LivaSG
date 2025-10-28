@@ -3,6 +3,9 @@ import math
 import os
 import time
 from typing import List, Optional
+from ..repositories.interfaces import IRankRepo
+from ..domain.models import RankProfile
+
 
 import requests
 from shapely import MultiPolygon, Point, Polygon
@@ -629,3 +632,16 @@ def svy21_to_wgs84(E, N):
     lon = math.degrees(lambda_lon)
 
     return lat, lon
+
+
+class MemoryRankRepo(IRankRepo):
+    _active: RankProfile | None = None
+
+    def get_active(self) -> RankProfile | None:
+        return MemoryRankRepo._active
+
+    def set(self, r: RankProfile) -> None:
+        MemoryRankRepo._active = r
+
+    def clear(self) -> None:
+        MemoryRankRepo._active = None

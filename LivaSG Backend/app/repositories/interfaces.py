@@ -1,6 +1,8 @@
 from typing import List, Optional
 from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre, AreaCentroid
 from ..domain.models import Transit, Carpark
+from abc import ABC, abstractmethod
+from ..domain.models import RankProfile
 
 class IPriceRepo:
     def series(self, area_id: str, months: int) -> List[PriceRecord]: ...
@@ -48,3 +50,11 @@ from typing import Any, Dict, List
 class IPlanningAreaRepo:
     async def geojson(self, year: int = 2020) -> Dict[str, Any]: ...
     async def names(self, year: int = 2020) -> List[str]: ...
+
+class IRankRepo(ABC):
+    @abstractmethod
+    def get_active(self) -> RankProfile | None: ...
+    @abstractmethod
+    def set(self, r: RankProfile) -> None: ...
+    @abstractmethod
+    def clear(self) -> None: ...
