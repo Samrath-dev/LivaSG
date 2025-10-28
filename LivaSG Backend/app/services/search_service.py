@@ -20,11 +20,13 @@ class SearchService:
     async def filter_locations(self, filters: SearchFilters) -> List[LocationResult]:
         """
         Filter locations based on search query and filters:
-        - If search_query exists: Only search by planning area name, or resolve postal code to planning area.
+        - If search_query exists: Use OneMap search API and check "found" count:
+          - found == 0: Return all planning areas (55 polygons)
+          - found == 1: Return this specific location
+          - found > 1: Return street names from street_geocode.db
         - If no search_query: Return all locations matching filters.
-        - If no planning area match: Return closest planning area to searched place.
         """
-        import os, json, re, math
+        import os, json, re, math, sqlite3
         from app.domain.models import LocationResult, OneMapSearchResult, AreaCentroid
         results: List[LocationResult] = []
 
@@ -198,74 +200,185 @@ class SearchService:
         # Case 1: Search query exists
         if filters.search_query:
             query = filters.search_query.strip()
-            matched_area = None
             
-            # 1. Direct planning area name match (case-insensitive, whitespace-normalized)
-            normalized_query = ' '.join(query.lower().split())
-            for area in planning_areas:
-                normalized_area = ' '.join(area.lower().split())
-                if normalized_query == normalized_area:
-                    matched_area = area
-                    # Found direct match - create result and return immediately
-                    lat, lon = centroids.get(matched_area, (0.0, 0.0))
+            # Use OneMap search API and check "found" count
+            onemap_response = await self.search_onemap(query)
+            found_count = onemap_response.found
+            print(f"OneMap search for '{query}' found {found_count} results.")
+            
+            if found_count == 0:
+                # No results - return all planning areas (55 polygons)
+                for idx, area_name in enumerate(planning_areas, start=1):
+                    lat, lon = centroids.get(area_name, (0.0, 0.0))
                     results.append(LocationResult(
-                        id=1,
-                        street=matched_area,
-                        area=matched_area,
-                        district=matched_area,
+                        id=idx,
+                        street=area_name,
+                        area=area_name,
+                        district=area_name,
                         price_range=[0, 0],
                         avg_price=0,
                         facilities=[],
-                        description=f"Planning area: {matched_area}",
+                        description=f"Planning area: {area_name}",
                         growth=0.0,
                         amenities=[],
                         latitude=lat if lat != 0.0 else None,
                         longitude=lon if lon != 0.0 else None
                     ))
-                    # Skip all other steps and go directly to filtering
-                    matched_area = None  # Reset to prevent duplicate processing below
-                    break
             
-            # Only continue with steps 2-3 if no direct match was found
-            if not matched_area and not results:
-                # 2. If postal code, use OneMap /getPlanningarea endpoint
-                if is_postal_code(query):
-                    onemap_response = await self.search_onemap(query)
-                    if onemap_response.results:
-                        om = onemap_response.results[0]
-                        lat, lon = float(om.LATITUDE), float(om.LONGITUDE)
-                        try:
-                            pa_result = await self.onemap_client.planning_area_at(lat, lon)
-                            if pa_result and 'pln_area_n' in pa_result[0]:
-                                matched_area = pa_result[0]['pln_area_n'].title()
-                        except Exception:
-                            pass
+            elif found_count == 1:
+                # Exactly one result - return this specific location
+                om = onemap_response.results[0]
+                lat, lon = float(om.LATITUDE), float(om.LONGITUDE)
+                print("street name:", om.ROAD_NAME)
+                print("address:", om.ADDRESS)
                 
-                # 3. If not matched, check polygon containment
-                if not matched_area:
-                    onemap_response = await self.search_onemap(query)
-                    if onemap_response.results:
-                        om = onemap_response.results[0]
-                        lat, lon = float(om.LATITUDE), float(om.LONGITUDE)
-                        matched_area = await find_area_by_point(lat, lon, polygons)
+                # Try to get planning area for this location
+                matched_area = None
+                try:
+                    pa_result = await self.onemap_client.planning_area_at(lat, lon)
+                    if pa_result and 'pln_area_n' in pa_result[0]:
+                        matched_area = pa_result[0]['pln_area_n'].title()
+                except Exception:
+                    # Fallback to polygon containment
+                    matched_area = await find_area_by_point(lat, lon, polygons)
+
+                road_name = matched_area
+                if om.ROAD_NAME != "NIL":
+                    road_name = om.ROAD_NAME or om.SEARCHVAL
+                    
                 
-                # Return LocationResult for matched_area from steps 2-3
-                if matched_area:
-                    lat, lon = centroids.get(matched_area, (0.0, 0.0))
-                    results.append(LocationResult(
-                        id=1,
-                        street=matched_area,
-                        area=matched_area,
-                        district=matched_area,
-                        price_range=[0, 0],
-                        avg_price=0,
-                        facilities=[],
-                        description=f"Planning area: {matched_area}",
-                        growth=0.0,
-                        amenities=[],
-                        latitude=lat if lat != 0.0 else None,
-                        longitude=lon if lon != 0.0 else None
-                    ))
+                results.append(LocationResult(
+                    id=1,
+                    street=road_name,
+                    area=road_name or matched_area, #this is being displayed
+                    district=road_name or matched_area,
+                    price_range=[0, 0],
+                    avg_price=0,
+                    facilities=[],
+                    description=om.ADDRESS,
+                    growth=0.0,
+                    amenities=[],
+                    latitude=lat,
+                    longitude=lon
+                ))
+            
+            else:  # found_count > 1
+                # Multiple results - return street names from street_geocode.db
+                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+                street_db_path = os.path.join(base_dir, 'street_geocode.db')
+                
+                # Use a set to track which streets we've already added to avoid duplicates
+                added_streets = set()
+                
+                try:
+                    conn = sqlite3.connect(street_db_path)
+                    cursor = conn.cursor()
+                    
+                    # Extract unique street names from OneMap results
+                    street_names = set()
+                    for result in onemap_response.results:
+                        if result.ROAD_NAME:
+                            street_names.add(result.ROAD_NAME.upper())
+                    
+                    print(f"Extracted {len(street_names)} unique street names from OneMap results")
+                    print(f"Sample streets: {list(street_names)[:5]}")
+                    
+                    # Query street_geocode.db for these streets
+                    if street_names:
+                        placeholders = ','.join('?' * len(street_names))
+                        query_sql = f"""
+                            SELECT street_name, latitude, longitude, address, postal_code
+                            FROM street_locations
+                            WHERE status = 'found' AND street_name IN ({placeholders})
+                        """
+                        rows = cursor.execute(query_sql, tuple(street_names)).fetchall()
+                        
+                        print(f"Found {len(rows)} matching streets in street_geocode.db")
+                        
+                        if rows:
+                            # Found matches in street_geocode.db
+                            for idx, (street_name, lat, lon, address, postal_code) in enumerate(rows, start=1):
+                                if street_name not in added_streets:
+                                    added_streets.add(street_name)
+                                    # Try to determine planning area for this street
+                                    matched_area = None
+                                    if lat and lon:
+                                        try:
+                                            pa_result = await self.onemap_client.planning_area_at(lat, lon)
+                                            if pa_result and 'pln_area_n' in pa_result[0]:
+                                                matched_area = pa_result[0]['pln_area_n'].title()
+                                        except Exception:
+                                            matched_area = await find_area_by_point(lon, lat, polygons)
+                                    
+                                    results.append(LocationResult(
+                                        id=len(results) + 1,
+                                        street=street_name,
+                                        area=matched_area or "Unknown",
+                                        district=matched_area or "Unknown",
+                                        price_range=[0, 0],
+                                        avg_price=0,
+                                        facilities=[],
+                                        description=address or f"Street: {street_name}",
+                                        growth=0.0,
+                                        amenities=[],
+                                        latitude=lat,
+                                        longitude=lon
+                                    ))
+                        
+                        # For any streets not found in street_geocode.db, add from OneMap
+                        print(f"No matches in street_geocode.db for some streets, adding from OneMap results")
+                        for om in onemap_response.results:
+                            road_name = om.ROAD_NAME or om.SEARCHVAL
+                            if road_name.upper() not in added_streets:
+                                added_streets.add(road_name.upper())
+                                lat, lon = float(om.LATITUDE), float(om.LONGITUDE)
+                                matched_area = None
+                                try:
+                                    pa_result = await self.onemap_client.planning_area_at(lat, lon)
+                                    if pa_result and 'pln_area_n' in pa_result[0]:
+                                        matched_area = pa_result[0]['pln_area_n'].title()
+                                except Exception:
+                                    matched_area = await find_area_by_point(lat, lon, polygons)
+                                
+                                results.append(LocationResult(
+                                    id=len(results) + 1,
+                                    street=road_name,
+                                    area=road_name or matched_area,
+                                    district=road_name or matched_area,
+                                    price_range=[0, 0],
+                                    avg_price=0,
+                                    facilities=[],
+                                    description=om.ADDRESS,
+                                    growth=0.0,
+                                    amenities=[],
+                                    latitude=lat,
+                                    longitude=lon
+                                ))
+                    
+                    conn.close()
+                except Exception as e:
+                    print(f"Error querying street_geocode.db: {e}")
+                    # Fallback: return OneMap results grouped by street
+                    for om in onemap_response.results:
+                        road_name = om.ROAD_NAME or om.SEARCHVAL
+                        if road_name.upper() not in added_streets:
+                            added_streets.add(road_name.upper())
+                            lat, lon = float(om.LATITUDE), float(om.LONGITUDE)
+                            
+                            results.append(LocationResult(
+                                id=len(results) + 1,
+                                street=road_name,
+                                area=road_name,
+                                district=road_name,
+                                price_range=[0, 0],
+                                avg_price=0,
+                                facilities=[],
+                                description=om.ADDRESS,
+                                growth=0.0,
+                                amenities=[],
+                                latitude=lat,
+                                longitude=lon
+                            ))
         else:
             # No search query: return all planning areas as LocationResults
             for idx, area_name in enumerate(planning_areas, start=1):
