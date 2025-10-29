@@ -192,6 +192,207 @@ class SearchService:
                         if point_in_polygon(lon, lat, ring):
                             return area_name
             return None
+
+        # -------- Facility datasets (from disk cache) --------
+        def _load_facility_datasets():
+            """Load and cache facility datasets from disk cache for quick radius counts."""
+            # Cache at instance level to avoid reloading within the same process
+            if hasattr(self, "_facility_datasets") and self._facility_datasets is not None:
+                return self._facility_datasets
+
+            try:
+                from app.cache.disk_cache import load_cache as _dc_load
+                from app.cache.paths import cache_file as _cache_file
+            except Exception:
+                # If cache utils are not available, return empty datasets
+                self._facility_datasets = {
+                    'schools': [], 'sports': [], 'hawkers': [],
+                    'healthcare': [], 'greenSpaces': [], 'carparks': []
+                }
+                return self._facility_datasets
+
+            datasets = {
+                'schools': [], 'sports': [], 'hawkers': [],
+                'healthcare': [], 'greenSpaces': [], 'carparks': []
+            }
+
+            # Schools (from OneMap search cached pages)
+            try:
+                blob = _dc_load(_cache_file("onemap_search_school", version=1))
+                if blob:
+                    datasets['schools'] = blob.get('payload', [])
+            except Exception:
+                pass
+
+            # Sports facilities (data.gov.sg GeoJSON)
+            try:
+                blob = _dc_load(_cache_file("sports_dataset", version=1))
+                sports_raw = blob.get('payload', {}) if blob else {}
+                sports = []
+                for feature in sports_raw.get('features', []):
+                    geom = feature.get('geometry', {})
+                    coords = geom.get('coordinates', [])
+                    if geom.get('type') == 'Polygon' and coords:
+                        lat = coords[0][0][1] if coords[0] else None
+                        lon = coords[0][0][0] if coords[0] else None
+                    elif geom.get('type') == 'MultiPolygon' and coords:
+                        lat = coords[0][0][0][1] if coords[0][0] else None
+                        lon = coords[0][0][0][0] if coords[0][0] else None
+                    else:
+                        lat, lon = None, None
+                    if lat is not None and lon is not None:
+                        sports.append({'latitude': lat, 'longitude': lon})
+                datasets['sports'] = sports
+            except Exception:
+                pass
+
+            # Hawker centres (Point GeoJSON)
+            try:
+                blob = _dc_load(_cache_file("hawkers_dataset", version=1))
+                hawkers_raw = blob.get('payload', {}) if blob else {}
+                hawkers = []
+                for feature in hawkers_raw.get('features', []):
+                    geom = feature.get('geometry', {})
+                    if geom.get('type') == 'Point':
+                        coords = geom.get('coordinates', [])
+                        if len(coords) >= 2:
+                            hawkers.append({'latitude': coords[1], 'longitude': coords[0]})
+                datasets['hawkers'] = hawkers
+            except Exception:
+                pass
+
+            # CHAS clinics (Point GeoJSON)
+            try:
+                blob = _dc_load(_cache_file("chas_dataset", version=1))
+                clinics_raw = blob.get('payload', {}) if blob else {}
+                clinics = []
+                for feature in clinics_raw.get('features', []):
+                    geom = feature.get('geometry', {})
+                    if geom.get('type') == 'Point':
+                        coords = geom.get('coordinates', [])
+                        if len(coords) >= 2:
+                            clinics.append({'latitude': coords[1], 'longitude': coords[0]})
+                datasets['healthcare'] = clinics
+            except Exception:
+                pass
+
+            # Parks (Point GeoJSON)
+            try:
+                blob = _dc_load(_cache_file("parks_dataset", version=1))
+                parks_raw = blob.get('payload', {}) if blob else {}
+                parks = []
+                for feature in parks_raw.get('features', []):
+                    geom = feature.get('geometry', {})
+                    if geom.get('type') == 'Point':
+                        coords = geom.get('coordinates', [])
+                        if len(coords) >= 2:
+                            parks.append({'latitude': coords[1], 'longitude': coords[0]})
+                datasets['greenSpaces'] = parks
+            except Exception:
+                pass
+
+            # HDB Carparks (list of records)
+            try:
+                blob = _dc_load(_cache_file("hdb_carparks_records", version=1))
+                carparks_raw = blob.get('payload', []) if blob else []
+                carparks = []
+                for cp in carparks_raw:
+                    lat = cp.get('latitude')
+                    lon = cp.get('longitude')
+                    if lat and lon:
+                        carparks.append({'latitude': float(lat), 'longitude': float(lon)})
+                datasets['carparks'] = carparks
+            except Exception:
+                pass
+
+            self._facility_datasets = datasets
+            return datasets
+
+        def _count_facilities_near(lat: float, lon: float, datasets, radius_km: float = 1.0) -> dict:
+            """Count facilities near a point.
+            Tweaks:
+            - Use a smaller radius for healthcare (0.5 km) to avoid inflated counts.
+            - Deduplicate very close healthcare points (~100m) to avoid multiple clinics in the same building inflating counts.
+            """
+            out = {k: 0 for k in ['schools', 'sports', 'hawkers', 'healthcare', 'greenSpaces', 'carparks']}
+            # category-specific radius override
+            category_radius = {'healthcare': 0.5}
+            # approx degrees per ~100m (lat ~ 0.0009, lon depends on latitude)
+            lat_cell = 0.0009
+            lon_cell = 0.0009 / max(math.cos(math.radians(lat)), 0.3)
+            healthcare_cells = set()
+            for key, items in datasets.items():
+                try:
+                    eff_r = float(category_radius.get(key, radius_km))
+                    for it in items:
+                        f_lat = float(it.get('LATITUDE') or it.get('latitude'))
+                        f_lon = float(it.get('LONGITUDE') or it.get('longitude'))
+                        if haversine(lat, lon, f_lat, f_lon) <= eff_r:
+                            if key == 'healthcare':
+                                # dedup nearby clinics by 100m grid
+                                cell = (int(f_lat / lat_cell), int(f_lon / lon_cell))
+                                if cell in healthcare_cells:
+                                    continue
+                                healthcare_cells.add(cell)
+                            out[key] += 1
+                except Exception:
+                    continue
+            return out
+
+        def _clamp01(x: float) -> float:
+            return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
+
+        def _compute_local_street_score(lat: float, lon: float, counts: dict) -> float:
+            """Compute a local street-level score using nearby facilities and transit proximity.
+            Uses only Amenities, Accessibility, Environment and normalizes weights accordingly.
+            """
+            # Local amenities score
+            amen = _clamp01((counts.get('schools', 0) + counts.get('sports', 0) + counts.get('hawkers', 0)
+                            + counts.get('healthcare', 0) + counts.get('greenSpaces', 0)) / 22.0)
+            # Environment: based on parks
+            env = _clamp01((counts.get('greenSpaces', 0)) / 11.0)
+
+            # Accessibility: distance to nearest transit + carparks
+            transit_score = 0.35
+            try:
+                nodes = (self.engine.transit.list_near_area("dummy") if hasattr(self.engine, 'transit') and hasattr(self.engine.transit, 'list_near_area') else None)
+            except Exception:
+                nodes = None
+            if not nodes and hasattr(self.engine, 'transit') and hasattr(self.engine.transit, 'all'):
+                try:
+                    nodes = self.engine.transit.all()
+                except Exception:
+                    nodes = []
+            dmin = None
+            if nodes:
+                dists = []
+                for n in nodes:
+                    try:
+                        if n.latitude is None or n.longitude is None:
+                            continue
+                        d = haversine(lat, lon, float(n.latitude), float(n.longitude))
+                        dists.append(d)
+                    except Exception:
+                        continue
+                dmin = min(dists) if dists else None
+            # Transit scoring (mirror RatingEngine logic)
+            if dmin is None:
+                transit_score = 0.35
+            elif dmin <= 0.2:
+                transit_score = 1.0
+            elif dmin <= 1.0:
+                transit_score = _clamp01(1.0 - (dmin - 0.2) / 0.8)
+            else:
+                transit_score = 0.12
+
+            carpark_score = _clamp01((counts.get('carparks', 0)) / 22.0)
+            acc = _clamp01(0.7 * transit_score + 0.3 * carpark_score)
+
+            # Normalize weights across available categories (Amen, Acc, Env)
+            wA, wAcc, wEnv = 0.2, 0.2, 0.2
+            denom = (wA + wAcc + wEnv) or 1.0
+            local = (amen * wA + acc * wAcc + env * wEnv) / denom
+            return float(round(local, 4))
         
         # Load planning area polygons and centroids from cache (also populates planning_areas set)
         centroids, polygons = await load_planning_area_polygons_cached()
@@ -245,13 +446,221 @@ class SearchService:
                 road_name = matched_area
                 if om.ROAD_NAME != "NIL":
                     road_name = om.ROAD_NAME or om.SEARCHVAL
-                    
-                
+
+                # Map the single result to street_geocode facilities if possible; else compute and persist
+                street_name_for_facilities = road_name
+                try:
+                    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+                    street_db_path = os.path.join(base_dir, 'street_geocode.db')
+                    conn = sqlite3.connect(street_db_path)
+                    cursor = conn.cursor()
+
+                    # Helper normalization (inline to avoid refactor)
+                    def _norm_name(name: str) -> str:
+                        if not name:
+                            return ""
+                        n = name.upper().strip()
+                        n = n.replace('AVENUE', 'AVE')
+                        n = n.replace('CENTRAL', 'CTRL')
+                        n = n.replace('STREET', 'ST')
+                        n = n.replace('ROAD', 'RD')
+                        n = n.replace('DRIVE', 'DR')
+                        n = n.replace('CRESCENT', 'CRES')
+                        n = n.replace('NORTH', 'NTH')
+                        n = n.replace('SOUTH', 'STH')
+                        n = n.replace('EAST', 'E')
+                        n = n.replace('WEST', 'W')
+                        return ' '.join(n.split())
+
+                    # Only attempt mapping when we have a proper OneMap road name
+                    if road_name and road_name != "NIL":
+                        onm_norm = _norm_name(road_name)
+
+                        # Build normalized lookup from DB
+                        all_db_streets = cursor.execute(
+                            "SELECT street_name, latitude, longitude, address, postal_code FROM street_locations WHERE status = 'found'"
+                        ).fetchall()
+                        db_map = { _norm_name(s): (s, la, lo, ad, pc) for s, la, lo, ad, pc in all_db_streets }
+
+                        if onm_norm in db_map:
+                            # Use DB street name for enrichment lookup
+                            matched_db_name, _, _, _, _ = db_map[onm_norm]
+                            street_name_for_facilities = matched_db_name
+                            # Recompute facilities with refined logic and persist (overrides older counts)
+                            try:
+                                datasets = _load_facility_datasets()
+                                counts = _count_facilities_near(lat, lon, datasets, radius_km=1.0)
+                                cursor.execute(
+                                    """
+                                    CREATE TABLE IF NOT EXISTS street_facilities (
+                                        street_name TEXT PRIMARY KEY,
+                                        schools INTEGER,
+                                        sports INTEGER,
+                                        hawkers INTEGER,
+                                        healthcare INTEGER,
+                                        greenSpaces INTEGER,
+                                        carparks INTEGER,
+                                        radius_km REAL DEFAULT 1.0,
+                                        calculated_at TEXT DEFAULT (datetime('now'))
+                                    )
+                                    """
+                                )
+                                cursor.execute(
+                                    """
+                                    CREATE TABLE IF NOT EXISTS street_scores (
+                                        street_name TEXT PRIMARY KEY,
+                                        local_score REAL NOT NULL,
+                                        transit_km REAL,
+                                        calculated_at TEXT DEFAULT (datetime('now'))
+                                    )
+                                    """
+                                )
+                                cursor.execute(
+                                    """
+                                    INSERT OR REPLACE INTO street_facilities (
+                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, radius_km, calculated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                    """,
+                                    (
+                                        street_name_for_facilities,
+                                        counts.get('schools', 0),
+                                        counts.get('sports', 0),
+                                        counts.get('hawkers', 0),
+                                        counts.get('healthcare', 0),
+                                        counts.get('greenSpaces', 0),
+                                        counts.get('carparks', 0)
+                                    )
+                                )
+                                # Compute and upsert local street-level score
+                                try:
+                                    local_score = _compute_local_street_score(lat, lon, counts)
+                                    nodes = self.engine.transit.all() if hasattr(self.engine, 'transit') and hasattr(self.engine.transit, 'all') else []
+                                    dmin = None
+                                    if nodes:
+                                        dists = [
+                                            haversine(lat, lon, float(n.latitude), float(n.longitude))
+                                            for n in nodes if n.latitude is not None and n.longitude is not None
+                                        ]
+                                        dmin = min(dists) if dists else None
+                                    cursor.execute(
+                                        """
+                                        INSERT OR REPLACE INTO street_scores (street_name, local_score, transit_km, calculated_at)
+                                        VALUES (?, ?, ?, datetime('now'))
+                                        """,
+                                        (street_name_for_facilities, float(local_score), float(dmin) if dmin is not None else None)
+                                    )
+                                except Exception:
+                                    pass
+                                conn.commit()
+                            except Exception:
+                                pass
+                        else:
+                            # Persist this new street and compute facilities now
+                            try:
+                                # Ensure facilities table exists
+                                cursor.execute(
+                                    """
+                                    CREATE TABLE IF NOT EXISTS street_facilities (
+                                        street_name TEXT PRIMARY KEY,
+                                        schools INTEGER,
+                                        sports INTEGER,
+                                        hawkers INTEGER,
+                                        healthcare INTEGER,
+                                        greenSpaces INTEGER,
+                                        carparks INTEGER,
+                                        radius_km REAL DEFAULT 1.0,
+                                        calculated_at TEXT DEFAULT (datetime('now'))
+                                    )
+                                    """
+                                )
+                            except Exception:
+                                pass
+
+                            # Upsert into street_locations
+                            try:
+                                cursor.execute(
+                                    """
+                                    INSERT OR REPLACE INTO street_locations (street_name, latitude, longitude, address, building, postal_code, status)
+                                    VALUES (?, ?, ?, ?, ?, ?, 'found')
+                                    """,
+                                    (
+                                        road_name,
+                                        lat,
+                                        lon,
+                                        om.ADDRESS,
+                                        getattr(om, 'BUILDING', None) if hasattr(om, 'BUILDING') else None,
+                                        om.POSTAL if hasattr(om, 'POSTAL') else None
+                                    )
+                                )
+                            except Exception:
+                                pass
+
+                            # Compute and upsert facilities
+                            try:
+                                datasets = _load_facility_datasets()
+                                counts = _count_facilities_near(lat, lon, datasets, radius_km=1.0)
+                                cursor.execute(
+                                    """
+                                    INSERT OR REPLACE INTO street_facilities (
+                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, radius_km, calculated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                    """,
+                                    (
+                                        road_name,
+                                        counts.get('schools', 0),
+                                        counts.get('sports', 0),
+                                        counts.get('hawkers', 0),
+                                        counts.get('healthcare', 0),
+                                        counts.get('greenSpaces', 0),
+                                        counts.get('carparks', 0)
+                                    )
+                                )
+                                # Also upsert local street-level score
+                                try:
+                                    local_score = _compute_local_street_score(lat, lon, counts)
+                                    # Ensure street_scores table exists
+                                    cursor.execute(
+                                        """
+                                        CREATE TABLE IF NOT EXISTS street_scores (
+                                            street_name TEXT PRIMARY KEY,
+                                            local_score REAL NOT NULL,
+                                            transit_km REAL,
+                                            calculated_at TEXT DEFAULT (datetime('now'))
+                                        )
+                                        """
+                                    )
+                                    # compute nearest transit distance
+                                    nodes = self.engine.transit.all() if hasattr(self.engine, 'transit') and hasattr(self.engine.transit, 'all') else []
+                                    dmin = None
+                                    if nodes:
+                                        dists = [
+                                            haversine(lat, lon, float(n.latitude), float(n.longitude))
+                                            for n in nodes if n.latitude is not None and n.longitude is not None
+                                        ]
+                                        dmin = min(dists) if dists else None
+                                    cursor.execute(
+                                        """
+                                        INSERT OR REPLACE INTO street_scores (street_name, local_score, transit_km, calculated_at)
+                                        VALUES (?, ?, ?, datetime('now'))
+                                        """,
+                                        (road_name, float(local_score), float(dmin) if dmin is not None else None)
+                                    )
+                                except Exception:
+                                    pass
+                                conn.commit()
+                            except Exception:
+                                pass
+
+                    conn.close()
+                except Exception as _e:
+                    # If mapping/persisting fails, continue without enrichment persistence
+                    pass
+
                 results.append(LocationResult(
                     id=1,
-                    street=road_name,
-                    area=road_name or matched_area, #this is being displayed
-                    district=road_name or matched_area,
+                    street=street_name_for_facilities,
+                    area=street_name_for_facilities,  # prefer street as area label
+                    district=matched_area or road_name,  # show planning area as district tag
                     price_range=[0, 0],
                     avg_price=0,
                     facilities=[],
@@ -267,6 +676,27 @@ class SearchService:
                 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
                 street_db_path = os.path.join(base_dir, 'street_geocode.db')
                 
+                # Helper function to normalize street names for matching
+                def normalize_street_name(name):
+                    """Normalize street name by handling abbreviations"""
+                    if not name:
+                        return ""
+                    normalized = name.upper().strip()
+                    # Handle common abbreviations
+                    normalized = normalized.replace('AVENUE', 'AVE')
+                    normalized = normalized.replace('CENTRAL', 'CTRL')
+                    normalized = normalized.replace('STREET', 'ST')
+                    normalized = normalized.replace('ROAD', 'RD')
+                    normalized = normalized.replace('DRIVE', 'DR')
+                    normalized = normalized.replace('CRESCENT', 'CRES')
+                    normalized = normalized.replace('NORTH', 'NTH')
+                    normalized = normalized.replace('SOUTH', 'STH')
+                    normalized = normalized.replace('EAST', 'E')
+                    normalized = normalized.replace('WEST', 'W')
+                    # Remove extra spaces
+                    normalized = ' '.join(normalized.split())
+                    return normalized
+                
                 # Use a set to track which streets we've already added to avoid duplicates
                 added_streets = set()
                 
@@ -274,62 +704,182 @@ class SearchService:
                     conn = sqlite3.connect(street_db_path)
                     cursor = conn.cursor()
                     
-                    # Extract unique street names from OneMap results
-                    street_names = set()
+                    # Get all streets from database for fuzzy matching
+                    all_db_streets = cursor.execute(
+                        "SELECT street_name, latitude, longitude, address, postal_code FROM street_locations WHERE status = 'found'"
+                    ).fetchall()
+                    
+                    # Create normalized lookup
+                    db_street_map = {}
+                    for street_name, lat, lon, address, postal_code in all_db_streets:
+                        normalized = normalize_street_name(street_name)
+                        db_street_map[normalized] = (street_name, lat, lon, address, postal_code)
+                    
+                    # Extract unique street names from OneMap results and try to match
+                    matched_streets = []
+                    unmatched_onemap_streets = []  # Track streets not in database
+                    
                     for result in onemap_response.results:
-                        if result.ROAD_NAME:
-                            street_names.add(result.ROAD_NAME.upper())
-                    
-                    print(f"Extracted {len(street_names)} unique street names from OneMap results")
-                    print(f"Sample streets: {list(street_names)[:5]}")
-                    
-                    # Query street_geocode.db for these streets
-                    if street_names:
-                        placeholders = ','.join('?' * len(street_names))
-                        query_sql = f"""
-                            SELECT street_name, latitude, longitude, address, postal_code
-                            FROM street_locations
-                            WHERE status = 'found' AND street_name IN ({placeholders})
-                        """
-                        rows = cursor.execute(query_sql, tuple(street_names)).fetchall()
-                        
-                        print(f"Found {len(rows)} matching streets in street_geocode.db")
-                        
-                        if rows:
-                            # Found matches in street_geocode.db
-                            for idx, (street_name, lat, lon, address, postal_code) in enumerate(rows, start=1):
+                        if result.ROAD_NAME and result.ROAD_NAME != "NIL":
+                            normalized_name = normalize_street_name(result.ROAD_NAME)
+                            if normalized_name in db_street_map:
+                                street_name, lat, lon, address, postal_code = db_street_map[normalized_name]
                                 if street_name not in added_streets:
                                     added_streets.add(street_name)
-                                    # Try to determine planning area for this street
-                                    matched_area = None
-                                    if lat and lon:
+                                    matched_streets.append((street_name, lat, lon, address, postal_code))
+                            else:
+                                # Street not in database, add to unmatched list
+                                if result.ROAD_NAME.upper() not in added_streets:
+                                    unmatched_onemap_streets.append(result)
+                    
+                    print(f"Found {len(matched_streets)} matching streets in street_geocode.db")
+                    print(f"Found {len(unmatched_onemap_streets)} unique streets from OneMap not in database")
+                    
+                    if matched_streets:
+                        # Found matches in street_geocode.db
+                        # Load datasets once; ensure facilities table exists
+                        _datasets = _load_facility_datasets()
+                        try:
+                            cursor.execute(
+                                """
+                                CREATE TABLE IF NOT EXISTS street_facilities (
+                                    street_name TEXT PRIMARY KEY,
+                                    schools INTEGER,
+                                    sports INTEGER,
+                                    hawkers INTEGER,
+                                    healthcare INTEGER,
+                                    greenSpaces INTEGER,
+                                    carparks INTEGER,
+                                    radius_km REAL DEFAULT 1.0,
+                                    calculated_at TEXT DEFAULT (datetime('now'))
+                                )
+                                """
+                            )
+                            cursor.execute(
+                                """
+                                CREATE TABLE IF NOT EXISTS street_scores (
+                                    street_name TEXT PRIMARY KEY,
+                                    local_score REAL NOT NULL,
+                                    transit_km REAL,
+                                    calculated_at TEXT DEFAULT (datetime('now'))
+                                )
+                                """
+                            )
+                        except Exception:
+                            pass
+                        for idx, (street_name, lat, lon, address, postal_code) in enumerate(matched_streets, start=1):
+                            # Try to determine planning area for this street
+                            matched_area = None
+                            if lat and lon:
+                                try:
+                                    pa_result = await self.onemap_client.planning_area_at(lat, lon)
+                                    if pa_result and 'pln_area_n' in pa_result[0]:
+                                        matched_area = pa_result[0]['pln_area_n'].title()
+                                except Exception:
+                                    matched_area = await find_area_by_point(lat, lon, polygons)
+
+                            # Recompute and persist refined facility counts for matched streets as well
+                            try:
+                                if lat and lon:
+                                    counts = _count_facilities_near(float(lat), float(lon), _datasets, radius_km=1.0)
+                                    cursor.execute(
+                                        """
+                                        INSERT OR REPLACE INTO street_facilities (
+                                            street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, radius_km, calculated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                        """,
+                                        (
+                                            street_name,
+                                            counts.get('schools', 0),
+                                            counts.get('sports', 0),
+                                            counts.get('hawkers', 0),
+                                            counts.get('healthcare', 0),
+                                            counts.get('greenSpaces', 0),
+                                            counts.get('carparks', 0)
+                                        )
+                                    )
+                                    # Upsert local street-level score
+                                    try:
+                                        local_score = _compute_local_street_score(float(lat), float(lon), counts)
+                                        nodes = self.engine.transit.all() if hasattr(self.engine, 'transit') and hasattr(self.engine, 'transit') else []
+                                        dmin = None
                                         try:
-                                            pa_result = await self.onemap_client.planning_area_at(lat, lon)
-                                            if pa_result and 'pln_area_n' in pa_result[0]:
-                                                matched_area = pa_result[0]['pln_area_n'].title()
+                                            if nodes:
+                                                dists = [
+                                                    haversine(float(lat), float(lon), float(n.latitude), float(n.longitude))
+                                                    for n in nodes if n.latitude is not None and n.longitude is not None
+                                                ]
+                                                dmin = min(dists) if dists else None
                                         except Exception:
-                                            matched_area = await find_area_by_point(lon, lat, polygons)
-                                    
-                                    results.append(LocationResult(
-                                        id=len(results) + 1,
-                                        street=street_name,
-                                        area=matched_area or "Unknown",
-                                        district=matched_area or "Unknown",
-                                        price_range=[0, 0],
-                                        avg_price=0,
-                                        facilities=[],
-                                        description=address or f"Street: {street_name}",
-                                        growth=0.0,
-                                        amenities=[],
-                                        latitude=lat,
-                                        longitude=lon
-                                    ))
-                        
-                        # For any streets not found in street_geocode.db, add from OneMap
-                        print(f"No matches in street_geocode.db for some streets, adding from OneMap results")
-                        for om in onemap_response.results:
+                                            dmin = None
+                                        cursor.execute(
+                                            """
+                                            INSERT OR REPLACE INTO street_scores (street_name, local_score, transit_km, calculated_at)
+                                            VALUES (?, ?, ?, datetime('now'))
+                                            """,
+                                            (street_name, float(local_score), float(dmin) if dmin is not None else None)
+                                        )
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                            
+                            results.append(LocationResult(
+                                id=len(results) + 1,
+                                street=street_name,
+                                area=street_name,  # prefer street for label
+                                district=matched_area or street_name,  # planning area as district
+                                price_range=[0, 0],
+                                avg_price=0,
+                                facilities=[],
+                                description=address or f"Street: {street_name}",
+                                growth=0.0,
+                                amenities=[],
+                                latitude=lat,
+                                longitude=lon
+                            ))
+                        try:
+                            conn.commit()
+                        except Exception:
+                            pass
+                    
+                    # Add unique unmatched streets from OneMap (up to 20 total results)
+                    if unmatched_onemap_streets and len(results) < 20:
+                        print(f"Adding {min(len(unmatched_onemap_streets), 20 - len(results))} unique streets from OneMap")
+                        # Ensure facility datasets are loaded once
+                        _datasets = _load_facility_datasets()
+                        # Ensure street_facilities table exists before upserting
+                        try:
+                            cursor.execute(
+                                """
+                                CREATE TABLE IF NOT EXISTS street_facilities (
+                                    street_name TEXT PRIMARY KEY,
+                                    schools INTEGER,
+                                    sports INTEGER,
+                                    hawkers INTEGER,
+                                    healthcare INTEGER,
+                                    greenSpaces INTEGER,
+                                    carparks INTEGER,
+                                    radius_km REAL DEFAULT 1.0,
+                                    calculated_at TEXT DEFAULT (datetime('now'))
+                                )
+                                """
+                            )
+                            cursor.execute(
+                                """
+                                CREATE TABLE IF NOT EXISTS street_scores (
+                                    street_name TEXT PRIMARY KEY,
+                                    local_score REAL NOT NULL,
+                                    transit_km REAL,
+                                    calculated_at TEXT DEFAULT (datetime('now'))
+                                )
+                                """
+                            )
+                        except Exception:
+                            pass
+                        for om in unmatched_onemap_streets[:20 - len(results)]:
                             road_name = om.ROAD_NAME or om.SEARCHVAL
-                            if road_name.upper() not in added_streets:
+                            if road_name and road_name != "NIL":
                                 added_streets.add(road_name.upper())
                                 lat, lon = float(om.LATITUDE), float(om.LONGITUDE)
                                 matched_area = None
@@ -339,12 +889,77 @@ class SearchService:
                                         matched_area = pa_result[0]['pln_area_n'].title()
                                 except Exception:
                                     matched_area = await find_area_by_point(lat, lon, polygons)
+                                # Persist this new street into street_locations and street_facilities with computed facility counts
+                                try:
+                                    # Upsert into street_locations
+                                    cursor.execute(
+                                        """
+                                        INSERT OR REPLACE INTO street_locations (street_name, latitude, longitude, address, building, postal_code, status)
+                                        VALUES (?, ?, ?, ?, ?, ?, 'found')
+                                        """,
+                                        (
+                                            road_name,
+                                            lat,
+                                            lon,
+                                            om.ADDRESS,
+                                            getattr(om, 'BUILDING', None) if hasattr(om, 'BUILDING') else None,
+                                            om.POSTAL if hasattr(om, 'POSTAL') else None
+                                        )
+                                    )
+                                except Exception as _e:
+                                    # If street_locations table or columns differ, skip silently
+                                    pass
+                                # Compute facility counts around this point and upsert
+                                try:
+                                    counts = _count_facilities_near(lat, lon, _datasets, radius_km=1.0)
+                                    cursor.execute(
+                                        """
+                                        INSERT OR REPLACE INTO street_facilities (
+                                            street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, radius_km, calculated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                        """,
+                                        (
+                                            road_name,
+                                            counts.get('schools', 0),
+                                            counts.get('sports', 0),
+                                            counts.get('hawkers', 0),
+                                            counts.get('healthcare', 0),
+                                            counts.get('greenSpaces', 0),
+                                            counts.get('carparks', 0)
+                                        )
+                                    )
+                                    # Upsert local street-level score
+                                    local_score = _compute_local_street_score(lat, lon, counts)
+                                    # Estimate nearest transit distance again to persist (optional)
+                                    try:
+                                        # reuse logic to compute dmin
+                                        nodes = self.engine.transit.all() if hasattr(self.engine, 'transit') and hasattr(self.engine.transit, 'all') else []
+                                        dmin = None
+                                        if nodes:
+                                            dists = [
+                                                haversine(lat, lon, float(n.latitude), float(n.longitude))
+                                                for n in nodes if n.latitude is not None and n.longitude is not None
+                                            ]
+                                            dmin = min(dists) if dists else None
+                                    except Exception:
+                                        dmin = None
+                                    cursor.execute(
+                                        """
+                                        INSERT OR REPLACE INTO street_scores (street_name, local_score, transit_km, calculated_at)
+                                        VALUES (?, ?, ?, datetime('now'))
+                                        """,
+                                        (road_name, float(local_score), float(dmin) if dmin is not None else None)
+                                    )
+                                    conn.commit()
+                                except Exception as _e:
+                                    # If facility upsert fails, continue without enriching DB
+                                    pass
                                 
                                 results.append(LocationResult(
                                     id=len(results) + 1,
                                     street=road_name,
-                                    area=road_name or matched_area,
-                                    district=road_name or matched_area,
+                                    area=road_name,  # prefer street label
+                                    district=matched_area or road_name,  # planning area as district
                                     price_range=[0, 0],
                                     avg_price=0,
                                     facilities=[],
@@ -398,6 +1013,62 @@ class SearchService:
                     longitude=lon if lon != 0.0 else None
                 ))
 
+        # Enrich results with facility data from street_facilities table
+        if results:
+            try:
+                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+                street_db_path = os.path.join(base_dir, 'street_geocode.db')
+                conn = sqlite3.connect(street_db_path)
+                cursor = conn.cursor()
+                
+                # Get facility data for all streets in results
+                street_names = [r.street for r in results if r.street]
+                if street_names:
+                    placeholders = ','.join('?' * len(street_names))
+                    facility_query = f"""
+                        SELECT street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks
+                        FROM street_facilities
+                        WHERE street_name IN ({placeholders})
+                    """
+                    facility_rows = cursor.execute(facility_query, tuple(street_names)).fetchall()
+                    
+                    # Create lookup map
+                    facility_map = {}
+                    for street_name, schools, sports, hawkers, healthcare, parks, carparks in facility_rows:
+                        facility_map[street_name] = {
+                            'schools': schools,
+                            'sports': sports,
+                            'hawkers': hawkers,
+                            'healthcare': healthcare,
+                            'greenSpaces': parks,
+                            'carparks': carparks
+                        }
+                    
+                    # Enrich results with facility data
+                    for location in results:
+                        if location.street in facility_map:
+                            fac = facility_map[location.street]
+                            # Build facilities list for display
+                            facility_list = []
+                            if fac['schools'] > 0:
+                                facility_list.append(f"{fac['schools']} Schools")
+                            if fac['sports'] > 0:
+                                facility_list.append(f"{fac['sports']} Sports Facilities")
+                            if fac['hawkers'] > 0:
+                                facility_list.append(f"{fac['hawkers']} Hawker Centres")
+                            if fac['healthcare'] > 0:
+                                facility_list.append(f"{fac['healthcare']} Healthcare")
+                            if fac['greenSpaces'] > 0:
+                                facility_list.append(f"{fac['greenSpaces']} Parks")
+                            if fac['carparks'] > 0:
+                                facility_list.append(f"{fac['carparks']} Carparks")
+                            
+                            location.facilities = facility_list
+                
+                conn.close()
+            except Exception as e:
+                print(f"Error loading facility data: {e}")
+        
         # Apply filter logic (price range, facilities)
         filtered_results = []
         for location in results:
@@ -417,12 +1088,74 @@ class SearchService:
                     # No facility filters applied, include this location
                     filtered_results.append(location)
                 else:
-                    # Check if location has any of the required facilities
-                    has_matching_facility = any(
-                        any(filter_facility.lower() in facility.lower() 
-                            for facility in location.facilities)
-                        for filter_facility in filters.facilities
-                    )
+                    # Check if location has any of the required facilities based on street_facilities data
+                    # Map filter names to database columns
+                    facility_filter_map = {
+                        'good schools': 'schools',
+                        'schools': 'schools',
+                        'sports facilities': 'sports',
+                        'sports': 'sports',
+                        'hawker centres': 'hawkers',
+                        'hawkers': 'hawkers',
+                        'healthcare': 'healthcare',
+                        'parks': 'greenSpaces',
+                        'green spaces': 'greenSpaces',
+                        'carparks': 'carparks',
+                        'parking': 'carparks'
+                    }
+                    
+                    # Check if location meets facility requirements
+                    has_matching_facility = False
+                    
+                    # Try to get facility counts from street_facilities
+                    if location.street:
+                        try:
+                            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+                            street_db_path = os.path.join(base_dir, 'street_geocode.db')
+                            conn_filter = sqlite3.connect(street_db_path)
+                            cursor_filter = conn_filter.cursor()
+                            
+                            fac_row = cursor_filter.execute("""
+                                SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks
+                                FROM street_facilities
+                                WHERE street_name = ?
+                            """, (location.street,)).fetchone()
+                            
+                            if fac_row:
+                                schools, sports, hawkers, healthcare, parks, carparks = fac_row
+                                facility_counts = {
+                                    'schools': schools,
+                                    'sports': sports,
+                                    'hawkers': hawkers,
+                                    'healthcare': healthcare,
+                                    'greenSpaces': parks,
+                                    'carparks': carparks
+                                }
+                                
+                                # Check if any requested facility type has count > 0
+                                for filter_facility in filters.facilities:
+                                    filter_key = filter_facility.lower()
+                                    db_column = facility_filter_map.get(filter_key)
+                                    if db_column and facility_counts.get(db_column, 0) > 0:
+                                        has_matching_facility = True
+                                        break
+                            
+                            conn_filter.close()
+                        except Exception:
+                            # Fallback to string matching in facilities list
+                            has_matching_facility = any(
+                                any(filter_facility.lower() in facility.lower() 
+                                    for facility in location.facilities)
+                                for filter_facility in filters.facilities
+                            )
+                    else:
+                        # No street name, use string matching
+                        has_matching_facility = any(
+                            any(filter_facility.lower() in facility.lower() 
+                                for facility in location.facilities)
+                            for filter_facility in filters.facilities
+                        )
+                    
                     if has_matching_facility:
                         filtered_results.append(location)
 
