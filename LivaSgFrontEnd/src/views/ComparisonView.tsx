@@ -78,6 +78,11 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
     return `$${(price / 1000).toFixed(0)}K`;
   };
 
+  // Create a unique identifier for each location
+  const getLocationKey = (location: LocationResult): string => {
+    return `${location.area}-${location.street}`.toLowerCase();
+  };
+
   // Helpers to update per-slot arrays
   const setSlotLocation = (index: number, loc: LocationResult | null) => {
     setSelectedLocations(prev => {
@@ -157,10 +162,10 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
     const isLoading = loading[index] ?? false;
     const currentLocation = selectedLocations[index] ?? null;
 
-    // prevent selecting same location twice
-    const otherSelectedIds = selectedLocations
-      .map((s, i) => (i === index ? null : s?.id ?? null))
-      .filter(Boolean) as number[];
+    // prevent selecting same location twice using unique location key
+    const otherSelectedKeys = selectedLocations
+      .map((s, i) => (i === index ? null : s ? getLocationKey(s) : null))
+      .filter(Boolean) as string[];
 
     if (currentLocation) {
       return (
@@ -220,7 +225,8 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
           ) : results.length > 0 ? (
             <div className="space-y-2">
               {results.map(location => {
-                const disabled = otherSelectedIds.includes(location.id);
+                const locationKey = getLocationKey(location);
+                const disabled = otherSelectedKeys.includes(locationKey);
                 return (
                   <div
                     key={location.id}
@@ -261,7 +267,8 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
             <div className="space-y-3">
               <p className="text-purple-700 font-medium text-sm">Suggested Locations:</p>
               {suggestedLocations.map(location => {
-                const disabled = otherSelectedIds.includes(location.id);
+                const locationKey = getLocationKey(location);
+                const disabled = otherSelectedKeys.includes(locationKey);
                 return (
                   <div
                     key={location.id}
@@ -283,6 +290,9 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
                         +{location.growth}% ↗
                       </div>
                     </div>
+                    {disabled && (
+                      <div className="mt-2 text-xs text-center text-gray-500">Already selected in another slot</div>
+                    )}
                   </div>
                 );
               })}
