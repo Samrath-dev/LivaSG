@@ -215,8 +215,53 @@ const PreferenceView = ({ onBack }: PreferenceViewProps) => {
     };
 
     void loadRanks();
+
+    const onRanksUpdated = (e: Event) => {
+      try {
+        const detail = (e as CustomEvent).detail as Record<string, number>;
+        if (!detail || typeof detail !== 'object') return;
+        // convert detail -> ordered categories
+        const ranksArr = Object.entries(detail).reduce((acc, [k, v]) => {
+          const id = KEY_TO_ID[k];
+          const rank = typeof v === 'number' ? v : Number(v);
+          if (id && !Number.isNaN(rank)) acc.push({ id, rank });
+          return acc;
+        }, [] as { id: string; rank: number }[]);
+        if (!ranksArr.length) return;
+        ranksArr.sort((a, b) => a.rank - b.rank);
+        const ordered = ranksArr.map(r => DEFAULT_CATEGORIES.find(c => c.id === r.id)).filter(Boolean) as PreferenceCategory[];
+        for (const c of DEFAULT_CATEGORIES) if (!ordered.find(o => o.id === c.id)) ordered.push(c);
+        if (mounted) setCategories(ordered);
+      } catch (err) {
+        console.error('ranksUpdated handler error', err);
+      }
+    };
+
+    const onRanksReset = () => {
+      // apply default ordering and show same notification sequence
+      if (!mounted) return;
+      setCategories(DEFAULT_CATEGORIES);
+      setNotification({ text: 'Ranking reset to default', type: 'success' });
+      isEnteringRef.current = true;
+      setNotifVisible(false);
+      requestAnimationFrame(() => {
+        isEnteringRef.current = false;
+        setNotifVisible(true);
+      });
+      if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+      notifTimeout.current = window.setTimeout(() => {
+        setNotifVisible(false);
+        hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+      }, 3000);
+    };
+
+    window.addEventListener('ranksUpdated', onRanksUpdated as EventListener);
+    window.addEventListener('ranksReset', onRanksReset as EventListener);
+
     return () => {
       mounted = false;
+      window.removeEventListener('ranksUpdated', onRanksUpdated as EventListener);
+      window.removeEventListener('ranksReset', onRanksReset as EventListener);
     };
   }, []);
 
