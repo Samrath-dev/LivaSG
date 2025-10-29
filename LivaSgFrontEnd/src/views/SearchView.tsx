@@ -13,7 +13,6 @@ interface SearchViewProps {
 
 interface Filters {
   facilities: string[];
-  priceRange: [number, number];
 }
 
 interface LocationResult {
@@ -54,8 +53,7 @@ interface PlanningAreaResponse {
 const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, onSettingsClick }: SearchViewProps) => {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
-    facilities: [],
-    priceRange: [500000, 3000000]
+    facilities: []
   });
   const [locationResults, setLocationResults] = useState<LocationResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -124,7 +122,6 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
         },
         body: JSON.stringify({
           facilities: filters.facilities,
-          price_range: filters.priceRange,
           search_query: searchQuery
         }),
       });
@@ -185,21 +182,13 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
     }));
   };
 
-  const handlePriceChange = (min: number, max: number) => {
-    setFilters(prev => ({
-      ...prev,
-      priceRange: [min, max]
-    }));
-  };
-
   const clearSearch = () => {
     onSearchQueryChange('');
   };
 
   const clearFilters = () => {
     setFilters({
-      facilities: [],
-      priceRange: [500000, 3000000]
+      facilities: []
     });
   };
 
@@ -221,13 +210,6 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
   // Handle details click in SpecificView
   const handleDetailsClick = (areaName: string, coordinates: [number, number][]) => {
     console.log('Opening details for:', areaName);
-  };
-
-  const formatPrice = (price: number) => {
-    if (price >= 1000000) {
-      return `$${(price / 1000000).toFixed(1)}M`;
-    }
-    return `$${(price / 1000).toFixed(0)}K`;
   };
 
   const FilterItem = ({ icon, label, checked, onChange, count }: any) => (
@@ -367,9 +349,9 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
           >
             <HiFilter className="w-5 h-5 mr-2" />
             <span>Filters</span>
-            {(filters.facilities.length > 0 || filters.priceRange[0] > 500000 || filters.priceRange[1] < 3000000) && (
+            {filters.facilities.length > 0 && (
               <span className="ml-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                {filters.facilities.length + (filters.priceRange[0] > 500000 ? 1 : 0) + (filters.priceRange[1] < 3000000 ? 1 : 0)}
+                {filters.facilities.length}
               </span>
             )}
           </button>
@@ -401,44 +383,6 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
             </div>
 
             <div className="p-6 space-y-6 max-h-96 overflow-y-auto">
-              {/* Price Range Filter */}
-              <div>
-                <h3 className="font-bold text-lg mb-4 text-gray-900">Budget Range</h3>
-                <div className="space-y-4">
-                  <div className="space-y-3">
-                    <input
-                      type="range"
-                      min="500000"
-                      max="5000000"
-                      step="100000"
-                      value={filters.priceRange[0]}
-                      onChange={(e) => handlePriceChange(Number(e.target.value), filters.priceRange[1])}
-                      className="w-full h-2 bg-gradient-to-r from-purple-500 to-purple-300 rounded-lg appearance-none cursor-pointer"
-                    />
-                    <input
-                      type="range"
-                      min="500000"
-                      max="5000000"
-                      step="100000"
-                      value={filters.priceRange[1]}
-                      onChange={(e) => handlePriceChange(filters.priceRange[0], Number(e.target.value))}
-                      className="w-full h-2 bg-gradient-to-r from-purple-300 to-purple-500 rounded-lg appearance-none cursor-pointer"
-                    />
-                  </div>
-                  <div className="flex justify-between items-center bg-purple-50 rounded-2xl p-4 border border-purple-200">
-                    <div className="text-center">
-                      <div className="text-sm text-purple-600 font-medium">Min Budget</div>
-                      <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[0])}</div>
-                    </div>
-                    <div className="text-purple-400 text-lg">—</div>
-                    <div className="text-center">
-                      <div className="text-sm text-purple-600 font-medium">Max Budget</div>
-                      <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[1])}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               {/* Facilities Filter */}
               <div>
                 <h3 className="font-bold text-lg mb-4 text-gray-900">Preferred Amenities</h3>
@@ -496,7 +440,6 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
               </p>
               <div className="space-y-2 text-sm text-purple-500 max-w-md mx-auto">
                 <p>• Try searching for areas like "Bukit Panjang", "Tampines", or "Marine Parade"</p>
-                <p>• Adjust your budget range</p>
                 <p>• Try different amenity filters</p>
               </div>
             </div>

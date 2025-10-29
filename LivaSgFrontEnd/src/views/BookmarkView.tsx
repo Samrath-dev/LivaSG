@@ -26,7 +26,6 @@ interface LocationData {
 
 interface Filters {
   facilities: string[];
-  priceRange: [number, number];
 }
 
 const BookmarkView = ({ onBack }: BookmarkViewProps) => {
@@ -36,7 +35,6 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
     facilities: [],
-    priceRange: [500, 3000000],
   });
   const [selectedLocation, setSelectedLocation] = useState<LocationData | null>(null);
   const [showSpecificView, setShowSpecificView] = useState(false);
@@ -202,17 +200,9 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
     });
   };
 
-  const handlePriceChange = (min: number, max: number) => {
-    setFilters((prevFilters) => ({
-      ...prevFilters,
-      priceRange: [min, max],
-    }));
-  };
-
   const clearFilters = () => {
     setFilters({
       facilities: [],
-      priceRange: [500, 3000000],
     });
   };
 
@@ -234,19 +224,8 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
       filters.facilities.length === 0 ||
       filters.facilities.every((f) => loc.facilities.includes(f));
 
-    // Price filter
-    const matchesPrice =
-      loc.avgPrice >= filters.priceRange[0] && loc.avgPrice <= filters.priceRange[1];
-
-    return matchesSearch && matchesFacilities && matchesPrice;
+    return matchesSearch && matchesFacilities;
   });
-
-  const formatPrice = (price: number) => {
-    if (price >= 1000000) {
-      return `$${(price / 1000000).toFixed(1)}M`;
-    }
-    return `$${(price / 1000).toFixed(0)}K`;
-  };
 
   const FilterItem = ({ icon, label, checked, onChange, count }: any) => (
     <label className="flex items-center justify-between w-full p-4 rounded-xl hover:bg-purple-50 transition-colors cursor-pointer border border-purple-200 bg-white">
@@ -376,9 +355,9 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
           >
             <HiFilter className="w-5 h-5 mr-2" />
             <span>Filters</span>
-            {(filters.facilities.length > 0 || filters.priceRange[0] > 500 || filters.priceRange[1] < 3000000) && (
+            {filters.facilities.length > 0 && (
               <span className="ml-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                {filters.facilities.length + (filters.priceRange[0] > 500 ? 1 : 0) + (filters.priceRange[1] < 3000000 ? 1 : 0)}
+                {filters.facilities.length}
               </span>
             )}
           </button>
@@ -410,44 +389,6 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
             </div>
 
             <div className="p-6 space-y-6 max-h-96 overflow-y-auto">
-              {/* Price Range Filter */}
-              <div>
-                <h3 className="font-bold text-lg mb-4 text-gray-900">Budget Range</h3>
-                <div className="space-y-4">
-                  <div className="space-y-3">
-                    <input
-                      type="range"
-                      min="500"
-                      max="5000000"
-                      step="100000"
-                      value={filters.priceRange[0]}
-                      onChange={(e) => handlePriceChange(Number(e.target.value), filters.priceRange[1])}
-                      className="w-full h-2 bg-gradient-to-r from-purple-500 to-purple-300 rounded-lg appearance-none cursor-pointer"
-                    />
-                    <input
-                      type="range"
-                      min="500"
-                      max="5000000"
-                      step="100000"
-                      value={filters.priceRange[1]}
-                      onChange={(e) => handlePriceChange(filters.priceRange[0], Number(e.target.value))}
-                      className="w-full h-2 bg-gradient-to-r from-purple-300 to-purple-500 rounded-lg appearance-none cursor-pointer"
-                    />
-                  </div>
-                  <div className="flex justify-between items-center bg-purple-50 rounded-2xl p-4 border border-purple-200">
-                    <div className="text-center">
-                      <div className="text-sm text-purple-600 font-medium">Min Budget</div>
-                      <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[0])}</div>
-                    </div>
-                    <div className="text-purple-400 text-lg">—</div>
-                    <div className="text-center">
-                      <div className="text-sm text-purple-600 font-medium">Max Budget</div>
-                      <div className="text-xl font-bold text-purple-600">{formatPrice(filters.priceRange[1])}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               {/* Facilities Filter */}
               <div>
                 <h3 className="font-bold text-lg mb-4 text-gray-900">Preferred Amenities</h3>
@@ -523,7 +464,7 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
             <p className="text-sm">Start bookmarking your favorite locations to see them here!</p>
           </div>
         ) : filteredLocations.length === 0 ? (
-          filters.facilities.length > 0 || filters.priceRange[0] > 500 || filters.priceRange[1] < 3000000 ? (
+          filters.facilities.length > 0 ? (
             <div className="text-center text-purple-600 py-8">
               <p className="text-lg font-bold">No saved locations match your filters</p>
               <p className="text-sm">Try adjusting your filters to find more locations.</p>
