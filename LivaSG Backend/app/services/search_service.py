@@ -21,7 +21,7 @@ class SearchService:
         """
         Filter locations based on search query and filters:
         - If search_query exists: Use OneMap search API and check "found" count:
-          - found == 0: Return all planning areas (55 polygons)
+          - found == 0: Return nothing
           - found == 1: Return this specific location
           - found > 1: Return street names from street_geocode.db
         - If no search_query: Return all locations matching filters.
@@ -207,13 +207,13 @@ class SearchService:
                 # If cache utils are not available, return empty datasets
                 self._facility_datasets = {
                     'schools': [], 'sports': [], 'hawkers': [],
-                    'healthcare': [], 'greenSpaces': [], 'carparks': []
+                    'healthcare': [], 'greenSpaces': [], 'carparks': [], 'transit': []
                 }
                 return self._facility_datasets
 
             datasets = {
                 'schools': [], 'sports': [], 'hawkers': [],
-                'healthcare': [], 'greenSpaces': [], 'carparks': []
+                'healthcare': [], 'greenSpaces': [], 'carparks': [], 'transit': []
             }
 
             # Schools (from OneMap search cached pages)
@@ -305,6 +305,21 @@ class SearchService:
             except Exception:
                 pass
 
+            # Transit nodes (MRT/LRT stations)
+            try:
+                # Load transit nodes from the rating engine's transit repository
+                if hasattr(self.engine, 'transit') and hasattr(self.engine.transit, 'all'):
+                    transit_nodes = self.engine.transit.all()
+                    transit = []
+                    for node in transit_nodes:
+                        if node.latitude is not None and node.longitude is not None:
+                            transit.append({'latitude': float(node.latitude), 'longitude': float(node.longitude)})
+                    datasets['transit'] = transit
+                else:
+                    datasets['transit'] = []
+            except Exception:
+                datasets['transit'] = []
+
             self._facility_datasets = datasets
             return datasets
 
@@ -314,7 +329,7 @@ class SearchService:
             - Use a smaller radius for healthcare (0.5 km) to avoid inflated counts.
             - Deduplicate very close healthcare points (~100m) to avoid multiple clinics in the same building inflating counts.
             """
-            out = {k: 0 for k in ['schools', 'sports', 'hawkers', 'healthcare', 'greenSpaces', 'carparks']}
+            out = {k: 0 for k in ['schools', 'sports', 'hawkers', 'healthcare', 'greenSpaces', 'carparks', 'transit']}
             # category-specific radius override
             category_radius = {'healthcare': 0.5}
             # approx degrees per ~100m (lat ~ 0.0009, lon depends on latitude)
@@ -408,23 +423,7 @@ class SearchService:
             print(f"OneMap search for '{query}' found {found_count} results.")
             
             if found_count == 0:
-                # No results - return all planning areas (55 polygons)
-                for idx, area_name in enumerate(planning_areas, start=1):
-                    lat, lon = centroids.get(area_name, (0.0, 0.0))
-                    results.append(LocationResult(
-                        id=idx,
-                        street=area_name,
-                        area=area_name,
-                        district=area_name,
-                        price_range=[0, 0],
-                        avg_price=0,
-                        facilities=[],
-                        description=f"Planning area: {area_name}",
-                        growth=0.0,
-                        amenities=[],
-                        latitude=lat if lat != 0.0 else None,
-                        longitude=lon if lon != 0.0 else None
-                    ))
+                print("No results found.")
             
             elif found_count == 1:
                 # Exactly one result - return this specific location
@@ -542,8 +541,8 @@ class SearchService:
                                 cursor.execute(
                                     """
                                     INSERT OR REPLACE INTO street_facilities (
-                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, radius_km, calculated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, radius_km, calculated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
                                     """,
                                     (
                                         street_name_for_facilities,
@@ -552,7 +551,8 @@ class SearchService:
                                         counts.get('hawkers', 0),
                                         counts.get('healthcare', 0),
                                         counts.get('greenSpaces', 0),
-                                        counts.get('carparks', 0)
+                                        counts.get('carparks', 0),
+                                        counts.get('transit', 0)
                                     )
                                 )
                                 # Compute and upsert local street-level score
@@ -627,8 +627,8 @@ class SearchService:
                                 cursor.execute(
                                     """
                                     INSERT OR REPLACE INTO street_facilities (
-                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, radius_km, calculated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, radius_km, calculated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
                                     """,
                                     (
                                         road_name,
@@ -637,7 +637,8 @@ class SearchService:
                                         counts.get('hawkers', 0),
                                         counts.get('healthcare', 0),
                                         counts.get('greenSpaces', 0),
-                                        counts.get('carparks', 0)
+                                        counts.get('carparks', 0),
+                                        counts.get('transit', 0)
                                     )
                                 )
                                 # Also upsert local street-level score
@@ -670,11 +671,11 @@ class SearchService:
                                         """,
                                         (road_name, float(local_score), float(dmin) if dmin is not None else None)
                                     )
-                                except Exception:
-                                    pass
+                                except Exception as score_err:
+                                    print(f"Warning: Could not compute score for {road_name}: {score_err}")
                                 conn.commit()
-                            except Exception:
-                                pass
+                            except Exception as fac_err:
+                                print(f"Warning: Could not compute facilities for {road_name}: {fac_err}")
 
                     conn.close()
                 except Exception as _e:
@@ -741,11 +742,16 @@ class SearchService:
                         db_street_map[normalized] = (street_name, lat, lon, address, postal_code, planning_area)
                     
                     # Extract unique street names from OneMap results and try to match
+                    # Filter: only include results where the street name contains the query
                     matched_streets = []
                     unmatched_onemap_streets = []  # Track streets not in database
                     
                     for result in onemap_response.results:
                         if result.ROAD_NAME and result.ROAD_NAME != "NIL":
+                            # Check if the road name contains the search query
+                            if query.upper() not in result.ROAD_NAME.upper():
+                                continue  # Skip this result if query is not in the road name
+                            
                             normalized_name = normalize_street_name(result.ROAD_NAME)
                             if normalized_name in db_street_map:
                                 street_name, lat, lon, address, postal_code, planning_area = db_street_map[normalized_name]
@@ -759,29 +765,6 @@ class SearchService:
                     
                     print(f"Found {len(matched_streets)} matching streets in street_geocode.db")
                     print(f"Found {len(unmatched_onemap_streets)} unique streets from OneMap not in database")
-                    
-                    # If no street name matches found, try matching by planning area
-                    if not matched_streets and query:
-                        print(f"No street name matches. Trying to match planning area...")
-                        # Try to find streets in the queried planning area
-                        area_matches = cursor.execute(
-                            """
-                            SELECT street_name, latitude, longitude, address, postal_code, planning_area 
-                            FROM street_locations 
-                            WHERE status = 'found' 
-                            AND planning_area IS NOT NULL 
-                            AND UPPER(planning_area) LIKE ?
-                            LIMIT 20
-                            """,
-                            (f"%{query.upper()}%",)
-                        ).fetchall()
-                        
-                        if area_matches:
-                            print(f"Found {len(area_matches)} streets in planning area matching '{query}'")
-                            for street_name, lat, lon, address, postal_code, planning_area in area_matches:
-                                if street_name not in added_streets:
-                                    added_streets.add(street_name)
-                                    matched_streets.append((street_name, lat, lon, address, postal_code, planning_area))
                     
                     if matched_streets:
                         # Found matches in street_geocode.db
@@ -845,8 +828,8 @@ class SearchService:
                                     cursor.execute(
                                         """
                                         INSERT OR REPLACE INTO street_facilities (
-                                            street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, radius_km, calculated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                            street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, radius_km, calculated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
                                         """,
                                         (
                                             street_name,
@@ -855,7 +838,8 @@ class SearchService:
                                             counts.get('hawkers', 0),
                                             counts.get('healthcare', 0),
                                             counts.get('greenSpaces', 0),
-                                            counts.get('carparks', 0)
+                                            counts.get('carparks', 0),
+                                            counts.get('transit', 0)
                                         )
                                     )
                                     # Upsert local street-level score
@@ -879,10 +863,10 @@ class SearchService:
                                             """,
                                             (street_name, float(local_score), float(dmin) if dmin is not None else None)
                                         )
-                                    except Exception:
-                                        pass
-                            except Exception:
-                                pass
+                                    except Exception as score_err:
+                                        print(f"Warning: Could not compute score for {street_name}: {score_err}")
+                            except Exception as fac_err:
+                                print(f"Warning: Could not compute facilities for {street_name}: {fac_err}")
                             
                             results.append(LocationResult(
                                 id=len(results) + 1,
@@ -968,16 +952,16 @@ class SearchService:
                                         )
                                     )
                                 except Exception as _e:
-                                    # If street_locations table or columns differ, skip silently
-                                    pass
+                                    # If street_locations table or columns differ, log warning
+                                    print(f"Warning: Could not insert location data for {road_name}: {_e}")
                                 # Compute facility counts around this point and upsert
                                 try:
                                     counts = _count_facilities_near(lat, lon, _datasets, radius_km=1.0)
                                     cursor.execute(
                                         """
                                         INSERT OR REPLACE INTO street_facilities (
-                                            street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, radius_km, calculated_at
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                            street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, radius_km, calculated_at
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
                                         """,
                                         (
                                             road_name,
@@ -986,7 +970,8 @@ class SearchService:
                                             counts.get('hawkers', 0),
                                             counts.get('healthcare', 0),
                                             counts.get('greenSpaces', 0),
-                                            counts.get('carparks', 0)
+                                            counts.get('carparks', 0),
+                                            counts.get('transit', 0)
                                         )
                                     )
                                     # Upsert local street-level score
@@ -1013,8 +998,8 @@ class SearchService:
                                     )
                                     conn.commit()
                                 except Exception as _e:
-                                    # If facility upsert fails, continue without enriching DB
-                                    pass
+                                    # If facility upsert fails, log warning
+                                    print(f"Warning: Could not compute/save facilities for {road_name}: {_e}")
                                 
                                 results.append(LocationResult(
                                     id=len(results) + 1,
@@ -1087,7 +1072,7 @@ class SearchService:
                 if street_names:
                     placeholders = ','.join('?' * len(street_names))
                     facility_query = f"""
-                        SELECT street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks
+                        SELECT street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit
                         FROM street_facilities
                         WHERE street_name IN ({placeholders})
                     """
@@ -1095,14 +1080,15 @@ class SearchService:
                     
                     # Create lookup map
                     facility_map = {}
-                    for street_name, schools, sports, hawkers, healthcare, parks, carparks in facility_rows:
+                    for street_name, schools, sports, hawkers, healthcare, parks, carparks, transit in facility_rows:
                         facility_map[street_name] = {
                             'schools': schools,
                             'sports': sports,
                             'hawkers': hawkers,
                             'healthcare': healthcare,
                             'greenSpaces': parks,
-                            'carparks': carparks
+                            'carparks': carparks,
+                            'transit': transit
                         }
                     
                     # Enrich results with facility data
@@ -1123,6 +1109,8 @@ class SearchService:
                                 facility_list.append(f"{fac['greenSpaces']} Parks")
                             if fac['carparks'] > 0:
                                 facility_list.append(f"{fac['carparks']} Carparks")
+                            if fac['transit'] > 0:
+                                facility_list.append(f"{fac['transit']} Transit Stations")
                             
                             location.facilities = facility_list
                 
@@ -1162,7 +1150,10 @@ class SearchService:
                         'parks': 'greenSpaces',
                         'green spaces': 'greenSpaces',
                         'carparks': 'carparks',
-                        'parking': 'carparks'
+                        'parking': 'carparks',
+                        'transit': 'transit',
+                        'near mrt': 'transit',
+                        'mrt': 'transit'
                     }
                     
                     # Check if location meets facility requirements
@@ -1177,20 +1168,21 @@ class SearchService:
                             cursor_filter = conn_filter.cursor()
                             
                             fac_row = cursor_filter.execute("""
-                                SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks
+                                SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks, transit
                                 FROM street_facilities
                                 WHERE street_name = ?
                             """, (location.street,)).fetchone()
                             
                             if fac_row:
-                                schools, sports, hawkers, healthcare, parks, carparks = fac_row
+                                schools, sports, hawkers, healthcare, parks, carparks, transit = fac_row
                                 facility_counts = {
                                     'schools': schools,
                                     'sports': sports,
                                     'hawkers': hawkers,
                                     'healthcare': healthcare,
                                     'greenSpaces': parks,
-                                    'carparks': carparks
+                                    'carparks': carparks,
+                                    'transit': transit
                                 }
                                 
                                 # Check if any requested facility type has count > 0

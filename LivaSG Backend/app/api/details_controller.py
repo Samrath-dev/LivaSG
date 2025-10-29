@@ -10,7 +10,7 @@ from ..services.trend_service import TrendService
 
 from fastapi import APIRouter, Query
 from ..domain.models import FacilitiesSummary, PriceRecord, CategoryBreakdown
-router = APIRouter()
+router = APIRouter(prefix="/details", tags=["details"])
 
 def get_trend_service():
     raise RuntimeError("TrendService not wired")
@@ -59,7 +59,7 @@ async def street_breakdown(street_name: str) -> CategoryBreakdown:
     try:
         fac = cur.execute(
             """
-            SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks
+            SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks, transit
             FROM street_facilities WHERE street_name = ?
             """,
             (street_name,)
@@ -79,12 +79,10 @@ async def street_breakdown(street_name: str) -> CategoryBreakdown:
                         return await di_engine.category_breakdown(area)
             except Exception:
                 pass
-            raise ValueError(f"No street data found for {street_name}")
+                raise ValueError(f"No street data found for {street_name}")
 
-        schools, sports, hawkers, healthcare, parks, carparks = fac
-        lat, lon = float(loc[0]), float(loc[1])
-
-        # Slightly higher normalization to avoid saturating at 1.0 so nearby streets can differ
+        schools, sports, hawkers, healthcare, parks, carparks, transit = fac
+        lat, lon = float(loc[0]), float(loc[1])        # Slightly higher normalization to avoid saturating at 1.0 so nearby streets can differ
         amenities = clamp01((schools + sports + hawkers + healthcare + parks) / 30.0)
         environment = clamp01((parks or 0) / 11.0)
 
@@ -292,11 +290,6 @@ async def street_facilities_locations(
     finally:
         conn.close()
 
-
-
-
-
-router = APIRouter(prefix="/details", tags=["details"])
 
 # DI hook (must be overridden in main.py)
 def get_trend_service() -> TrendService:
