@@ -79,6 +79,10 @@ const RANK_KEY_MAP: Record<string, string> = {
   community: 'rCom',
 };
 
+const KEY_TO_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(RANK_KEY_MAP).map(([id, key]) => [key, id])
+);
+
 const sendRankUpdate = async (items: PreferenceCategory[]): Promise<boolean> => {
   const body: Record<string, number> = {};
   items.forEach((it, idx) => {
@@ -155,7 +159,7 @@ const SortableCategory = ({ category, index }: SortableCategoryProps) => {
 };
 
 const PreferenceView = ({ onBack }: PreferenceViewProps) => {
-  const [categories, setCategories] = useState<PreferenceCategory[]>(DEFAULT_CATEGORIES);
+  const [categories, setCategories] = useState<PreferenceCategory[] | null>(null);
   const [notification, setNotification] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [notifVisible, setNotifVisible] = useState(false);
   const notifTimeout = useRef<number | null>(null);
@@ -164,6 +168,57 @@ const PreferenceView = ({ onBack }: PreferenceViewProps) => {
   const [loading, setLoading] = useState(false);
   const showLoaderTimeout = useRef<number | null>(null);
   const loaderHideTimeout = useRef<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadRanks = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/ranks');
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = await res.json();
+
+        // Accept either { rAff: 1, ... } or { ranks: { rAff: 1, ... } }
+        const payload = data && typeof data === 'object' ? (data.ranks && typeof data.ranks === 'object' ? data.ranks : data) : null;
+        if (!payload) {
+          if (mounted) setCategories(DEFAULT_CATEGORIES);
+          return;
+        }
+
+        const ranksArr: { id: string; rank: number }[] = Object.entries(payload).reduce((acc, [k, v]) => {
+          const id = KEY_TO_ID[k];
+          const rank = typeof v === 'number' ? v : Number(v);
+          if (id && !Number.isNaN(rank)) acc.push({ id, rank });
+          return acc;
+        }, [] as { id: string; rank: number }[]);
+
+        if (!ranksArr.length) {
+          if (mounted) setCategories(DEFAULT_CATEGORIES);
+          return;
+        }
+
+        // sort ascending (1 = top)
+        ranksArr.sort((a, b) => a.rank - b.rank);
+        const ordered = ranksArr
+          .map((r) => DEFAULT_CATEGORIES.find((c) => c.id === r.id))
+          .filter(Boolean) as PreferenceCategory[];
+
+        // append any missing categories in default order
+        for (const c of DEFAULT_CATEGORIES) {
+          if (!ordered.find((o) => o.id === c.id)) ordered.push(c);
+        }
+
+        if (mounted) setCategories(ordered);
+      } catch (err) {
+        console.error('Failed to load ranks, falling back to defaults:', err);
+        if (mounted) setCategories(DEFAULT_CATEGORIES);
+      }
+    };
+
+    void loadRanks();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -183,6 +238,8 @@ const PreferenceView = ({ onBack }: PreferenceViewProps) => {
 
    const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
+
+    if (!categories) return;
 
     if (active.id !== over?.id) {
       const oldIndex = categories.findIndex((item) => item.id === active.id);
@@ -379,23 +436,31 @@ const PreferenceView = ({ onBack }: PreferenceViewProps) => {
               </div>
             </div>
 
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext items={categories} strategy={verticalListSortingStrategy}>
-                <div className="space-y-3">
-                  {categories.map((category, index) => (
-                    <SortableCategory
-                      key={category.id}
-                      category={category}
-                      index={index}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
+            {/* only render ranking UI after initial fetch completes */}
+            {categories ? (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext items={categories} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-3">
+                    {categories.map((category, index) => (
+                      <SortableCategory
+                        key={category.id}
+                        category={category}
+                        index={index}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            ) : (
+              // placeholder while fetching initial ranks
+              <div className="py-16 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-full border-4 border-purple-300 border-t-transparent animate-spin" />
+              </div>
+            )}
 
             {/* Instructions */}
             <div className="mt-8 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl border border-blue-200">
