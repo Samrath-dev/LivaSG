@@ -3,6 +3,7 @@ from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, Neig
 from ..domain.models import Transit, Carpark
 from abc import ABC, abstractmethod
 from ..domain.models import RankProfile
+from typing import Protocol
 
 class IPriceRepo:
     def series(self, area_id: str, months: int) -> List[PriceRecord]: ...
@@ -58,3 +59,15 @@ class IRankRepo(ABC):
     def set(self, r: RankProfile) -> None: ...
     @abstractmethod
     def clear(self) -> None: ...
+
+# new 
+from typing import List
+from ..domain.models import PricePoint
+
+class IPriceRepo(Protocol):
+    def series(self, area_id: str, months: int) -> List["PriceRecord"]:
+        ...
+
+
+    def trend_points(self, area_id: str, *, since_year: int = 2017) -> List[PricePoint]:
+        ...

@@ -1,35 +1,36 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 
-#-----
-from app.repositories.memory_impl import MemoryRankRepo   # NEW
-from app.api import ranks_controller  
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
-# --- Existing Routers (module imports only) ---
-from app.api import map_controller, details_controller, search_controller
-from app.api import onemap_controller  # keep after DI objects created if you prefer
 
-# --- new
-from app.api import weights_controller  
+# --- Routers ---
+from app.api import map_controller, details_controller, search_controller, onemap_controller
+from app.api import weights_controller
+from app.api import ranks_controller
 
-# --- Existing Memory Repositories ---
+# --- Memory Repos ---
 from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
     MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo,
-    MemoryAreaRepo, MemoryCommunityRepo
+    MemoryAreaRepo, MemoryCommunityRepo, MemoryRankRepo
 )
 
-# --- Existing Services ---
+# --- Services ---
 from app.services.trend_service import TrendService
 from app.services.rating_engine import RatingEngine
 from app.services.search_service import SearchService
 
-# --- NEW: OneMap Integrations (hardcoded token path) ---
+# --- Integrations ---
 from app.integrations.onemap_client import OneMapClientHardcoded
 from app.repositories.api_planning_repo import OneMapPlanningAreaRepo
 
-# --- Create DI singletons (memory repos) ---
+# ========= DI objects =========
+# repos
 di_price     = MemoryPriceRepo()
 di_amenity   = MemoryAmenityRepo()
 di_weights   = MemoryWeightsRepo()
@@ -37,29 +38,30 @@ di_scores    = MemoryScoreRepo()
 di_community = MemoryCommunityRepo()
 di_transit   = MemoryTransitRepo()
 di_carpark   = MemoryCarparkRepo()
-di_area      = MemoryAreaRepo()   # still used by RatingEngine for now
+di_area      = MemoryAreaRepo()
+di_ranks     = MemoryRankRepo()          # NEW
 
-# --- Create DI for OneMap planning areas ---
+# planning areas / onemap
 di_onemap_client = OneMapClientHardcoded()
 di_planning_repo = OneMapPlanningAreaRepo(di_onemap_client)
 
-# --- Services ---
+# services
 di_trend  = TrendService(di_price)
-di_engine = RatingEngine(
+di_engine = RatingEngine(                # build ONCE (with ranks)
     di_price,
     di_amenity,
     di_scores,
     di_community,
     di_transit,
     di_carpark,
-    di_area
+    di_area,
+    ranks=di_ranks,                      # accepts rank or ranks
 )
 di_search = SearchService(di_engine, di_onemap_client)
 
-# --- FastAPI app ---
+# ========= App =========
 app = FastAPI(title="LivaSG API")
 
-# CORS for local React dev
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -67,33 +69,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- Dependency overrides (avoid circular imports) ----
+# ========= Dependency overrides =========
+# onemap planning areas + client
 app.dependency_overrides[onemap_controller.get_planning_repo] = lambda: di_planning_repo
+app.dependency_overrides[onemap_controller.get_onemap_client] = lambda: di_onemap_client
+
+# map
 app.dependency_overrides[map_controller.get_engine] = lambda: di_engine
 app.dependency_overrides[map_controller.get_weights_service] = lambda: di_weights
 app.dependency_overrides[map_controller.get_planning_repo] = lambda: di_planning_repo
 
-# Provide the OneMap client instance to controllers that depend on it
-app.dependency_overrides[onemap_controller.get_onemap_client] = lambda: di_onemap_client
+# details (trend)
+app.dependency_overrides[details_controller.get_trend_service] = lambda: di_trend
 
-# new
+# weights
 app.dependency_overrides[weights_controller.get_weights_repo] = lambda: di_weights
 
-# ---- Mount routers ----
+# ranks
+app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks
+
+# ========= Routers =========
+# details_controller should already have prefix="/details" internally
 app.include_router(map_controller.router)
-app.include_router(details_controller.router, prefix="/details", tags=["details"])
+app.include_router(details_controller.router)
 app.include_router(search_controller.router, prefix="/search", tags=["search"])
 app.include_router(onemap_controller.router)
-
-# new
 app.include_router(weights_controller.router)
+app.include_router(ranks_controller.router)
 
-# Health
+# ========= Health / debug =========
 @app.get("/")
 def health():
     return {"ok": True}
 
-# --- simple PopAPI debug probe ---
 @app.get("/test-onemap")
 async def test_onemap():
     import httpx
@@ -105,18 +113,3 @@ async def test_onemap():
             return {"status": r.status_code, "raw": r.text[:500]}
     except Exception as e:
         return {"error": str(e)}
-
-di_ranks = MemoryRankRepo()                               # NEW
-di_engine = RatingEngine(
-    di_price,
-    di_amenity,
-    di_scores,
-    di_community,
-    di_transit,
-    di_carpark,
-    di_area,
-    ranks=di_ranks,                                       # NEW
-)
-
-app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks  # NEW
-app.include_router(ranks_controller.router)                                           # NEW

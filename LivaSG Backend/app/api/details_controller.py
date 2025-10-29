@@ -1,6 +1,19 @@
+#api/details_controller.py
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from ..domain.models import PriceTrend
+from ..services.trend_service import TrendService
+
+
+
 from fastapi import APIRouter, Query
 from ..domain.models import FacilitiesSummary, PriceRecord, CategoryBreakdown
 router = APIRouter()
+
+def get_trend_service():
+    raise RuntimeError("TrendService not wired")
 
 @router.get("/{area_id}/breakdown", response_model=CategoryBreakdown)
 async def breakdown(area_id: str):
@@ -279,7 +292,42 @@ async def street_facilities_locations(
     finally:
         conn.close()
 
-@router.get("/{area_id}/price-trend", response_model=list[PriceRecord])
-def price_trend(area_id: str, months: int = Query(24, ge=1, le=120)):
-    from ..main import di_trend
-    return di_trend.series(area_id, months)
+
+
+
+
+router = APIRouter(prefix="/details", tags=["details"])
+
+# DI hook (must be overridden in main.py)
+def get_trend_service() -> TrendService:
+    raise RuntimeError("get_trend_service not wired. Set dependency_overrides in main.py.")
+
+@router.get("/{area_id}/price-trend", response_model=PriceTrend)
+def price_trend(
+    area_id: str,
+    months: int = Query(60, ge=1, le=240),
+    svc: TrendService = Depends(get_trend_service),
+):
+    """
+    Return a PriceTrend -> points: list[PricePoint].
+    TrendService currently returns list[PriceRecord], so we map fields.
+    """
+    try:
+        records = svc.series(area_id, months) or []
+
+        # Map PriceRecord -> PricePoint shape expected by Pydantic:
+        # Adjust the key names below if your PricePoint uses different field names.
+        points = [
+            {
+                "month": r.month,                 # date
+                "median": getattr(r, "medianResale", None),  # if PricePoint expects 'median'
+                "p25": r.p25,
+                "p75": r.p75,
+                "volume": r.volume,
+            }
+            for r in records
+        ]
+
+        return PriceTrend(areaId=area_id, points=points)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"price-trend failed: {e}")

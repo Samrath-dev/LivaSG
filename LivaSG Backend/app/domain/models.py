@@ -122,3 +122,15 @@ class RankProfile(BaseModel):
     rAmen: int = Field(..., ge=1, le=5)
     rEnv: int  = Field(..., ge=1, le=5)
     rCom: int  = Field(..., ge=1, le=5)
+
+
+from datetime import date
+from pydantic import BaseModel
+
+class PricePoint(BaseModel):
+    month: date
+    median: int
+
+class PriceTrend(BaseModel):
+    areaId: str
+    points: list[PricePoint]
