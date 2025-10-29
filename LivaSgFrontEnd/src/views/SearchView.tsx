@@ -212,6 +212,15 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
     console.log('Opening details for:', areaName);
   };
 
+  // Determine which heading to show based on search state
+  const getResultsHeading = () => {
+    if (searchQuery.trim() === '') {
+      return `${locationResults.length} general planning areas found`;
+    } else {
+      return `${locationResults.length} ${locationResults.length === 1 ? 'location' : 'locations'} found`;
+    }
+  };
+
   const FilterItem = ({ icon, label, checked, onChange, count }: any) => (
     <label className="flex items-center justify-between w-full p-4 rounded-xl hover:bg-purple-50 transition-colors cursor-pointer border border-purple-200 bg-white">
       <div className="flex items-center gap-4">
@@ -335,7 +344,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
         <div className="flex justify-between items-center">
           <div className="text-left">
             <p className="text-purple-600 text-sm">
-              {locationResults.length} {locationResults.length === 1 ? 'location' : 'locations'} found
+              {getResultsHeading()}
             </p>
           </div>
           
