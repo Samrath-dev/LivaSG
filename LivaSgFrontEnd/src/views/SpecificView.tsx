@@ -26,6 +26,8 @@ interface LocationResult {
   transitScore: number;
   schoolScore: number;
   amenitiesScore: number;
+  latitude?: number;
+  longitude?: number;
 }
 
 const SpecificView = ({ 
@@ -86,22 +88,71 @@ const SpecificView = ({
       setMapZoom(targetZoom);
     }
 
-    const mockLocationData: LocationResult = {
-      id: Date.now(),
-      street: currentArea,
-      area: currentArea,
-      district: "District",
-      priceRange: [12345, 678901],
-      avgPrice: 12345,
-      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
-      description: `[MOCK DESCRIPTION] ${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
-      growth: 100,
-      amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
-      transitScore: 100,
-      schoolScore: 100,
-      amenitiesScore: 100
+    // Fetch real street data for the current planning area
+    const fetchAreaStreets = async () => {
+      setLoadingAreaData(true);
+      try {
+        const response = await fetch(`http://localhost:8000/search/filter`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            facilities: [],
+            price_range: [500000, 5000000],
+            search_query: currentArea
+          }),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          // Use the first street result if available
+          if (data && data.length > 0) {
+            const firstStreet = data[0];
+            setSelectedAreaLocation({
+              id: firstStreet.id || Date.now(),
+              street: firstStreet.street || currentArea,
+              area: firstStreet.area || currentArea,
+              district: firstStreet.district || "District",
+              priceRange: firstStreet.price_range || [0, 0],
+              avgPrice: firstStreet.avg_price || 0,
+              facilities: firstStreet.facilities || [],
+              description: firstStreet.description || `${currentArea} is a well-established planning area.`,
+              growth: firstStreet.growth || 0,
+              amenities: firstStreet.amenities || [],
+              transitScore: firstStreet.transit_score || 0,
+              schoolScore: firstStreet.school_score || 0,
+              amenitiesScore: firstStreet.amenities_score || 0,
+              latitude: firstStreet.latitude,
+              longitude: firstStreet.longitude
+            });
+          } else {
+            // Fallback if no data returned
+            setSelectedAreaLocation({
+              id: Date.now(),
+              street: currentArea,
+              area: currentArea,
+              district: "District",
+              priceRange: [0, 0],
+              avgPrice: 0,
+              facilities: [],
+              description: `${currentArea} planning area.`,
+              growth: 0,
+              amenities: [],
+              transitScore: 0,
+              schoolScore: 0,
+              amenitiesScore: 0
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching area streets:', error);
+      } finally {
+        setLoadingAreaData(false);
+      }
     };
-    setSelectedAreaLocation(mockLocationData);
+
+    fetchAreaStreets();
   }, [currentCoords, currentArea]);
 
   useEffect(() => {

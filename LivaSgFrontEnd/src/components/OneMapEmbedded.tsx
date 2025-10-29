@@ -19,6 +19,7 @@ interface OneMapEmbeddedProps {
   }>;
   className?: string;
   interactive?: boolean;
+  zoomOnly?: boolean;  // New prop: allow zooming but not dragging
 }
 
 /**
@@ -30,7 +31,8 @@ const OneMapEmbedded = ({
   zoom = 16,
   markers = [],
   className = '',
-  interactive = false
+  interactive = false,
+  zoomOnly = false
 }: OneMapEmbeddedProps) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -41,16 +43,20 @@ const OneMapEmbedded = ({
 
     // Initialize map
     if (!mapRef.current) {
+      // Determine interaction settings
+      const allowZoom = interactive || zoomOnly;
+      const allowDrag = interactive && !zoomOnly;
+      
       mapRef.current = L.map(mapContainerRef.current, {
         center: center,
         zoom: zoom,
-        zoomControl: interactive,
-        dragging: interactive,
-        scrollWheelZoom: interactive,
-        doubleClickZoom: interactive,
-        touchZoom: interactive,
-        boxZoom: interactive,
-        keyboard: interactive,
+        zoomControl: allowZoom,
+        dragging: allowDrag,
+        scrollWheelZoom: allowZoom,
+        doubleClickZoom: allowZoom,
+        touchZoom: allowZoom,
+        boxZoom: allowDrag,
+        keyboard: allowDrag,
       });
 
       // Add OneMap tiles
