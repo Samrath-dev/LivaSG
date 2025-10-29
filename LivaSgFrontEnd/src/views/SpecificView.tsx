@@ -26,14 +26,8 @@ interface LocationResult {
   transitScore: number;
   schoolScore: number;
   amenitiesScore: number;
-  postal_code?: string;
-}
-
-interface SavedLocation {
-  id: number;
-  postal_code: string;
-  address: string;
-  area: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 const SpecificView = ({ 
@@ -46,7 +40,6 @@ const SpecificView = ({
   const [mapCenter, setMapCenter] = useState<[number, number]>([1.3521, 103.8198]);
   const [mapZoom, setMapZoom] = useState<number>(14);
   const [isSaved, setIsSaved] = useState(false);
-  const [savedLocationId, setSavedLocationId] = useState<number | null>(null);
   const [selectedAreaLocation, setSelectedAreaLocation] = useState<LocationResult | null>(null);
   const [loadingAreaData, setLoadingAreaData] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -81,11 +74,6 @@ const SpecificView = ({
   const detailsTransitionStyle = detailsIsDragging ? 'none' : 'transform 220ms cubic-bezier(.2,.9,.2,1)';
   const detailsSheetTranslate = detailsVisible ? `translateY(${detailsDragY}px)` : 'translateY(100%)';
 
-  // Check if location is saved on component mount
-  useEffect(() => {
-    checkIfLocationSaved();
-  }, [currentArea]);
-
   useEffect(() => {
     setCurrentArea(areaName);
     setCurrentCoords(coordinates);
@@ -100,23 +88,88 @@ const SpecificView = ({
       setMapZoom(targetZoom);
     }
 
-    const mockLocationData: LocationResult = {
-      id: Date.now(),
-      street: currentArea,
-      area: currentArea,
-      district: "District",
-      priceRange: [12345, 678901],
-      avgPrice: 12345,
-      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
-      description: `[MOCK DESCRIPTION] ${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
-      growth: 100,
-      amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
-      transitScore: 100,
-      schoolScore: 100,
-      amenitiesScore: 100,
-      postal_code: generatePostalCode(currentArea)
+    // Fetch real street data for the current planning area
+    const fetchAreaStreets = async () => {
+      setLoadingAreaData(true);
+      try {
+        const response = await fetch(`http://localhost:8000/search/filter`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            facilities: [],
+            price_range: [500000, 5000000],
+            search_query: currentArea
+          }),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          // Use the first street result if available
+          if (data && data.length > 0) {
+            const firstStreet = data[0];
+            setSelectedAreaLocation({
+              id: firstStreet.id || Date.now(),
+              street: firstStreet.street || currentArea,
+              area: firstStreet.area || currentArea,
+              district: firstStreet.district || "District",
+              priceRange: firstStreet.price_range || [0, 0],
+              avgPrice: firstStreet.avg_price || 0,
+              facilities: firstStreet.facilities || [],
+              description: firstStreet.description || `${currentArea} is a well-established planning area.`,
+              growth: firstStreet.growth || 0,
+              amenities: firstStreet.amenities || [],
+              transitScore: firstStreet.transit_score || 0,
+              schoolScore: firstStreet.school_score || 0,
+              amenitiesScore: firstStreet.amenities_score || 0,
+              latitude: firstStreet.latitude,
+              longitude: firstStreet.longitude
+            });
+          } else {
+            // Fallback if no data returned
+            setSelectedAreaLocation({
+              id: Date.now(),
+              street: currentArea,
+              area: currentArea,
+              district: "District",
+              priceRange: [0, 0],
+              avgPrice: 0,
+              facilities: [],
+              description: `${currentArea} planning area.`,
+              growth: 0,
+              amenities: [],
+              transitScore: 0,
+              schoolScore: 0,
+              amenitiesScore: 0
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching area streets:', error);
+        // Fallback to mock data if API fails
+        const mockLocationData: LocationResult = {
+          id: Date.now(),
+          street: currentArea,
+          area: currentArea,
+          district: "District",
+          priceRange: [12345, 678901],
+          avgPrice: 12345,
+          facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
+          description: `${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
+          growth: 100,
+          amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
+          transitScore: 100,
+          schoolScore: 100,
+          amenitiesScore: 100
+        };
+        setSelectedAreaLocation(mockLocationData);
+      } finally {
+        setLoadingAreaData(false);
+      }
     };
-    setSelectedAreaLocation(mockLocationData);
+
+    fetchAreaStreets();
   }, [currentCoords, currentArea]);
 
   useEffect(() => {
@@ -128,119 +181,6 @@ const SpecificView = ({
       setDetailsIsDragging(false);
     }
   }, [detailsOpen]);
-
-  // Generate a mock postal code based on area name
-  const generatePostalCode = (area: string): string => {
-    let hash = 0;
-    for (let i = 0; i < area.length; i++) {
-      hash = area.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return String(100000 + Math.abs(hash) % 899999);
-  };
-
-  // Check if current location is saved
-  const checkIfLocationSaved = async () => {
-    try {
-      const response = await fetch('http://localhost:8000/shortlist/saved-locations');
-      if (!response.ok) throw new Error('Failed to fetch saved locations');
-      
-      const savedLocations: SavedLocation[] = await response.json();
-      const postalCode = generatePostalCode(currentArea);
-      
-      const savedLocation = savedLocations.find(loc => loc.postal_code === postalCode);
-      
-      if (savedLocation) {
-        setIsSaved(true);
-        setSavedLocationId(savedLocation.id);
-      } else {
-        setIsSaved(false);
-        setSavedLocationId(null);
-      }
-    } catch (error) {
-      console.error('Error checking saved location:', error);
-      // Fallback to local state if API fails
-      const localSaved = localStorage.getItem(`saved_${currentArea}`);
-      setIsSaved(!!localSaved);
-    }
-  };
-
-  // Save location to backend
-  const saveLocation = async () => {
-    if (!selectedAreaLocation) return;
-
-    try {
-      const locationData = {
-        postal_code: selectedAreaLocation.postal_code || generatePostalCode(currentArea),
-        address: selectedAreaLocation.street,
-        area: currentArea,
-        district: selectedAreaLocation.district,
-        description: selectedAreaLocation.description,
-        facilities: selectedAreaLocation.facilities,
-        amenities: selectedAreaLocation.amenities
-      };
-
-      const response = await fetch('http://localhost:8000/shortlist/saved-locations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(locationData),
-      });
-
-      if (!response.ok) throw new Error('Failed to save location');
-
-      const savedLocation: SavedLocation = await response.json();
-      setIsSaved(true);
-      setSavedLocationId(savedLocation.id);
-      
-      // Also save to localStorage as backup
-      localStorage.setItem(`saved_${currentArea}`, 'true');
-      
-      console.log(`${currentArea} saved successfully`);
-    } catch (error) {
-      console.error('Error saving location:', error);
-      // Fallback to localStorage if API fails
-      localStorage.setItem(`saved_${currentArea}`, 'true');
-      setIsSaved(true);
-    }
-  };
-
-  // Unsave location from backend
-  const unsaveLocation = async () => {
-    if (!selectedAreaLocation) return;
-
-    try {
-      const postalCode = selectedAreaLocation.postal_code || generatePostalCode(currentArea);
-      
-      const response = await fetch(`http://localhost:8000/shortlist/saved-locations/${postalCode}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) throw new Error('Failed to unsave location');
-
-      setIsSaved(false);
-      setSavedLocationId(null);
-      
-      // Remove from localStorage
-      localStorage.removeItem(`saved_${currentArea}`);
-      
-      console.log(`${currentArea} unsaved successfully`);
-    } catch (error) {
-      console.error('Error unsaving location:', error);
-      // Fallback to localStorage if API fails
-      localStorage.removeItem(`saved_${currentArea}`);
-      setIsSaved(false);
-    }
-  };
-
-  // Handle save/unsave click
-  const handleSaveClick = async () => {
-    if (isSaved) {
-      await unsaveLocation();
-    } else {
-      await saveLocation();
-    }
-  };
 
   const handleDetailsPointerDown = (e: React.PointerEvent) => {
     (e.currentTarget as Element & { setPointerCapture?: (id: number) => void })
@@ -368,6 +308,11 @@ const SpecificView = ({
     setDetailsOpen(true);
   };
 
+  const handleSaveClick = () => {
+    setIsSaved(!isSaved);
+    console.log(`${currentArea} ${isSaved ? 'unsaved' : 'saved'}`);
+  };
+
   const handleInnerAreaClick = (areaNameInner: string, coordsInner: [number, number][]) => {
     setCurrentArea(areaNameInner);
     setCurrentCoords(coordsInner);
@@ -423,9 +368,8 @@ const SpecificView = ({
                 ? 'text-yellow-500 hover:text-yellow-600' 
                 : 'text-purple-400 hover:text-purple-600'
             }`}
-            disabled={loadingAreaData}
           >
-            <HiBookmark className={`w-6 h-6 ${loadingAreaData ? 'opacity-50' : ''}`} />
+            <HiBookmark className="w-6 h-6" />
           </button>
         </div>
 
