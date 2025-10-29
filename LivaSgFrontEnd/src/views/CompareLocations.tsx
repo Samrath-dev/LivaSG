@@ -12,8 +12,6 @@ import { Radar } from 'react-chartjs-2';
 
 ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
-// ...existing code...
-
 interface LocationResult {
   id: number;
   street: string;
@@ -43,18 +41,60 @@ const formatPrice = (price: number) => {
 };
 
 export default function CompareLocations({ locations, onClose }: Props) {
-  const labels = ['Transit', 'Schools', 'Amenities', 'Growth', 'Affordability'];
+  const labels = ['Affordability', 'Accessibility', 'Amenities', 'Environment', 'Community'];
 
   // limit to up to 5 locations
   const maxLocations = 5;
   const locs = locations ? locations.slice(0, maxLocations) : [];
+
+  // fetched breakdowns keyed by location id
+  const [breakdowns, setBreakdowns] = useState<Record<number, Record<string, number>>>({});
+
+  // Fetch breakdown scores for each provided location from backend:
+  useEffect(() => {
+    let cancelled = false;
+    if (!locs.length) return;
+    (async () => {
+      const map: Record<number, Record<string, number>> = {};
+      await Promise.all(
+        locs.map(async (loc) => {
+          try {
+            // Prefer loc.street or loc.area as identifier
+            const name = encodeURIComponent(loc.street || loc.area || String(loc.id));
+            const res = await fetch(`http://localhost:8000/details/${name}/breakdown`);
+            if (!res.ok) {
+              console.warn('breakdown fetch failed', res.status, loc.street);
+              return;
+            }
+            const json = await res.json().catch(() => null);
+            const scores = json && (json.scores || json) ? (json.scores || json) : null;
+            if (scores && typeof scores === 'object') {
+              // Normalize keys (keep as numbers)
+              const normalized: Record<string, number> = {};
+              Object.keys(scores).forEach(k => {
+                const v = Number(scores[k]);
+                if (!Number.isNaN(v)) normalized[k] = v;
+              });
+              map[loc.id] = normalized;
+            } else {
+              console.warn('Unexpected breakdown payload for', loc.street, json);
+            }
+          } catch (err) {
+            console.warn('Failed to fetch breakdown for', loc.street, err);
+          }
+        })
+      );
+      if (!cancelled) setBreakdowns(map);
+    })();
+    return () => { cancelled = true; };
+  }, [locations]);
 
   // Normalizers across selected locations
   const growthVals = locs.map((l: LocationResult) => Number(l.growth) || 0);
   const growthMin = growthVals.length ? Math.min(...growthVals) : 0;
   const growthMax = growthVals.length ? Math.max(...growthVals) : 1;
 
-  const priceVals = locs.map((l: LocationResult) => l.avgPrice);
+  const priceVals = locs.map((l: LocationResult) => l.avgPrice || 0);
   const priceMin = priceVals.length ? Math.min(...priceVals) : 0;
   const priceMax = priceVals.length ? Math.max(...priceVals) : 1;
 
@@ -73,35 +113,63 @@ export default function CompareLocations({ locations, onClose }: Props) {
     'rgba(168,85,247,1)',
   ];
 
-  // Return raw growth and raw price (affordability) instead of normalized percentages.
-  // NOTE: radar scale must adapt to mixed ranges (we compute suggestedMax below).
-  const computeRadarFor = (loc: LocationResult) => {
-    const transit = Math.round(Math.max(0, Math.min(100, Number(loc.transitScore) || 0)));
-    const schools = Math.round(Math.max(0, Math.min(100, Number(loc.schoolScore) || 0)));
-    const amenities = Math.round(Math.max(0, Math.min(100, Number(loc.amenitiesScore) || 0)));
+  const clamp100 = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
 
-    const growthRaw = Number(loc.growth) || 0;
-    const affordabilityRaw = Number(loc.avgPrice) / 100 || 0; // CHANGE SCALE DEPENDING ON VALUE OF AFFORDABILITY
-
-    return [transit, schools, amenities, growthRaw, affordabilityRaw];
-  };
-
+  // Build chart datasets using breakdowns when available; breakdown values expected as 0..1 floats.
   const data = {
     labels,
-    datasets: locs.map((loc: LocationResult, i: number) => ({
-      label: loc.street,
-      data: computeRadarFor(loc),
-      backgroundColor: paletteBg[i % paletteBg.length],
-      borderColor: paletteBorder[i % paletteBorder.length],
-      borderWidth: 2,
-      pointBackgroundColor: paletteBorder[i % paletteBorder.length],
-    })),
+    datasets: locs.map((loc: LocationResult, i: number) => {
+      const bd = breakdowns[loc.id];
+      let values: number[] = [];
+      if (bd) {
+        // attempt to read keys with possible capitalization variants
+        const getVal = (key: string) => {
+          return bd[key] ?? bd[key.toLowerCase()] ?? bd[key.charAt(0).toUpperCase() + key.slice(1)] ?? null;
+        };
+        const a = getVal('Affordability');
+        const b = getVal('Accessibility');
+        const c = getVal('Amenities');
+        const d = getVal('Environment');
+        const e = getVal('Community');
+        values = [
+          a != null ? clamp100(Number(a) * 100) : 0,
+          b != null ? clamp100(Number(b) * 100) : 0,
+          c != null ? clamp100(Number(c) * 100) : 0,
+          d != null ? clamp100(Number(d) * 100) : 0,
+          e != null ? clamp100(Number(e) * 100) : 0,
+        ];
+      } else {
+        // fallback: synthesize values from existing fields (best-effort)
+        const transit = Number(loc.transitScore) || 0;
+        const schools = Number(loc.schoolScore) || 0;
+        const amenities = Number(loc.amenitiesScore) || 0;
+        const growth = Number(loc.growth) || 0;
+        const avgPrice = Number(loc.avgPrice) || 0;
+        // map to the new label order: Affordability(inverse price), Accessibility(transit), Amenities, nvironment(growth inverse), Community(schools)
+        const affordability = clamp100(100 - Math.round(((avgPrice - priceMin) / (priceMax - priceMin || 1)) * 100));
+        const accessibility = clamp100(Math.round((transit / Math.max(1, transit)) * 100)); // best-effort, eeps within 0-100
+        const amenitiesScore = clamp100(Math.round(Math.max(0, Math.min(100, amenities))));
+        const environment = clamp100(100 - Math.round(((growth - growthMin) / (growthMax - growthMin || 1)) * 100));
+        const community = clamp100(Math.round(Math.max(0, Math.min(100, schools))));
+        values = [affordability, accessibility, amenitiesScore, environment, community];
+      }
+
+      return {
+        label: loc.street,
+        data: values,
+        backgroundColor: paletteBg[i % paletteBg.length],
+        borderColor: paletteBorder[i % paletteBorder.length],
+        borderWidth: 2,
+        pointBackgroundColor: paletteBorder[i % paletteBorder.length],
+      };
+    }),
   };
 
   // Debug / validation: log props and generated datasets so you can inspect in devtools
   useEffect(() => {
     console.log('CompareLocations.props.locations:', locations);
     console.log('derived locs:', locs);
+    console.log('breakdowns fetched:', breakdowns);
     console.log('chart data.datasets:', data.datasets);
     // validate required numeric fields
     const invalid = locs.filter(l =>

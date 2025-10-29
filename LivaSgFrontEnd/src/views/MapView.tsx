@@ -1,7 +1,7 @@
 import { HiSearch, HiX, HiMap, HiCog, HiInformationCircle, HiChevronUp, HiChevronDown } from 'react-icons/hi';
 import { useState, useRef, useEffect } from 'react';
 import OneMapInteractive from '../components/OneMapInteractive';
-import SpecificView from './SpecificView'; // Import the SpecificView
+import SpecificView from './SpecificView';
 
 interface MapViewProps {
   onSearchClick: () => void;
@@ -21,15 +21,8 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
   const [mapCenter, setMapCenter] = useState<[number, number]>([1.3521, 103.8198]);
   const [mapZoom, setMapZoom] = useState<number>(12);
 
-  // smooth pan/zoom animation state refs
+  // Animation refs (keeping for back navigation)
   const animRef = useRef<number | null>(null);
-  const animatingRef = useRef<boolean>(false);
-  const lastUpdateRef = useRef<number>(0);
-  const animStartRef = useRef<number | null>(null);
-  const animFromCenter = useRef<[number, number] | null>(null);
-  const animToCenter = useRef<[number, number] | null>(null);
-  const animFromZoom = useRef<number | null>(null);
-  const animToZoom = useRef<number | null>(null);
   const defaultInitializedRef = useRef<boolean>(false);
   const defaultCenterRef = useRef<[number, number]>(mapCenter);
   const defaultZoomRef = useRef<number>(mapZoom);
@@ -37,7 +30,7 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
   useEffect(() => {
     return () => {
       if (animRef.current) {
-        window.cancelAnimationFrame(animRef.current as number);
+        window.cancelAnimationFrame(animRef.current);
         animRef.current = null;
       }
     };
@@ -53,77 +46,50 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
 
   const easeInOutQuad = (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
 
-  const computeZoomForBounds = (coords: [number, number][], fraction = 0.8) => {
-    if (!coords || coords.length === 0) return 11;
-    const lats = coords.map(c => c[0]);
-    const lngs = coords.map(c => c[1]);
-    const latMin = Math.min(...lats), latMax = Math.max(...lats);
-    const lonMin = Math.min(...lngs), lonMax = Math.max(...lngs);
-    const lonDelta = Math.max(0.00001, lonMax - lonMin);
-    const latToMerc = (lat: number) => {
-      const rad = (lat * Math.PI) / 180;
-      return Math.log(Math.tan(Math.PI / 4 + rad / 2));
-    };
-    const mercMin = latToMerc(latMin), mercMax = latToMerc(latMax);
-    const mercDelta = Math.max(1e-8, Math.abs(mercMax - mercMin));
-    const TILE_SIZE = 256;
-    const viewportW = Math.max(320, (window.innerWidth || 1024) * fraction);
-    const viewportH = Math.max(320, (window.innerHeight || 768) * fraction);
-    const zoomLon = Math.log2((360 * viewportW) / (TILE_SIZE * lonDelta));
-    const worldMercatorHeight = 2 * Math.PI;
-    const zoomLat = Math.log2((worldMercatorHeight * viewportH) / (TILE_SIZE * mercDelta));
-    const rawZoom = Math.min(zoomLon, zoomLat);
-    const clamped = Math.max(2, Math.min(18, rawZoom));
-    return Number(clamped.toFixed(4));
+  const animateTo = (targetCenter: [number, number], targetZoom: number, duration = 1200): Promise<void> => {
+    return new Promise((resolve) => {
+      if (animRef.current) {
+        window.cancelAnimationFrame(animRef.current);
+        animRef.current = null;
+      }
+
+      const animStartTime = performance.now();
+      const animFromCenter = [...mapCenter];
+      const animFromZoom = mapZoom;
+
+      const animate = (currentTime: number) => {
+        const elapsed = currentTime - animStartTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = easeInOutQuad(progress);
+
+        const newLat = animFromCenter[0] + (targetCenter[0] - animFromCenter[0]) * eased;
+        const newLng = animFromCenter[1] + (targetCenter[1] - animFromCenter[1]) * eased;
+        const newZoom = animFromZoom + (targetZoom - animFromZoom) * eased;
+
+        setMapCenter([Number(newLat.toFixed(6)), Number(newLng.toFixed(6))]);
+        setMapZoom(Number(newZoom.toFixed(4)));
+
+        if (progress < 1) {
+          animRef.current = window.requestAnimationFrame(animate);
+        } else {
+          // Animation complete
+          animRef.current = null;
+          resolve();
+        }
+      };
+
+      animRef.current = window.requestAnimationFrame(animate);
+    });
   };
 
-  const animateTo = (targetCenter: [number, number], targetZoom: number, duration = 800) => {
-    if (animRef.current) {
-      window.cancelAnimationFrame(animRef.current as number);
-      animRef.current = null;
-    }
-
-    setMapCenter([Number(targetCenter[0].toFixed(6)), Number(targetCenter[1].toFixed(6))]);
-    setMapZoom(Number(targetZoom.toFixed(4)));
-    return Promise.resolve();
-  };
-
-  const handleAreaClick = (areaName: string, coordinates: [number, number][]) => {
+  const handleAreaClick = async (areaName: string, coordinates: [number, number][]) => {
     setSelectedArea(areaName);
     setShowAreaInfo(false);
     
-    const lats = coordinates.map(c => c[0]);
-    const lngs = coordinates.map(c => c[1]);
-    const c: [number, number] = [
-      (Math.min(...lats) + Math.max(...lats)) / 2,
-      (Math.min(...lngs) + Math.max(...lngs)) / 2
-    ];
-
-    let targetZoom = 14;
-    try {
-      // if computeZoomForBounds exists in this file, use it; otherwise fallback
-      // @ts-ignore
-      if (typeof computeZoomForBounds === 'function') {
-        // @ts-ignore
-        targetZoom = computeZoomForBounds(coordinates, 0.8);
-      }
-    } catch {}
-
-    if (animRef.current) {
-      window.cancelAnimationFrame(animRef.current as number);
-      animRef.current = null;
-    }
-
-    animateTo(c, targetZoom, 900).then(() => {
-      setSpecificViewCoords(coordinates);
-      setSpecificViewArea(areaName);
-      setSpecificViewOpen(true);
-      console.log(`Opening SpecificView for area: ${areaName}`, coordinates);
-    }).catch(() => {
-      setSpecificViewCoords(coordinates);
-      setSpecificViewArea(areaName);
-      setSpecificViewOpen(true);
-    });
+    // Directly open SpecificView without zooming animation
+    setSpecificViewCoords(coordinates);
+    setSpecificViewArea(areaName);
+    setSpecificViewOpen(true);
   };
 
   const clearSearch = () => {
@@ -151,49 +117,31 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
     setIsLegendOpen(!isLegendOpen);
   };
 
-  // Handler for opening SpecificView
-  const handleViewDetails = () => {
-    if (selectedArea && specificViewCoords) {
-      setSpecificViewArea(selectedArea);
-      setSpecificViewOpen(true);
-    }
-  };
-
   // Handler for closing SpecificView
-  const handleBackFromSpecific = () => {
+  const handleBackFromSpecific = async () => {
     if (animRef.current) {
-      window.cancelAnimationFrame(animRef.current as number);
+      window.cancelAnimationFrame(animRef.current);
       animRef.current = null;
     }
 
-    // keep SpecificView visible while animation runs; hide after animation completes
-    animateTo(defaultCenterRef.current, defaultZoomRef.current, 800).then(() => {
-      setSpecificViewOpen(false);
-      setSpecificViewArea(null);
-      setSpecificViewCoords(null);
-      setSelectedArea(null);
-      setShowAreaInfo(false);
-    }).catch(() => {
-      // fallback: hide if animation fails
-      setSpecificViewOpen(false);
-      setSpecificViewArea(null);
-      setSpecificViewCoords(null);
-      setSelectedArea(null);
-      setShowAreaInfo(false);
-    });
+    // Zoom back to default view with animation
+    await animateTo(defaultCenterRef.current, defaultZoomRef.current, 800);
+    
+    // Close SpecificView
+    setSpecificViewOpen(false);
+    setSpecificViewArea(null);
+    setSpecificViewCoords(null);
+    setSelectedArea(null);
+    setShowAreaInfo(false);
   };
 
   // Handlers for SpecificView buttons
   const handleSpecificRating = (areaName: string, coordinates: [number, number][]) => {
     console.log('Opening rating for:', areaName);
-    // You can add your rating logic here
-    // For example: setRatingOpen(true);
   };
 
   const handleSpecificDetails = (areaName: string, coordinates: [number, number][]) => {
     console.log('Opening details for:', areaName);
-    // You can add your details logic here
-    // For example: setDetailsOpen(true);
   };
 
   // If SpecificView is open, render it instead of the main map
@@ -215,7 +163,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
       <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
         {/* Title and Spacers */}
         <div className="flex items-center justify-between w-full mb-3">
-          {/* Spacer for balance */}
           <div className="w-6"></div>
           
           <div className="flex items-center text-purple-700">
@@ -223,7 +170,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
             <h1 className="text-lg font-bold">Explore</h1>
           </div>
           
-          {/* Spacer for balance */}
           <div className="w-6"></div>
         </div>
 

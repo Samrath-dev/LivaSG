@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { HiChevronLeft, HiMenu, HiViewList } from 'react-icons/hi';
 import {
   DndContext,
@@ -33,6 +33,80 @@ interface SortableCategoryProps {
   index: number;
 }
 
+const DEFAULT_CATEGORIES: PreferenceCategory[] = [
+  {
+    id: 'affordability',
+    name: 'Affordability',
+    description: 'Property prices and overall cost of living'
+  },
+  {
+    id: 'accessibility',
+    name: 'Accessibility',
+    description: 'Public transport and commute times'
+  },
+  {
+    id: 'amenities',
+    name: 'Amenities',
+    description: 'Shopping, dining, and entertainment options'
+  },
+  {
+    id: 'environment',
+    name: 'Environment',
+    description: 'Parks, greenery, and air quality'
+  },
+  {
+    id: 'community',
+    name: 'Community',
+    description: 'Schools, safety, and neighborhood vibe'
+  }
+];
+
+// Persistant color mapping per category id so colors don't change when reordered
+const CATEGORY_COLORS: Record<string, string> = {
+  affordability: 'from-emerald-500 to-green-500',   // affordability always emerald/green
+  accessibility: 'from-blue-500 to-cyan-500',       // accessibility always blue/cyan
+  amenities: 'from-purple-500 to-indigo-500',      // amenities always purple/indigo
+  environment: 'from-amber-500 to-orange-500',     // environment always amber/orange
+  community: 'from-rose-500 to-pink-500',           // community always rose/pink
+};
+
+// Map category id -> API key
+const RANK_KEY_MAP: Record<string, string> = {
+  affordability: 'rAff',
+  accessibility: 'rAcc',
+  amenities: 'rAmen',
+  environment: 'rEnv',
+  community: 'rCom',
+};
+
+const KEY_TO_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(RANK_KEY_MAP).map(([id, key]) => [key, id])
+);
+
+const sendRankUpdate = async (items: PreferenceCategory[]): Promise<boolean> => {
+  const body: Record<string, number> = {};
+  items.forEach((it, idx) => {
+    const key = RANK_KEY_MAP[it.id];
+    if (key) body[key] = idx + 1;
+  });
+
+  try {
+    const res = await fetch('http://localhost:8000/ranks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      console.error('Failed to update ranks:', res.status, await res.text());
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error sending rank update:', err);
+    return false;
+  }
+};
+
 const SortableCategory = ({ category, index }: SortableCategoryProps) => {
   const {
     attributes,
@@ -48,17 +122,7 @@ const SortableCategory = ({ category, index }: SortableCategoryProps) => {
     transition,
   };
 
-  // Different gradient colors for each rank
-  const getRankColor = (index: number) => {
-    const colors = [
-      'from-emerald-500 to-green-500',      // 1st - Emerald/Green
-      'from-blue-500 to-cyan-500',          // 2nd - Blue/Cyan
-      'from-purple-500 to-indigo-500',      // 3rd - Purple/Indigo
-      'from-amber-500 to-orange-500',       // 4th - Amber/Orange
-      'from-rose-500 to-pink-500',          // 5th - Rose/Pink
-    ];
-    return colors[index] || 'from-purple-500 to-purple-600';
-  };
+  const colorClass = CATEGORY_COLORS[category.id] || 'from-purple-500 to-purple-600';
 
   return (
     <div
@@ -80,7 +144,7 @@ const SortableCategory = ({ category, index }: SortableCategoryProps) => {
       </div>
 
       {/* Rank Number with colored gradient */}
-      <div className={`flex-shrink-0 w-8 h-8 bg-gradient-to-r ${getRankColor(index)} text-white rounded-full flex items-center justify-center font-bold text-sm shadow-sm`}>
+      <div className={`flex-shrink-0 w-8 h-8 bg-gradient-to-r ${colorClass} text-white rounded-full flex items-center justify-center font-bold text-sm shadow-sm`}>
         {index + 1}
       </div>
 
@@ -95,35 +159,120 @@ const SortableCategory = ({ category, index }: SortableCategoryProps) => {
 };
 
 const PreferenceView = ({ onBack }: PreferenceViewProps) => {
-  const [categories, setCategories] = useState<PreferenceCategory[]>([
-    {
-      id: 'affordability',
-      name: 'Affordability',
-      description: 'Property prices and overall cost of living'
-    },
-    {
-      id: 'accessibility',
-      name: 'Accessibility',
-      description: 'Public transport and commute times'
-    },
-    {
-      id: 'amenities',
-      name: 'Amenities',
-      description: 'Shopping, dining, and entertainment options'
-    },
-    {
-      id: 'environment',
-      name: 'Environment',
-      description: 'Parks, greenery, and air quality'
-    },
-    {
-      id: 'community',
-      name: 'Community',
-      description: 'Schools, safety, and neighborhood vibe'
-    }
-  ]);
+  const [categories, setCategories] = useState<PreferenceCategory[] | null>(null);
+  const [notification, setNotification] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [notifVisible, setNotifVisible] = useState(false);
+  const notifTimeout = useRef<number | null>(null);
+  const hideTimeout = useRef<number | null>(null);
+  const isEnteringRef = useRef(false);
+  const [loading, setLoading] = useState(false);
+  const showLoaderTimeout = useRef<number | null>(null);
+  const loaderHideTimeout = useRef<number | null>(null);
 
-  const [hasChanges, setHasChanges] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    const loadRanks = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/ranks');
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = await res.json();
+
+        // Accept either { rAff: 1, ... } or { ranks: { rAff: 1, ... } }
+        const payload = data && typeof data === 'object' ? (data.ranks && typeof data.ranks === 'object' ? data.ranks : data) : null;
+        if (!payload) {
+          if (mounted) setCategories(DEFAULT_CATEGORIES);
+          return;
+        }
+
+        const ranksArr: { id: string; rank: number }[] = Object.entries(payload).reduce((acc, [k, v]) => {
+          const id = KEY_TO_ID[k];
+          const rank = typeof v === 'number' ? v : Number(v);
+          if (id && !Number.isNaN(rank)) acc.push({ id, rank });
+          return acc;
+        }, [] as { id: string; rank: number }[]);
+
+        if (!ranksArr.length) {
+          if (mounted) setCategories(DEFAULT_CATEGORIES);
+          return;
+        }
+
+        // sort ascending (1 = top)
+        ranksArr.sort((a, b) => a.rank - b.rank);
+        const ordered = ranksArr
+          .map((r) => DEFAULT_CATEGORIES.find((c) => c.id === r.id))
+          .filter(Boolean) as PreferenceCategory[];
+
+        // append any missing categories in default order
+        for (const c of DEFAULT_CATEGORIES) {
+          if (!ordered.find((o) => o.id === c.id)) ordered.push(c);
+        }
+
+        if (mounted) setCategories(ordered);
+      } catch (err) {
+        console.error('Failed to load ranks, falling back to defaults:', err);
+        if (mounted) setCategories(DEFAULT_CATEGORIES);
+      }
+    };
+
+    void loadRanks();
+
+    const onRanksUpdated = (e: Event) => {
+      try {
+        const detail = (e as CustomEvent).detail as Record<string, number>;
+        if (!detail || typeof detail !== 'object') return;
+        // convert detail -> ordered categories
+        const ranksArr = Object.entries(detail).reduce((acc, [k, v]) => {
+          const id = KEY_TO_ID[k];
+          const rank = typeof v === 'number' ? v : Number(v);
+          if (id && !Number.isNaN(rank)) acc.push({ id, rank });
+          return acc;
+        }, [] as { id: string; rank: number }[]);
+        if (!ranksArr.length) return;
+        ranksArr.sort((a, b) => a.rank - b.rank);
+        const ordered = ranksArr.map(r => DEFAULT_CATEGORIES.find(c => c.id === r.id)).filter(Boolean) as PreferenceCategory[];
+        for (const c of DEFAULT_CATEGORIES) if (!ordered.find(o => o.id === c.id)) ordered.push(c);
+        if (mounted) setCategories(ordered);
+      } catch (err) {
+        console.error('ranksUpdated handler error', err);
+      }
+    };
+
+    const onRanksReset = () => {
+      // apply default ordering and show same notification sequence
+      if (!mounted) return;
+      setCategories(DEFAULT_CATEGORIES);
+      setNotification({ text: 'Ranking reset to default', type: 'success' });
+      isEnteringRef.current = true;
+      setNotifVisible(false);
+      requestAnimationFrame(() => {
+        isEnteringRef.current = false;
+        setNotifVisible(true);
+      });
+      if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+      notifTimeout.current = window.setTimeout(() => {
+        setNotifVisible(false);
+        hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+      }, 3000);
+    };
+
+    window.addEventListener('ranksUpdated', onRanksUpdated as EventListener);
+    window.addEventListener('ranksReset', onRanksReset as EventListener);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('ranksUpdated', onRanksUpdated as EventListener);
+      window.removeEventListener('ranksReset', onRanksReset as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+      if (hideTimeout.current) window.clearTimeout(hideTimeout.current);
+      if (showLoaderTimeout.current) window.clearTimeout(showLoaderTimeout.current);
+      if (loaderHideTimeout.current) window.clearTimeout(loaderHideTimeout.current);
+    };
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -132,61 +281,151 @@ const PreferenceView = ({ onBack }: PreferenceViewProps) => {
     })
   );
 
-  const handleDragEnd = (event: DragEndEvent) => {
+   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (active.id !== over?.id) {
-      setCategories((items) => {
-        const oldIndex = items.findIndex((item) => item.id === active.id);
-        const newIndex = items.findIndex((item) => item.id === over?.id);
+    if (!categories) return;
 
-        const newItems = arrayMove(items, oldIndex, newIndex);
-        setHasChanges(true);
-        return newItems;
+    if (active.id !== over?.id) {
+      const oldIndex = categories.findIndex((item) => item.id === active.id);
+      const newIndex = categories.findIndex((item) => item.id === over?.id);
+
+      const newItems = arrayMove(categories, oldIndex, newIndex);
+      setCategories(newItems);
+
+      if (showLoaderTimeout.current) window.clearTimeout(showLoaderTimeout.current);
+      showLoaderTimeout.current = window.setTimeout(() => {
+        setLoading(true);
+        if (loaderHideTimeout.current) window.clearTimeout(loaderHideTimeout.current);
+        loaderHideTimeout.current = window.setTimeout(() => {
+          setLoading(false);
+          loaderHideTimeout.current = null;
+        }, 3000);
+        showLoaderTimeout.current = null;
+      }, 500);
+
+      const ok = await sendRankUpdate(newItems);
+
+      if (showLoaderTimeout.current) {
+        window.clearTimeout(showLoaderTimeout.current);
+        showLoaderTimeout.current = null;
+      }
+      if (loaderHideTimeout.current) {
+        window.clearTimeout(loaderHideTimeout.current);
+        loaderHideTimeout.current = null;
+      }
+      setLoading(false);
+
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      );
+
+      if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+      if (hideTimeout.current) window.clearTimeout(hideTimeout.current);
+
+      setNotification(ok ? { text: 'Ranking Updated!', type: 'success' } : { text: 'Failed to update ranking', type: 'error' });
+      isEnteringRef.current = true;
+      setNotifVisible(false);
+      requestAnimationFrame(() => {
+        isEnteringRef.current = false;
+        setNotifVisible(true);
       });
+
+      notifTimeout.current = window.setTimeout(() => {
+        setNotifVisible(false);
+        hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+      }, 3000);
     }
   };
 
-  const handleSavePreferences = () => {
-    // Save preferences to backend or local storage
-    console.log('Saved preferences:', categories);
-    setHasChanges(false);
-    // Show success message or handle saving logic
-  };
+  const handleResetToDefault = async () => {
+    if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+    if (hideTimeout.current) window.clearTimeout(hideTimeout.current);
+    if (showLoaderTimeout.current) window.clearTimeout(showLoaderTimeout.current);
 
-  const handleResetToDefault = () => {
-    setCategories([
-      {
-        id: 'affordability',
-        name: 'Affordability',
-        description: 'Property prices and overall cost of living'
-      },
-      {
-        id: 'accessibility',
-        name: 'Accessibility',
-        description: 'Public transport and commute times'
-      },
-      {
-        id: 'amenities',
-        name: 'Amenities',
-        description: 'Shopping, dining, and entertainment options'
-      },
-      {
-        id: 'environment',
-        name: 'Environment',
-        description: 'Parks, greenery, and air quality'
-      },
-      {
-        id: 'community',
-        name: 'Community',
-        description: 'Schools, safety, and neighborhood vibe'
+    try {
+      if (showLoaderTimeout.current) window.clearTimeout(showLoaderTimeout.current);
+      showLoaderTimeout.current = window.setTimeout(() => {
+        setLoading(true);
+        if (loaderHideTimeout.current) window.clearTimeout(loaderHideTimeout.current);
+        loaderHideTimeout.current = window.setTimeout(() => {
+          setLoading(false);
+          loaderHideTimeout.current = null;
+        }, 3000);
+        showLoaderTimeout.current = null;
+      }, 500);
+
+      const res = await fetch('http://localhost:8000/ranks/reset', { method: 'POST' });
+      const ok = res.ok;
+
+      if (showLoaderTimeout.current) {
+        window.clearTimeout(showLoaderTimeout.current);
+        showLoaderTimeout.current = null;
       }
-    ]);
-    setHasChanges(false);
+      if (loaderHideTimeout.current) {
+        window.clearTimeout(loaderHideTimeout.current);
+        loaderHideTimeout.current = null;
+      }
+      setLoading(false);
+
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      );
+
+      setCategories(DEFAULT_CATEGORIES);
+
+      setNotification(ok ? { text: 'Ranking reset to default', type: 'success' } : { text: 'Failed to reset ranking', type: 'error' });
+      isEnteringRef.current = true;
+      setNotifVisible(false);
+      requestAnimationFrame(() => {
+        isEnteringRef.current = false;
+        setNotifVisible(true);
+      });
+
+      notifTimeout.current = window.setTimeout(() => {
+        setNotifVisible(false);
+        hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+      }, 3000);
+    } catch (err) {
+      console.error('Error resetting ranks:', err);
+      if (showLoaderTimeout.current) {
+        window.clearTimeout(showLoaderTimeout.current);
+        showLoaderTimeout.current = null;
+      }
+      if (loaderHideTimeout.current) {
+        window.clearTimeout(loaderHideTimeout.current);
+        loaderHideTimeout.current = null;
+      }
+      setLoading(false);
+
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      );
+
+      setNotification({ text: 'Failed to reset ranking', type: 'error' });
+      isEnteringRef.current = true;
+      setNotifVisible(false);
+      requestAnimationFrame(() => {
+        isEnteringRef.current = false;
+        setNotifVisible(true);
+      });
+      notifTimeout.current = window.setTimeout(() => {
+        setNotifVisible(false);
+        hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+      }, 3000);
+    }
   };
 
   return (
     <div className="h-full flex flex-col bg-purple-50">
+
+      {/* Loading overlay (dims screen) */}
+      {loading && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="w-14 h-14 rounded-full border-4 border-white border-t-transparent animate-spin" />
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
         <div className="flex items-center justify-center w-full mb-3 relative">
@@ -210,6 +449,26 @@ const PreferenceView = ({ onBack }: PreferenceViewProps) => {
         </p>
       </div>
 
+      {/* Slide-down overlay notification: positioned below header */}
+      <div
+        aria-live="polite"
+        className={`fixed left-0 right-0 top-32 z-50 flex justify-center pointer-events-none transition-transform transition-opacity duration-300 ${
+          isEnteringRef.current ? '-translate-y-6' : 'translate-y-0'
+        } ${notifVisible ? 'opacity-100' : 'opacity-0'}`}
+      >
+        {notification && (
+          <div
+            className={`pointer-events-auto max-w-2xl mx-4 p-3 rounded-lg text-center shadow-md ${
+              notification.type === 'success'
+                ? 'bg-green-50 text-green-800 border border-green-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}
+          >
+            {notification.text}
+          </div>
+        )}
+      </div>
+
       {/* Content */}
       <div className="flex-1 overflow-auto p-4">
         <div className="max-w-2xl mx-auto">
@@ -222,23 +481,31 @@ const PreferenceView = ({ onBack }: PreferenceViewProps) => {
               </div>
             </div>
 
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext items={categories} strategy={verticalListSortingStrategy}>
-                <div className="space-y-3">
-                  {categories.map((category, index) => (
-                    <SortableCategory
-                      key={category.id}
-                      category={category}
-                      index={index}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
+            {/* only render ranking UI after initial fetch completes */}
+            {categories ? (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext items={categories} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-3">
+                    {categories.map((category, index) => (
+                      <SortableCategory
+                        key={category.id}
+                        category={category}
+                        index={index}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            ) : (
+              // placeholder while fetching initial ranks
+              <div className="py-16 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-full border-4 border-purple-300 border-t-transparent animate-spin" />
+              </div>
+            )}
 
             {/* Instructions */}
             <div className="mt-8 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl border border-blue-200">
@@ -265,17 +532,6 @@ const PreferenceView = ({ onBack }: PreferenceViewProps) => {
                 className="px-6 py-3 rounded-xl font-semibold transition-all border-2 border-amber-400 text-amber-700 hover:bg-amber-50 hover:border-amber-500"
               >
                 Reset to Default
-              </button>
-              <button
-                onClick={handleSavePreferences}
-                disabled={!hasChanges}
-                className={`px-8 py-3 rounded-xl font-semibold transition-all ${
-                  hasChanges
-                    ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white hover:from-green-600 hover:to-emerald-600 shadow-lg hover:shadow-xl'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-              >
-                Save Preferences
               </button>
             </div>
           </div>

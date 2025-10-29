@@ -1,10 +1,11 @@
 import { HiChevronLeft, HiTrendingUp, HiStar, HiMap, HiHome } from 'react-icons/hi';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FaDumbbell, FaTree, FaShoppingBag, FaSchool, FaHospital, FaParking, FaUtensils } from 'react-icons/fa';
 import React, { isValidElement, cloneElement } from 'react';
 import type { ReactNode } from 'react';
 import OneMapEmbedded from '../components/OneMapEmbedded';
 import priceGraphDummy from '../assets/priceGraphDummy.png';
+import api from '../api/https';
 
 interface DetailsViewProps {
   location: {
@@ -59,6 +60,28 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   const mapCenter = getLocationCoordinates();
 
   const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [facilityMarkers, setFacilityMarkers] = useState<Array<{
+    position: [number, number];
+    popup: string;
+  }>>([]);
+  const [loadingFacilities, setLoadingFacilities] = useState(false);
+  const [facilityCounts, setFacilityCounts] = useState<{
+    gym: number;
+    park: number;
+    mall: number;
+    school: number;
+    hospital: number;
+    parking: number;
+    dining: number;
+  }>({
+    gym: 0,
+    park: 0,
+    mall: 0,
+    school: 0,
+    hospital: 0,
+    parking: 0,
+    dining: 0
+  });
   const [selectedOptions, setSelectedOptions] = useState<{ 
     gym: boolean; 
     park: boolean;
@@ -79,6 +102,128 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
   const toggleOption = (key: keyof typeof selectedOptions) => {
     setSelectedOptions(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const fetchFacilities = async () => {
+    if (!location.street) return;
+    
+    setLoadingFacilities(true);
+    try {
+      // Map UI filter keys to backend types
+      const filterMap: Record<string, string> = {
+        gym: 'sports',
+        park: 'parks',
+        mall: 'sports',
+        school: 'schools',
+        hospital: 'healthcare',
+        parking: 'carparks',
+        dining: 'hawkers'
+      };
+
+      // Get selected types
+      const selectedTypes = Object.entries(selectedOptions)
+        .filter(([_, checked]) => checked)
+        .map(([key, _]) => filterMap[key])
+        .filter((v, i, a) => a.indexOf(v) === i) // remove duplicates
+        .join(',');
+
+      if (!selectedTypes) {
+        setFacilityMarkers([]);
+        return;
+      }
+
+      const response = await api.get(
+        `/details/street/${encodeURIComponent(location.street)}/facilities-locations`,
+        { params: { types: selectedTypes } }
+      );
+
+      const data = response.data as {
+        facilities: Record<string, Array<{ name: string; latitude: number; longitude: number; distance: number }>>;
+      };
+      const markers: Array<{ position: [number, number]; popup: string }> = [];
+
+      // Convert facilities to markers
+      const categoryIcons: Record<string, string> = {
+        schools: '🏫',
+        sports: '⚽',
+        hawkers: '🍽️',
+        healthcare: '🏥',
+        parks: '🌳',
+        carparks: '🅿️'
+      };
+
+      Object.entries(data.facilities).forEach(([category, items]: [string, any]) => {
+        if (Array.isArray(items)) {
+          items.forEach((facility: any) => {
+            markers.push({
+              position: [facility.latitude, facility.longitude],
+              popup: `${categoryIcons[category] || '📍'} <strong>${facility.name}</strong><br/>${category}<br/>${facility.distance}km away`
+            });
+          });
+        }
+      });
+
+      setFacilityMarkers(markers);
+    } catch (error) {
+      console.error('Failed to fetch facilities:', error);
+      setFacilityMarkers([]);
+    } finally {
+      setLoadingFacilities(false);
+    }
+  };
+
+  // Fetch facility counts on mount
+  useEffect(() => {
+    const fetchFacilityCounts = async () => {
+      if (!location.street) return;
+      
+      try {
+        // Fetch all facilities to get counts
+        const response = await api.get(
+          `/details/street/${encodeURIComponent(location.street)}/facilities-locations`,
+          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks' } }
+        );
+
+        const data = response.data as {
+          facilities: Record<string, Array<any>>;
+        };
+
+        // Map backend categories to UI keys
+        const counts = {
+          gym: data.facilities.sports?.length || 0,
+          park: data.facilities.parks?.length || 0,
+          mall: data.facilities.sports?.length || 0, // mall uses sports
+          school: data.facilities.schools?.length || 0,
+          hospital: data.facilities.healthcare?.length || 0,
+          parking: data.facilities.carparks?.length || 0,
+          dining: data.facilities.hawkers?.length || 0
+        };
+
+        setFacilityCounts(counts);
+      } catch (error) {
+        console.error('Failed to fetch facility counts:', error);
+      }
+    };
+
+    fetchFacilityCounts();
+  }, [location.street]);
+
+  const handleApplyFilters = async () => {
+    await fetchFacilities();
+    setShowFilterMenu(false);
+  };
+
+  const handleResetFilters = () => {
+    setSelectedOptions({
+      gym: false,
+      park: false,
+      mall: false,
+      school: false,
+      hospital: false,
+      parking: false,
+      dining: false
+    });
+    setFacilityMarkers([]);
   };
 
   const FilterItem = ({ icon, label, checked, onChange, count, iconStyle, iconClassName }: FilterItemProps) => (
@@ -252,17 +397,17 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
               <div className="w-full rounded-xl border border-purple-100 overflow-hidden z-50" style={{ height: '400px' }}>
                 <OneMapEmbedded
                   center={mapCenter}
-                  zoom={16}
-                  markers={[
-                    { 
-                      position: mapCenter, 
-                      popup: `<strong>${location.street}</strong><br/>${location.area}<br/>${location.district}` 
-                    }
-                  ]}
-                  interactive={false}
+                  zoom={13}
+                  markers={facilityMarkers}
+                  zoomOnly={true}
                   className="w-full h-full"
                 />
               </div>
+              {facilityMarkers.length > 0 && (
+                <div className="mt-3 text-sm text-purple-600 bg-purple-50 px-3 py-2 rounded-lg">
+                  Showing {facilityMarkers.length} facilities on map
+                </div>
+              )}
             </div>
           </div>
 
@@ -393,13 +538,13 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
             <div className="p-6 space-y-4 max-h-96 overflow-y-auto">
               {[
-                { key: 'gym' as const, label: 'Fitness Centers', icon: <FaDumbbell />, count: 12 },
-                { key: 'park' as const, label: 'Parks & Recreation', icon: <FaTree />, count: 8 },
-                { key: 'mall' as const, label: 'Shopping Malls', icon: <FaShoppingBag />, count: 5 },
-                { key: 'school' as const, label: 'Schools', icon: <FaSchool />, count: 15 },
-                { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: 3 },
-                { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: 20 },
-                { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: 25 }
+                { key: 'gym' as const, label: 'Fitness Centers', icon: <FaDumbbell />, count: facilityCounts.gym },
+                { key: 'park' as const, label: 'Parks & Recreation', icon: <FaTree />, count: facilityCounts.park },
+                { key: 'mall' as const, label: 'Shopping Malls', icon: <FaShoppingBag />, count: facilityCounts.mall },
+                { key: 'school' as const, label: 'Schools', icon: <FaSchool />, count: facilityCounts.school },
+                { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: facilityCounts.hospital },
+                { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: facilityCounts.parking },
+                { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: facilityCounts.dining }
               ].map(f => (
                 <FilterItem
                   key={f.key}
@@ -414,24 +559,17 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
             <div className="flex gap-3 p-6 border-t border-purple-200 bg-purple-50 rounded-b-2xl">
               <button
-                onClick={() => setSelectedOptions({
-                  gym: false,
-                  park: false,
-                  mall: false,
-                  school: false,
-                  hospital: false,
-                  parking: false,
-                  dining: false
-                })}
+                onClick={handleResetFilters}
                 className="flex-1 px-4 py-3 text-purple-700 bg-white border border-purple-300 rounded-xl font-semibold hover:bg-purple-100 transition-colors"
               >
                 Reset All
               </button>
               <button
-                onClick={() => setShowFilterMenu(false)}
-                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg"
+                onClick={handleApplyFilters}
+                disabled={loadingFacilities}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Apply Filters
+                {loadingFacilities ? 'Loading...' : 'Apply Filters'}
               </button>
             </div>
           </div>

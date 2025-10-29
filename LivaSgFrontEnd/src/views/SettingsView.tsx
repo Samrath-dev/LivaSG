@@ -1,31 +1,114 @@
 import { HiChevronLeft, HiDownload, HiUpload, HiCog, HiShieldCheck, HiQuestionMarkCircle } from 'react-icons/hi';
+import { useRef } from 'react';
 
 interface SettingsViewProps {
   onBack: () => void;
 }
 
 const SettingsView = ({ onBack }: SettingsViewProps) => {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const processImportedCsv = async (text: string) => {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+    const start = lines[0].toLowerCase().startsWith('key') ? 1 : 0;
+    const obj: Record<string, number> = {};
+    for (let i = start; i < lines.length; i++) {
+      const parts = lines[i].split(',').map(p => p.trim());
+      if (parts.length >= 2) {
+        const key = parts[0];
+        const val = Number(parts[1]);
+        if (!Number.isNaN(val)) obj[key] = val;
+      }
+    }
+    if (!Object.keys(obj).length) {
+      alert('No valid rows found in CSV');
+      return;
+    }
+
+    try {
+      const res = await fetch('http://localhost:8000/ranks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(obj),
+      });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      // notify PreferenceView to reload/update
+      window.dispatchEvent(new CustomEvent('ranksUpdated', { detail: obj }));
+      alert('Imported ranks and updated backend');
+    } catch (err) {
+      console.error('Import failed', err);
+      alert('Failed to import ranks');
+    }
+  };
+
+  const onFileChange: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    await processImportedCsv(text);
+    // reset input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleImport = () => {
-    // Implement import functionality
+    fileInputRef.current?.click();
     console.log('Import clicked');
     // This would typically open a file picker
   };
 
   const handleExport = () => {
-    // Implement export functionality
+    (async () => {
+      try {
+        const res = await fetch('http://localhost:8000/ranks');
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = await res.json();
+        const payload = data && data.ranks && typeof data.ranks === 'object' ? data.ranks : data;
+        const rows = Object.entries(payload || {}).map(([k, v]) => `${k},${v}`);
+        const csv = ['key,value', ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'ranks.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('Export failed', err);
+        alert('Failed to export ranks');
+      }
+    })();
     console.log('Export clicked');
     // This would typically trigger a file download
   };
 
   const handleResetApp = () => {
-    if (window.confirm('Are you sure you want to reset all app data? This action cannot be undone.')) {
-      console.log('Resetting app data...');
-      // Implement reset functionality
-    }
+    if (!window.confirm('Are you sure you want to reset all app data? This action cannot be undone.')) return;
+    (async () => {
+      try {
+        const res = await fetch('http://localhost:8000/ranks/reset', { method: 'POST' });
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        window.dispatchEvent(new CustomEvent('ranksReset'));
+        alert('App data reset to default');
+      } catch (err) {
+        console.error('Reset failed', err);
+        alert('Failed to reset app data');
+      }
+    })();
   };
 
   return (
     <div className="h-full flex flex-col bg-purple-50">
+      {/* Hidden file input used for Import Data */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        onChange={onFileChange}
+        className="hidden"
+      />
       {/* Header */}
       <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
         <div className="flex items-center justify-center w-full mb-3 relative">
