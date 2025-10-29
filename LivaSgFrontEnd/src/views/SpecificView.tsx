@@ -28,6 +28,14 @@ interface LocationResult {
   amenitiesScore: number;
   latitude?: number;
   longitude?: number;
+  postal_code?: string;
+}
+
+interface SavedLocation {
+  id: number;
+  postal_code: string;
+  address: string;
+  area: string;
 }
 
 const SpecificView = ({ 
@@ -40,6 +48,7 @@ const SpecificView = ({
   const [mapCenter, setMapCenter] = useState<[number, number]>([1.3521, 103.8198]);
   const [mapZoom, setMapZoom] = useState<number>(14);
   const [isSaved, setIsSaved] = useState(false);
+  const [savedLocationId, setSavedLocationId] = useState<number | null>(null);
   const [selectedAreaLocation, setSelectedAreaLocation] = useState<LocationResult | null>(null);
   const [loadingAreaData, setLoadingAreaData] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -47,6 +56,7 @@ const SpecificView = ({
   const [detailsDragY, setDetailsDragY] = useState(0);
   const [detailsIsDragging, setDetailsIsDragging] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(false);
+  const [saving, setSaving] = useState(false);
   const detailsStartYRef = useRef(0);
   const detailsModalRef = useRef<HTMLDivElement | null>(null);
   const [currentArea, setCurrentArea] = useState<string>(areaName);
@@ -73,6 +83,11 @@ const SpecificView = ({
   
   const detailsTransitionStyle = detailsIsDragging ? 'none' : 'transform 220ms cubic-bezier(.2,.9,.2,1)';
   const detailsSheetTranslate = detailsVisible ? `translateY(${detailsDragY}px)` : 'translateY(100%)';
+
+  // Check if location is saved on component mount
+  useEffect(() => {
+    checkIfLocationSaved();
+  }, [currentArea]);
 
   useEffect(() => {
     setCurrentArea(areaName);
@@ -124,7 +139,8 @@ const SpecificView = ({
               schoolScore: firstStreet.school_score || 0,
               amenitiesScore: firstStreet.amenities_score || 0,
               latitude: firstStreet.latitude,
-              longitude: firstStreet.longitude
+              longitude: firstStreet.longitude,
+              postal_code: generatePostalCode(currentArea)
             });
           } else {
             // Fallback if no data returned
@@ -141,7 +157,8 @@ const SpecificView = ({
               amenities: [],
               transitScore: 0,
               schoolScore: 0,
-              amenitiesScore: 0
+              amenitiesScore: 0,
+              postal_code: generatePostalCode(currentArea)
             });
           }
         }
@@ -161,7 +178,8 @@ const SpecificView = ({
           amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
           transitScore: 100,
           schoolScore: 100,
-          amenitiesScore: 100
+          amenitiesScore: 100,
+          postal_code: generatePostalCode(currentArea)
         };
         setSelectedAreaLocation(mockLocationData);
       } finally {
@@ -181,6 +199,127 @@ const SpecificView = ({
       setDetailsIsDragging(false);
     }
   }, [detailsOpen]);
+
+  // Generate a mock postal code based on area name
+  const generatePostalCode = (area: string): string => {
+    let hash = 0;
+    for (let i = 0; i < area.length; i++) {
+      hash = area.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return String(100000 + Math.abs(hash) % 899999);
+  };
+
+  // Check if current location is saved
+  const checkIfLocationSaved = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/shortlist/saved-locations');
+      if (!response.ok) throw new Error('Failed to fetch saved locations');
+      
+      const savedLocations: SavedLocation[] = await response.json();
+      const postalCode = generatePostalCode(currentArea);
+      
+      const savedLocation = savedLocations.find(loc => loc.postal_code === postalCode);
+      
+      if (savedLocation) {
+        setIsSaved(true);
+        setSavedLocationId(savedLocation.id);
+      } else {
+        setIsSaved(false);
+        setSavedLocationId(null);
+      }
+    } catch (error) {
+      console.error('Error checking saved location:', error);
+      // Fallback to local state if API fails
+      const localSaved = localStorage.getItem(`saved_${currentArea}`);
+      setIsSaved(!!localSaved);
+    }
+  };
+
+  // Save location to backend
+  const saveLocation = async () => {
+    if (!selectedAreaLocation) return;
+
+    try {
+      const locationData = {
+        postal_code: selectedAreaLocation.postal_code || generatePostalCode(currentArea),
+        address: selectedAreaLocation.street,
+        area: currentArea,
+        district: selectedAreaLocation.district,
+        description: selectedAreaLocation.description,
+        facilities: selectedAreaLocation.facilities,
+        amenities: selectedAreaLocation.amenities,
+        coordinates: currentCoords
+      };
+
+      const response = await fetch('http://localhost:8000/shortlist/saved-locations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(locationData),
+      });
+
+      if (!response.ok) throw new Error('Failed to save location');
+
+      const savedLocation: SavedLocation = await response.json();
+      setIsSaved(true);
+      setSavedLocationId(savedLocation.id);
+      
+      // Also save to localStorage as backup
+      localStorage.setItem(`saved_${currentArea}`, 'true');
+      
+      console.log(`${currentArea} saved successfully`);
+    } catch (error) {
+      console.error('Error saving location:', error);
+      // Fallback to localStorage if API fails
+      localStorage.setItem(`saved_${currentArea}`, 'true');
+      setIsSaved(true);
+    }
+  };
+
+  // Unsave location from backend
+  const unsaveLocation = async () => {
+    if (!selectedAreaLocation) return;
+
+    try {
+      const postalCode = selectedAreaLocation.postal_code || generatePostalCode(currentArea);
+      
+      const response = await fetch(`http://localhost:8000/shortlist/saved-locations/${postalCode}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) throw new Error('Failed to unsave location');
+
+      setIsSaved(false);
+      setSavedLocationId(null);
+      
+      // Remove from localStorage
+      localStorage.removeItem(`saved_${currentArea}`);
+      
+      console.log(`${currentArea} unsaved successfully`);
+    } catch (error) {
+      console.error('Error unsaving location:', error);
+      // Fallback to localStorage if API fails
+      localStorage.removeItem(`saved_${currentArea}`);
+      setIsSaved(false);
+    }
+  };
+
+  // Handle save/unsave click
+  const handleSaveClick = async () => {
+    setSaving(true);
+    try {
+      if (isSaved) {
+        await unsaveLocation();
+      } else {
+        await saveLocation();
+      }
+    } catch (error) {
+      console.error('Error in save/unsave operation:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleDetailsPointerDown = (e: React.PointerEvent) => {
     (e.currentTarget as Element & { setPointerCapture?: (id: number) => void })
@@ -308,11 +447,6 @@ const SpecificView = ({
     setDetailsOpen(true);
   };
 
-  const handleSaveClick = () => {
-    setIsSaved(!isSaved);
-    console.log(`${currentArea} ${isSaved ? 'unsaved' : 'saved'}`);
-  };
-
   const handleInnerAreaClick = (areaNameInner: string, coordsInner: [number, number][]) => {
     setCurrentArea(areaNameInner);
     setCurrentCoords(coordsInner);
@@ -363,11 +497,12 @@ const SpecificView = ({
           {/* Save Button - Top Right */}
           <button
             onClick={handleSaveClick}
+            disabled={saving || loadingAreaData}
             className={`transition-colors ${
               isSaved 
                 ? 'text-yellow-500 hover:text-yellow-600' 
                 : 'text-purple-400 hover:text-purple-600'
-            }`}
+            } ${saving || loadingAreaData ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <HiBookmark className="w-6 h-6" />
           </button>
