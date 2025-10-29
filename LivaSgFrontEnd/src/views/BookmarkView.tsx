@@ -22,6 +22,18 @@ interface LocationData {
   transitScore: number;
   schoolScore: number;
   amenitiesScore: number;
+  postal_code?: string;
+}
+
+interface SavedLocation {
+  id: number;
+  postal_code: string;
+  address: string;
+  area: string;
+  district?: string;
+  description?: string;
+  facilities?: string[];
+  amenities?: string[];
 }
 
 interface Filters {
@@ -31,7 +43,7 @@ interface Filters {
 
 const BookmarkView = ({ onBack }: BookmarkViewProps) => {
   const [locations, setLocations] = useState<LocationData[]>([]);
-  const [savedLocations, setSavedLocations] = useState<number[]>([]);
+  const [savedLocations, setSavedLocations] = useState<SavedLocation[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({
@@ -44,7 +56,13 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
     areaName: string;
     coordinates: [number, number][];
   } | null>(null);
-  const [showRemoveConfirmation, setShowRemoveConfirmation] = useState<number | null>(null);
+  const [showRemoveConfirmation, setShowRemoveConfirmation] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Load saved locations from backend on component mount
+  useEffect(() => {
+    fetchSavedLocations();
+  }, []);
 
   // Mock data for demonstration - replace with actual API calls
   useEffect(() => {
@@ -62,7 +80,8 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
         amenities: ["East Coast Park", "Parkway Parade", "Marine Parade MRT"],
         transitScore: 85,
         schoolScore: 90,
-        amenitiesScore: 95
+        amenitiesScore: 95,
+        postal_code: "440001"
       },
       {
         id: 2,
@@ -77,7 +96,8 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
         amenities: ["ION Orchard", "Takashimaya", "Orchard MRT"],
         transitScore: 95,
         schoolScore: 75,
-        amenitiesScore: 98
+        amenitiesScore: 98,
+        postal_code: "238801"
       },
       {
         id: 3,
@@ -92,15 +112,67 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
         amenities: ["Tampines Mall", "Our Tampines Hub", "Tampines MRT"],
         transitScore: 80,
         schoolScore: 85,
-        amenitiesScore: 88
+        amenitiesScore: 88,
+        postal_code: "520001"
       }
     ];
     setLocations(mockLocations);
-    
-    // Load saved locations from localStorage or initialize with some saved locations
-    const initialSavedLocations = [1, 2]; // Default saved locations
-    setSavedLocations(initialSavedLocations);
   }, []);
+
+  // Fetch saved locations from backend
+  const fetchSavedLocations = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('http://localhost:8000/shortlist/saved-locations');
+      if (!response.ok) throw new Error('Failed to fetch saved locations');
+      
+      const savedData: SavedLocation[] = await response.json();
+      setSavedLocations(savedData);
+    } catch (error) {
+      console.error('Error fetching saved locations:', error);
+      // Fallback to localStorage if API fails
+      const localSaved = localStorage.getItem('savedLocations');
+      if (localSaved) {
+        setSavedLocations(JSON.parse(localSaved));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Remove location from backend
+  const removeSavedLocation = async (postalCode: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/shortlist/saved-locations/${postalCode}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) throw new Error('Failed to remove location');
+
+      // Update local state
+      setSavedLocations(prev => prev.filter(loc => loc.postal_code !== postalCode));
+      
+      // Update localStorage as backup
+      const localSaved = localStorage.getItem('savedLocations');
+      if (localSaved) {
+        const parsed = JSON.parse(localSaved);
+        const updated = parsed.filter((loc: SavedLocation) => loc.postal_code !== postalCode);
+        localStorage.setItem('savedLocations', JSON.stringify(updated));
+      }
+      
+      console.log('Location removed successfully');
+    } catch (error) {
+      console.error('Error removing location:', error);
+      // Fallback to localStorage if API fails
+      setSavedLocations(prev => prev.filter(loc => loc.postal_code !== postalCode));
+      const localSaved = localStorage.getItem('savedLocations');
+      if (localSaved) {
+        const parsed = JSON.parse(localSaved);
+        const updated = parsed.filter((loc: SavedLocation) => loc.postal_code !== postalCode);
+        localStorage.setItem('savedLocations', JSON.stringify(updated));
+      }
+    }
+  };
 
   // Mock coordinates for different areas - you can replace with actual coordinates
   const getAreaCoordinates = (areaName: string): [number, number][] => {
@@ -147,6 +219,8 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
   const handleBackFromSpecificView = () => {
     setShowSpecificView(false);
     setSelectedAreaData(null);
+    // Refresh saved locations when returning from SpecificView
+    fetchSavedLocations();
   };
 
   // Handle rating click in SpecificView
@@ -162,14 +236,14 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
   };
 
   // Show confirmation dialog before removing
-  const handleRemoveClick = (locationId: number, event: React.MouseEvent) => {
+  const handleRemoveClick = (postalCode: string, event: React.MouseEvent) => {
     event.stopPropagation();
-    setShowRemoveConfirmation(locationId);
+    setShowRemoveConfirmation(postalCode);
   };
 
   // Confirm removal
-  const confirmRemoveLocation = (locationId: number) => {
-    setSavedLocations(prev => prev.filter(id => id !== locationId));
+  const confirmRemoveLocation = async (postalCode: string) => {
+    await removeSavedLocation(postalCode);
     setShowRemoveConfirmation(null);
   };
 
@@ -179,8 +253,28 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
   };
 
   // Check if a location is saved
-  const isLocationSaved = (locationId: number) => {
-    return savedLocations.includes(locationId);
+  const isLocationSaved = (postalCode: string) => {
+    return savedLocations.some(loc => loc.postal_code === postalCode);
+  };
+
+  // Get full location data for saved locations
+  const getLocationData = (savedLocation: SavedLocation): LocationData | undefined => {
+    return locations.find(loc => loc.postal_code === savedLocation.postal_code) || {
+      id: parseInt(savedLocation.postal_code),
+      street: savedLocation.address,
+      area: savedLocation.area,
+      district: savedLocation.district || "District",
+      priceRange: [500000, 2000000],
+      avgPrice: 1000,
+      facilities: savedLocation.facilities || [],
+      description: savedLocation.description || `${savedLocation.area} planning area`,
+      growth: 8.5,
+      amenities: savedLocation.amenities || [],
+      transitScore: 75,
+      schoolScore: 70,
+      amenitiesScore: 80,
+      postal_code: savedLocation.postal_code
+    };
   };
 
   const facilitiesList = [
@@ -217,29 +311,28 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
   };
 
   // Only show saved locations that match filters
-  const filteredLocations = locations.filter((loc) => {
-    // Only show saved locations
-    if (!savedLocations.includes(loc.id)) {
-      return false;
-    }
+  const filteredLocations = savedLocations
+    .map(savedLoc => getLocationData(savedLoc))
+    .filter((loc): loc is LocationData => {
+      if (!loc) return false;
 
-    // Search filters
-    const matchesSearch =
-      loc.street.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loc.area.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loc.district.toLowerCase().includes(searchTerm.toLowerCase());
+      // Search filters
+      const matchesSearch =
+        loc.street.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        loc.area.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        loc.district.toLowerCase().includes(searchTerm.toLowerCase());
 
-    // Facilities filter
-    const matchesFacilities =
-      filters.facilities.length === 0 ||
-      filters.facilities.every((f) => loc.facilities.includes(f));
+      // Facilities filter
+      const matchesFacilities =
+        filters.facilities.length === 0 ||
+        filters.facilities.every((f) => loc.facilities.includes(f));
 
-    // Price filter
-    const matchesPrice =
-      loc.avgPrice >= filters.priceRange[0] && loc.avgPrice <= filters.priceRange[1];
+      // Price filter
+      const matchesPrice =
+        loc.avgPrice >= filters.priceRange[0] && loc.avgPrice <= filters.priceRange[1];
 
-    return matchesSearch && matchesFacilities && matchesPrice;
-  });
+      return matchesSearch && matchesFacilities && matchesPrice;
+    });
 
   const formatPrice = (price: number) => {
     if (price >= 1000000) {
@@ -516,7 +609,12 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
       
       {/* List of saved locations - Simplified */}
       <div className="flex-1 overflow-auto p-4 space-y-4">
-        {savedLocations.length === 0 ? (
+        {loading ? (
+          <div className="text-center text-purple-600 py-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+            <p className="text-lg font-bold">Loading saved locations...</p>
+          </div>
+        ) : savedLocations.length === 0 ? (
           <div className="text-center text-purple-600 py-8">
             <HiBookmark className="w-12 h-12 mx-auto mb-4 text-purple-400" />
             <p className="text-lg font-bold">You have no saved locations</p>
@@ -541,7 +639,7 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
         ) : (
           filteredLocations.map((loc) => (
             <div
-              key={loc.id}
+              key={loc.postal_code}
               onClick={() => handleLocationClick(loc)}
               className="bg-white p-4 rounded-lg shadow hover:shadow-md transition-shadow cursor-pointer border border-purple-100"
             >
@@ -554,8 +652,8 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
                 
                 {/* Remove Button */}
                 <button
-                  onClick={(e) => handleRemoveClick(loc.id, e)}
-                  className="ml-4 p-2 rounded-full transition-all duration-200 bg-purple-100 text-purple-600 hover:bg-purple-200 hover:text-purple-700"
+                  onClick={(e) => handleRemoveClick(loc.postal_code!, e)}
+                  className="ml-4 p-2 rounded-full transition-all duration-200 bg-yellow-100 text-yellow-600 hover:bg-yellow-200 hover:text-yellow-700"
                   title="Remove from saved locations"
                 >
                   <HiBookmark className="w-5 h-5" />
