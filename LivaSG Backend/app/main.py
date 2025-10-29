@@ -68,9 +68,9 @@ di_preference_repo = MemoryPreferenceRepo()           # NEW
 di_saved_location_repo = MemorySavedLocationRepo()    # NEW
 
 # Create services with correct dependencies
-di_shortlist_service = ShortlistService(di_saved_location_repo)  # NEW
-di_preference_service = PreferenceService(di_preference_repo)    # FIXED: Only 1 argument
-di_settings_service = SettingsService(di_preference_repo, di_weights)  # NEW
+di_shortlist_service = ShortlistService(di_saved_location_repo) 
+di_preference_service = PreferenceService(di_preference_repo) 
+di_settings_service = SettingsService(di_preference_repo, di_weights) 
 
 # --- FastAPI app ---
 app = FastAPI(title="LivaSG API")
@@ -95,8 +95,7 @@ app.dependency_overrides[onemap_controller.get_onemap_client] = lambda: di_onema
 # new
 app.dependency_overrides[weights_controller.get_weights_repo] = lambda: di_weights
 
-# ---- Mount routers IN DESIRED ORDER (for Swagger UI) ----
-# Core functionality at the top
+# ---- Mount routers ----
 app.include_router(map_controller.router)
 app.include_router(details_controller.router, prefix="/details", tags=["details"])
 app.include_router(search_controller.router, prefix="/search", tags=["search"])
@@ -106,9 +105,8 @@ app.include_router(onemap_controller.router)
 app.include_router(weights_controller.router)
 app.include_router(ranks_controller.router)
 
-# User preferences and data management at the bottom
 app.include_router(preference_controller.router)
-app.include_router(shortlist_controller.router)  # NEW (renamed from bookmark)
+app.include_router(shortlist_controller.router)
 app.include_router(settings_controller.router)
 
 # Health
