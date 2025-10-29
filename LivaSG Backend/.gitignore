@@ -41,7 +41,7 @@ yarn-error.log*
 
 # SQLite or local db files
 *.sqlite3
-*.db
+#*.db
 
 # Logs
 *.log

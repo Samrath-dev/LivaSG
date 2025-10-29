@@ -433,15 +433,36 @@ class SearchService:
                 print("street name:", om.ROAD_NAME)
                 print("address:", om.ADDRESS)
                 
-                # Try to get planning area for this location
+                # Try to get planning area for this location from database first
                 matched_area = None
                 try:
-                    pa_result = await self.onemap_client.planning_area_at(lat, lon)
-                    if pa_result and 'pln_area_n' in pa_result[0]:
-                        matched_area = pa_result[0]['pln_area_n'].title()
+                    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+                    street_db_path = os.path.join(base_dir, 'street_geocode.db')
+                    temp_conn = sqlite3.connect(street_db_path)
+                    temp_cursor = temp_conn.cursor()
+                    
+                    # Try to find existing street in database with planning_area
+                    if om.ROAD_NAME and om.ROAD_NAME != "NIL":
+                        db_row = temp_cursor.execute(
+                            "SELECT planning_area FROM street_locations WHERE street_name = ? AND planning_area IS NOT NULL",
+                            (om.ROAD_NAME,)
+                        ).fetchone()
+                        if db_row:
+                            matched_area = db_row[0]
+                    
+                    temp_conn.close()
                 except Exception:
-                    # Fallback to polygon containment
-                    matched_area = await find_area_by_point(lat, lon, polygons)
+                    pass
+                
+                # If not found in database, try API
+                if not matched_area:
+                    try:
+                        pa_result = await self.onemap_client.planning_area_at(lat, lon)
+                        if pa_result and 'pln_area_n' in pa_result[0]:
+                            matched_area = pa_result[0]['pln_area_n'].title()
+                    except Exception:
+                        # Fallback to polygon containment
+                        matched_area = await find_area_by_point(lat, lon, polygons)
 
                 road_name = matched_area
                 if om.ROAD_NAME != "NIL":
@@ -476,16 +497,19 @@ class SearchService:
                     if road_name and road_name != "NIL":
                         onm_norm = _norm_name(road_name)
 
-                        # Build normalized lookup from DB
+                        # Build normalized lookup from DB (include planning_area)
                         all_db_streets = cursor.execute(
-                            "SELECT street_name, latitude, longitude, address, postal_code FROM street_locations WHERE status = 'found'"
+                            "SELECT street_name, latitude, longitude, address, postal_code, planning_area FROM street_locations WHERE status = 'found'"
                         ).fetchall()
-                        db_map = { _norm_name(s): (s, la, lo, ad, pc) for s, la, lo, ad, pc in all_db_streets }
+                        db_map = { _norm_name(s): (s, la, lo, ad, pc, pa) for s, la, lo, ad, pc, pa in all_db_streets }
 
                         if onm_norm in db_map:
-                            # Use DB street name for enrichment lookup
-                            matched_db_name, _, _, _, _ = db_map[onm_norm]
+                            # Use DB street name and planning_area for enrichment lookup
+                            matched_db_name, _, _, _, _, db_planning_area = db_map[onm_norm]
                             street_name_for_facilities = matched_db_name
+                            # Use database planning_area if available
+                            if db_planning_area and not matched_area:
+                                matched_area = db_planning_area
                             # Recompute facilities with refined logic and persist (overrides older counts)
                             try:
                                 datasets = _load_facility_datasets()
@@ -576,12 +600,12 @@ class SearchService:
                             except Exception:
                                 pass
 
-                            # Upsert into street_locations
+                            # Upsert into street_locations (including planning_area)
                             try:
                                 cursor.execute(
                                     """
-                                    INSERT OR REPLACE INTO street_locations (street_name, latitude, longitude, address, building, postal_code, status)
-                                    VALUES (?, ?, ?, ?, ?, ?, 'found')
+                                    INSERT OR REPLACE INTO street_locations (street_name, latitude, longitude, address, building, postal_code, status, planning_area)
+                                    VALUES (?, ?, ?, ?, ?, ?, 'found', ?)
                                     """,
                                     (
                                         road_name,
@@ -589,7 +613,8 @@ class SearchService:
                                         lon,
                                         om.ADDRESS,
                                         getattr(om, 'BUILDING', None) if hasattr(om, 'BUILDING') else None,
-                                        om.POSTAL if hasattr(om, 'POSTAL') else None
+                                        om.POSTAL if hasattr(om, 'POSTAL') else None,
+                                        matched_area
                                     )
                                 )
                             except Exception:
@@ -704,16 +729,16 @@ class SearchService:
                     conn = sqlite3.connect(street_db_path)
                     cursor = conn.cursor()
                     
-                    # Get all streets from database for fuzzy matching
+                    # Get all streets from database for fuzzy matching (include planning_area)
                     all_db_streets = cursor.execute(
-                        "SELECT street_name, latitude, longitude, address, postal_code FROM street_locations WHERE status = 'found'"
+                        "SELECT street_name, latitude, longitude, address, postal_code, planning_area FROM street_locations WHERE status = 'found'"
                     ).fetchall()
                     
                     # Create normalized lookup
                     db_street_map = {}
-                    for street_name, lat, lon, address, postal_code in all_db_streets:
+                    for street_name, lat, lon, address, postal_code, planning_area in all_db_streets:
                         normalized = normalize_street_name(street_name)
-                        db_street_map[normalized] = (street_name, lat, lon, address, postal_code)
+                        db_street_map[normalized] = (street_name, lat, lon, address, postal_code, planning_area)
                     
                     # Extract unique street names from OneMap results and try to match
                     matched_streets = []
@@ -723,10 +748,10 @@ class SearchService:
                         if result.ROAD_NAME and result.ROAD_NAME != "NIL":
                             normalized_name = normalize_street_name(result.ROAD_NAME)
                             if normalized_name in db_street_map:
-                                street_name, lat, lon, address, postal_code = db_street_map[normalized_name]
+                                street_name, lat, lon, address, postal_code, planning_area = db_street_map[normalized_name]
                                 if street_name not in added_streets:
                                     added_streets.add(street_name)
-                                    matched_streets.append((street_name, lat, lon, address, postal_code))
+                                    matched_streets.append((street_name, lat, lon, address, postal_code, planning_area))
                             else:
                                 # Street not in database, add to unmatched list
                                 if result.ROAD_NAME.upper() not in added_streets:
@@ -734,6 +759,29 @@ class SearchService:
                     
                     print(f"Found {len(matched_streets)} matching streets in street_geocode.db")
                     print(f"Found {len(unmatched_onemap_streets)} unique streets from OneMap not in database")
+                    
+                    # If no street name matches found, try matching by planning area
+                    if not matched_streets and query:
+                        print(f"No street name matches. Trying to match planning area...")
+                        # Try to find streets in the queried planning area
+                        area_matches = cursor.execute(
+                            """
+                            SELECT street_name, latitude, longitude, address, postal_code, planning_area 
+                            FROM street_locations 
+                            WHERE status = 'found' 
+                            AND planning_area IS NOT NULL 
+                            AND UPPER(planning_area) LIKE ?
+                            LIMIT 20
+                            """,
+                            (f"%{query.upper()}%",)
+                        ).fetchall()
+                        
+                        if area_matches:
+                            print(f"Found {len(area_matches)} streets in planning area matching '{query}'")
+                            for street_name, lat, lon, address, postal_code, planning_area in area_matches:
+                                if street_name not in added_streets:
+                                    added_streets.add(street_name)
+                                    matched_streets.append((street_name, lat, lon, address, postal_code, planning_area))
                     
                     if matched_streets:
                         # Found matches in street_geocode.db
@@ -767,16 +815,28 @@ class SearchService:
                             )
                         except Exception:
                             pass
-                        for idx, (street_name, lat, lon, address, postal_code) in enumerate(matched_streets, start=1):
-                            # Try to determine planning area for this street
-                            matched_area = None
-                            if lat and lon:
+                        for idx, (street_name, lat, lon, address, postal_code, planning_area) in enumerate(matched_streets, start=1):
+                            # Use planning_area from database (already populated by migration)
+                            matched_area = planning_area if planning_area else None
+                            
+                            # Only query API/polygon if planning_area is not in database
+                            if not matched_area and lat and lon:
                                 try:
                                     pa_result = await self.onemap_client.planning_area_at(lat, lon)
                                     if pa_result and 'pln_area_n' in pa_result[0]:
                                         matched_area = pa_result[0]['pln_area_n'].title()
+                                        # Update database with the found planning_area
+                                        cursor.execute(
+                                            "UPDATE street_locations SET planning_area = ? WHERE street_name = ?",
+                                            (matched_area, street_name)
+                                        )
                                 except Exception:
                                     matched_area = await find_area_by_point(lat, lon, polygons)
+                                    if matched_area:
+                                        cursor.execute(
+                                            "UPDATE street_locations SET planning_area = ? WHERE street_name = ?",
+                                            (matched_area, street_name)
+                                        )
 
                             # Recompute and persist refined facility counts for matched streets as well
                             try:
@@ -891,11 +951,11 @@ class SearchService:
                                     matched_area = await find_area_by_point(lat, lon, polygons)
                                 # Persist this new street into street_locations and street_facilities with computed facility counts
                                 try:
-                                    # Upsert into street_locations
+                                    # Upsert into street_locations (including planning_area)
                                     cursor.execute(
                                         """
-                                        INSERT OR REPLACE INTO street_locations (street_name, latitude, longitude, address, building, postal_code, status)
-                                        VALUES (?, ?, ?, ?, ?, ?, 'found')
+                                        INSERT OR REPLACE INTO street_locations (street_name, latitude, longitude, address, building, postal_code, status, planning_area)
+                                        VALUES (?, ?, ?, ?, ?, ?, 'found', ?)
                                         """,
                                         (
                                             road_name,
@@ -903,7 +963,8 @@ class SearchService:
                                             lon,
                                             om.ADDRESS,
                                             getattr(om, 'BUILDING', None) if hasattr(om, 'BUILDING') else None,
-                                            om.POSTAL if hasattr(om, 'POSTAL') else None
+                                            om.POSTAL if hasattr(om, 'POSTAL') else None,
+                                            matched_area
                                         )
                                     )
                                 except Exception as _e:
