@@ -26,7 +26,7 @@ interface LocationResult {
   transitScore: number;
   schoolScore: number;
   amenitiesScore: number;
-  postal_code?: string; // Add postal_code for backend integration
+  postal_code?: string;
 }
 
 interface SavedLocation {
@@ -34,7 +34,6 @@ interface SavedLocation {
   postal_code: string;
   address: string;
   area: string;
-  // Add other fields as needed
 }
 
 const SpecificView = ({ 
@@ -59,6 +58,7 @@ const SpecificView = ({
   const detailsModalRef = useRef<HTMLDivElement | null>(null);
   const [currentArea, setCurrentArea] = useState<string>(areaName);
   const [currentCoords, setCurrentCoords] = useState<[number, number][]>(coordinates);
+  const [highlightedArea, setHighlightedArea] = useState<string>(areaName);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const resizeRafRef = useRef<number | null>(null);
@@ -89,6 +89,7 @@ const SpecificView = ({
   useEffect(() => {
     setCurrentArea(areaName);
     setCurrentCoords(coordinates);
+    setHighlightedArea(areaName);
   }, [areaName, coordinates]);
 
   useEffect(() => {
@@ -104,16 +105,16 @@ const SpecificView = ({
       street: currentArea,
       area: currentArea,
       district: "District",
-      priceRange: [800000, 2000000],
-      avgPrice: 1200,
+      priceRange: [12345, 678901],
+      avgPrice: 12345,
       facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
-      description: `${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
-      growth: 10.5,
+      description: `[MOCK DESCRIPTION] ${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
+      growth: 100,
       amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
-      transitScore: 85,
-      schoolScore: 80,
-      amenitiesScore: 90,
-      postal_code: generatePostalCode(currentArea) // Generate a postal code for the area
+      transitScore: 100,
+      schoolScore: 100,
+      amenitiesScore: 100,
+      postal_code: generatePostalCode(currentArea)
     };
     setSelectedAreaLocation(mockLocationData);
   }, [currentCoords, currentArea]);
@@ -130,7 +131,6 @@ const SpecificView = ({
 
   // Generate a mock postal code based on area name
   const generatePostalCode = (area: string): string => {
-    // Simple hash function to generate consistent postal codes
     let hash = 0;
     for (let i = 0; i < area.length; i++) {
       hash = area.charCodeAt(i) + ((hash << 5) - hash);
@@ -173,7 +173,6 @@ const SpecificView = ({
         postal_code: selectedAreaLocation.postal_code || generatePostalCode(currentArea),
         address: selectedAreaLocation.street,
         area: currentArea,
-        // Add other relevant fields from selectedAreaLocation
         district: selectedAreaLocation.district,
         description: selectedAreaLocation.description,
         facilities: selectedAreaLocation.facilities,
@@ -372,6 +371,30 @@ const SpecificView = ({
   const handleInnerAreaClick = (areaNameInner: string, coordsInner: [number, number][]) => {
     setCurrentArea(areaNameInner);
     setCurrentCoords(coordsInner);
+    setHighlightedArea(areaNameInner);
+  };
+
+  // Custom styling function for polygons
+  const getPolygonStyle = (areaName: string) => {
+    if (areaName === highlightedArea) {
+      // Current selected area - white with highlight
+      return {
+        fillColor: '#ffff', // white
+        fillOpacity: 0.7,
+        color: '#030303ff', // black
+        weight: 3,
+        opacity: 1
+      };
+    } else {
+      // Surrounding areas - greyed out
+      return {
+        fillColor: '#9CA3AF', // Gray-400
+        fillOpacity: 0.4,
+        color: '#6B7280', // Gray-500
+        weight: 1,
+        opacity: 0.6
+      };
+    }
   };
 
   return (
@@ -441,6 +464,7 @@ const SpecificView = ({
           showPlanningAreas={true}
           planningAreasYear={2019}
           onAreaClick={handleInnerAreaClick}
+          getPolygonStyle={getPolygonStyle} // Pass the custom styling function
           className="w-full h-full"
         />
       </div>
