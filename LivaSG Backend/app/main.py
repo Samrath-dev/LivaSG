@@ -1,35 +1,43 @@
 # app/main.py
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
-from dotenv import load_dotenv
-load_dotenv()
 
+#transit debug
+from app.api import transit_debug
+
+# ---- Load env (shell + project .env) ----
+load_dotenv()
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
-
-# --- Routers ---
+# ---- Routers ----
 from app.api import map_controller, details_controller, search_controller, onemap_controller
 from app.api import weights_controller
 from app.api import ranks_controller
 
-# --- Memory Repos ---
+# ---- Repositories ----
 from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
     MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo,
     MemoryAreaRepo, MemoryCommunityRepo, MemoryRankRepo
 )
 
-# --- Services ---
+# ---- Services ----
 from app.services.trend_service import TrendService
 from app.services.rating_engine import RatingEngine
 from app.services.search_service import SearchService
 
-# --- Integrations ---
+# ---- Integrations ----
 from app.integrations.onemap_client import OneMapClientHardcoded
 from app.repositories.api_planning_repo import OneMapPlanningAreaRepo
 
-# ========= DI objects =========
+
+# DI
 # repos
 di_price     = MemoryPriceRepo()
 di_amenity   = MemoryAmenityRepo()
@@ -39,7 +47,7 @@ di_community = MemoryCommunityRepo()
 di_transit   = MemoryTransitRepo()
 di_carpark   = MemoryCarparkRepo()
 di_area      = MemoryAreaRepo()
-di_ranks     = MemoryRankRepo()          # NEW
+di_ranks     = MemoryRankRepo()  # NEW
 
 # planning areas / onemap
 di_onemap_client = OneMapClientHardcoded()
@@ -47,7 +55,7 @@ di_planning_repo = OneMapPlanningAreaRepo(di_onemap_client)
 
 # services
 di_trend  = TrendService(di_price)
-di_engine = RatingEngine(                # build ONCE (with ranks)
+di_engine = RatingEngine(
     di_price,
     di_amenity,
     di_scores,
@@ -55,12 +63,23 @@ di_engine = RatingEngine(                # build ONCE (with ranks)
     di_transit,
     di_carpark,
     di_area,
-    ranks=di_ranks,                      # accepts rank or ranks
+    ranks=di_ranks,   # NEW
 )
 di_search = SearchService(di_engine, di_onemap_client)
 
-# ========= App =========
-app = FastAPI(title="LivaSG API")
+
+# new
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: warm any async caches you want ready
+    await MemoryTransitRepo.initialize()
+   
+    yield
+   
+
+
+# app
+app = FastAPI(title="LivaSG API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -88,14 +107,20 @@ app.dependency_overrides[weights_controller.get_weights_repo] = lambda: di_weigh
 # ranks
 app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks
 
+#transit debug
+app.dependency_overrides[transit_debug.get_transit_repo] = lambda: di_transit
+
+
 # ========= Routers =========
-# details_controller should already have prefix="/details" internally
 app.include_router(map_controller.router)
-app.include_router(details_controller.router)
+app.include_router(details_controller.router)  # prefix handled inside the router
 app.include_router(search_controller.router, prefix="/search", tags=["search"])
 app.include_router(onemap_controller.router)
 app.include_router(weights_controller.router)
 app.include_router(ranks_controller.router)
+
+#transit debug
+app.include_router(transit_debug.router)
 
 # ========= Health / debug =========
 @app.get("/")
