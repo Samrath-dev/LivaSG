@@ -1,0 +1,39 @@
+from fastapi import APIRouter, Depends, HTTPException
+from typing import Dict, Any, List
+import time
+
+from ..domain.models import SavedLocation
+from ..services.preference_service import PreferenceService
+
+router = APIRouter(prefix="/shortlist", tags=["shortlist"])
+
+def get_preference_service():
+    from ..main import di_preference_service
+    return di_preference_service
+
+@router.get("/saved-locations", response_model=List[SavedLocation])
+def get_saved_locations(service: PreferenceService = Depends(get_preference_service)):
+    """Get saved locations"""
+    return service.get_saved_locations()
+
+@router.post("/saved-locations", response_model=SavedLocation)
+def saved_location(
+    location_data: Dict[str, Any],
+    service: PreferenceService = Depends(get_preference_service)
+):
+    """Save a location to shortlist by postal code"""
+    required_fields = ["postal_code", "address", "area"]
+    for field in required_fields:
+        if field not in location_data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+    
+    return service.saved_location(location_data)
+
+@router.delete("/saved-locations/{postal_code}")
+def delete_saved_location(
+    postal_code: str,
+    service: PreferenceService = Depends(get_preference_service)
+):
+    """Remove a location from shortlist by postal code"""
+    service.delete_saved_location(postal_code)
+    return {"success": True, "message": "Location removed from shortlist"}
