@@ -5,6 +5,9 @@ import json
 import base64
 from datetime import datetime
 from io import StringIO
+from pathlib import Path
+import os
+
 from ..domain.models import ExportData, WeightsProfile, ImportRequest, RankProfile, SavedLocation
 from ..repositories.interfaces import IWeightsRepo, IRankRepo
 
@@ -16,6 +19,30 @@ class SettingsService:
     ):
         self.rank_repo = rank_repo
         self.weights_repo = weights_repo
+        # Create exports directory if it doesn't exist
+        self.exports_dir = Path("exports")
+        self.exports_dir.mkdir(exist_ok=True)
+
+    def _save_export_to_disk(self, content: str, filename: str, export_type: str) -> str:
+        """Save export to server disk and return file path"""
+        try:
+            file_path = self.exports_dir / filename
+            
+            if export_type == "json":
+                file_path.write_text(content, encoding='utf-8')
+            elif export_type == "csv":
+                file_path.write_text(content, encoding='utf-8')
+            elif export_type == "pdf":
+                # For PDF, we have base64 content, so decode it first
+                pdf_bytes = base64.b64decode(content)
+                file_path.write_bytes(pdf_bytes)
+            else:
+                file_path.write_text(content, encoding='utf-8')
+            
+            return str(file_path)
+        except Exception as e:
+            print(f"Warning: Failed to save export to disk: {e}")
+            return ""
 
     def export_data(self, saved_locations: List[SavedLocation]) -> ExportData:
         """Export user data as JSON-serializable object"""
@@ -41,8 +68,8 @@ class SettingsService:
         except Exception as e:
             raise ValueError(f"Failed to export data: {str(e)}")
 
-    def export_json(self, saved_locations: List[SavedLocation]) -> Dict[str, Any]:
-        """Export user data as JSON string"""
+    def export_json(self, saved_locations: List[SavedLocation], save_to_disk: bool = True) -> Dict[str, Any]:
+        """Export user data as JSON string, set to save to disk"""
         try:
             export_data = self.export_data(saved_locations)
             
@@ -78,12 +105,21 @@ class SettingsService:
                 "export_date": export_data.export_date.isoformat()
             }
             
+            # Save to disk if requested
+            if save_to_disk:
+                json_string = json.dumps(data_dict, indent=2)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"livasg_export_{timestamp}.json"
+                saved_path = self._save_export_to_disk(json_string, filename, "json")
+                if saved_path:
+                    print(f"Export saved to: {saved_path}")
+            
             return data_dict
         except Exception as e:
             raise ValueError(f"Failed to export JSON: {str(e)}")
 
-    def export_csv(self, saved_locations: List[SavedLocation]) -> str:
-        """Export user data as CSV format"""
+    def export_csv(self, saved_locations: List[SavedLocation], save_to_disk: bool = True) -> str:
+        """Export user data as CSV format, optionally save to disk"""
         try:
             export_data = self.export_data(saved_locations)
             output = StringIO()
@@ -129,12 +165,22 @@ class SettingsService:
                     location.saved_at.isoformat() if location.saved_at else ""
                 ])
             
-            return output.getvalue()
+            csv_data = output.getvalue()
+            
+            # Save to disk if requested
+            if save_to_disk:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"livasg_export_{timestamp}.csv"
+                saved_path = self._save_export_to_disk(csv_data, filename, "csv")
+                if saved_path:
+                    print(f"Export saved to: {saved_path}")
+            
+            return csv_data
         except Exception as e:
             raise ValueError(f"Failed to export CSV: {str(e)}")
 
-    def export_pdf(self, saved_locations: List[SavedLocation]) -> str:
-        """Export user data as base64 encoded PDF content"""
+    def export_pdf(self, saved_locations: List[SavedLocation], save_to_disk: bool = True) -> str:
+        """Export user data as base64 encoded PDF content, optionally save to disk"""
         try:
             export_data = self.export_data(saved_locations)
             
@@ -161,10 +207,22 @@ SAVED LOCATIONS ({len(export_data.saved_locations)}):
 Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             """.strip()
             
-            return base64.b64encode(pdf_content.encode('utf-8')).decode('utf-8')
+            # Encode to base64 for client
+            pdf_data = base64.b64encode(pdf_content.encode('utf-8')).decode('utf-8')
+            
+            # Save to disk if requested (save the actual text content, not base64)
+            if save_to_disk:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"livasg_export_{timestamp}.txt"
+                saved_path = self._save_export_to_disk(pdf_content, filename, "pdf")
+                if saved_path:
+                    print(f"Export saved to: {saved_path}")
+            
+            return pdf_data
         except Exception as e:
             raise ValueError(f"Failed to export PDF: {str(e)}")
 
+    # ... (keep all the existing import methods from previous implementation)
     def import_data(self, import_data: str, import_type: str = "csv", 
                    rank_repo: IRankRepo = None,
                    shortlist_service: Any = None) -> Dict[str, Any]:

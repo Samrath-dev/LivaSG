@@ -1,5 +1,5 @@
 # app/api/settings_controller.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 import time
 import traceback
 
@@ -19,13 +19,13 @@ def get_shortlist_service():
 
 @router.get("/export/json")
 def export_json(
+    save_to_disk: bool = Query(True, description="Save export to server disk"),
     settings_service: SettingsService = Depends(get_settings_service),
     shortlist_service: ShortlistService = Depends(get_shortlist_service)
 ):
-    """Export user data as JSON"""
     try:
         saved_locations = shortlist_service.get_saved_locations()
-        json_data = settings_service.export_json(saved_locations)
+        json_data = settings_service.export_json(saved_locations, save_to_disk=save_to_disk)
         return json_data
     except Exception as e:
         print(f"Export JSON error: {str(e)}")
@@ -37,13 +37,16 @@ def export_json(
 
 @router.get("/export", response_model=ExportData)
 def export_data(
+    save_to_disk: bool = Query(True, description="Save export to server disk"),
     settings_service: SettingsService = Depends(get_settings_service),
     shortlist_service: ShortlistService = Depends(get_shortlist_service)
 ):
-    """Export user data as Pydantic model"""
     try:
         saved_locations = shortlist_service.get_saved_locations()
-        return settings_service.export_data(saved_locations)
+        export_data = settings_service.export_data(saved_locations)
+        if save_to_disk:
+            settings_service.export_json(saved_locations, save_to_disk=True)
+        return export_data
     except Exception as e:
         print(f"Export error: {str(e)}")
         print(traceback.format_exc())
@@ -54,13 +57,13 @@ def export_data(
 
 @router.get("/export/csv")
 def export_csv(
+    save_to_disk: bool = Query(True, description="Save export to server disk"),
     settings_service: SettingsService = Depends(get_settings_service),
     shortlist_service: ShortlistService = Depends(get_shortlist_service)
 ):
-    """Export user data as CSV (default format)"""
     try:
         saved_locations = shortlist_service.get_saved_locations()
-        csv_data = settings_service.export_csv(saved_locations)
+        csv_data = settings_service.export_csv(saved_locations, save_to_disk=save_to_disk)
         return {
             "csv_data": csv_data,
             "filename": f"livasg_export_{time.strftime('%Y%m%d_%H%M%S')}.csv"
@@ -75,13 +78,13 @@ def export_csv(
 
 @router.get("/export/pdf")
 def export_pdf(
+    save_to_disk: bool = Query(True, description="Save export to server disk"),
     settings_service: SettingsService = Depends(get_settings_service),
     shortlist_service: ShortlistService = Depends(get_shortlist_service)
 ):
-    """Export user data as PDF (base64 encoded)"""
     try:
         saved_locations = shortlist_service.get_saved_locations()
-        pdf_data = settings_service.export_pdf(saved_locations)
+        pdf_data = settings_service.export_pdf(saved_locations, save_to_disk=save_to_disk)
         return {
             "pdf_data": pdf_data,
             "filename": f"livasg_export_{time.strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -100,14 +103,13 @@ def import_data(
     settings_service: SettingsService = Depends(get_settings_service),
     shortlist_service: ShortlistService = Depends(get_shortlist_service)
 ):
-    """Import user data from backup (default: CSV)"""
     try:
         from ..main import di_ranks
         
         result = settings_service.import_data(
             import_request.data, 
             import_request.import_type,
-            di_ranks,  # Using ranks repo instead of preference repo
+            di_ranks,
             shortlist_service
         )
         

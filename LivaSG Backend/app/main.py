@@ -18,16 +18,18 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 # ---- Routers ----
 from app.api import map_controller, details_controller, search_controller, onemap_controller
 from app.api import weights_controller
-from app.api import ranks_controller
+from app.api import ranks_controller  # Only ranks controller now
 from app.api import shortlist_controller, settings_controller
 
 # ---- Repositories ----
 from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
     MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo,
-    MemoryAreaRepo, MemoryCommunityRepo, MemoryRankRepo,
+    MemoryAreaRepo, MemoryCommunityRepo,
     MemorySavedLocationRepo
 )
+# Use SQLite for ranks persistence
+from app.repositories.sqlite_rank_repo import SQLiteRankRepo
 
 # ---- Services ----
 from app.services.trend_service import TrendService
@@ -50,7 +52,7 @@ di_community = MemoryCommunityRepo()
 di_transit   = MemoryTransitRepo()
 di_carpark   = MemoryCarparkRepo()
 di_area      = MemoryAreaRepo()
-di_ranks     = MemoryRankRepo()
+di_ranks     = SQLiteRankRepo()  # Persistent SQLite storage
 
 # planning areas / onemap
 di_onemap_client = OneMapClientHardcoded()
@@ -71,11 +73,8 @@ di_engine = RatingEngine(
 di_search = SearchService(di_engine, di_onemap_client)
 
 di_saved_location_repo = MemorySavedLocationRepo()
-
 di_shortlist_service = ShortlistService(di_saved_location_repo)
-
-# Settings service
-di_settings_service = SettingsService(di_ranks, di_weights) 
+di_settings_service = SettingsService(di_ranks, di_weights)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -109,7 +108,7 @@ app.dependency_overrides[details_controller.get_trend_service] = lambda: di_tren
 # weights
 app.dependency_overrides[weights_controller.get_weights_repo] = lambda: di_weights
 
-# ranks 
+# ranks (now handles both ranks and preferences)
 app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks
 
 # transit debug
