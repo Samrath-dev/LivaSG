@@ -448,11 +448,12 @@ const SpecificView = ({
 
   // Custom styling function for polygons
   const getPolygonStyle = (areaName: string) => {
-    if (areaName === highlightedArea) {
+    const normalize = (s: string | undefined) => (s || '').toString().trim().toUpperCase();
+    if (normalize(areaName) === normalize(highlightedArea)) {
       // Current selected area - white with highlight
       return {
         fillColor: '#ffff', // white
-        fillOpacity: 0.7,
+        fillOpacity: 0.0,
         color: '#030303ff', // black
         weight: 3,
         opacity: 1
@@ -461,7 +462,7 @@ const SpecificView = ({
       // Surrounding areas - greyed out
       return {
         fillColor: '#9CA3AF', // Gray-400
-        fillOpacity: 0.4,
+        fillOpacity: 0.5,
         color: '#6B7280', // Gray-500
         weight: 1,
         opacity: 0.6

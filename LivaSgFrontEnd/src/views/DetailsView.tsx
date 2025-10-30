@@ -1,4 +1,3 @@
-import { HiChevronLeft, HiStar, HiMap, HiHome, HiInformationCircle } from 'react-icons/hi';
 import { useState, useEffect } from 'react';
 import { FaDumbbell, FaTree, FaShoppingBag, FaSchool, FaHospital, FaParking, FaUtensils, FaBus } from 'react-icons/fa';
 import React, { isValidElement, cloneElement } from 'react';
@@ -56,6 +55,27 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   };
 
   const mapCenter = getLocationCoordinates();
+
+  // Styling for planning-area polygons: highlight the current location area, grey out others
+  const getPolygonStyle = (areaName: string) => {
+    const normalize = (s: string | undefined) => (s || '').toString().trim().toUpperCase();
+    if (normalize(areaName) === normalize(location.area)) {
+      return {
+        fillColor: '#ffff',
+        fillOpacity: 0.0,
+        color: '#030303ff',
+        weight: 3,
+        opacity: 1,
+      };
+    }
+    return {
+      fillColor: '#9CA3AF',
+      fillOpacity: 0.5,
+      color: '#6B7280',
+      weight: 1,
+      opacity: 0.6,
+    };
+  };
 
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [facilityMarkers, setFacilityMarkers] = useState<Array<{
@@ -288,73 +308,45 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   return (
     <div className="h-full flex flex-col bg-purple-50">
       {/* Header - Simplified back button */}
-      <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
-        {/* Title and Back Button */}
-        <div className="flex items-center justify-between w-full mb-4">
-          {/* Back Button - Only arrow */}
-          <button
-            onClick={onBack}
-            className="text-purple-700 hover:text-purple-900 transition-colors"
-          >
-            <HiChevronLeft className="w-6 h-6" />
-          </button>
-          
-          {/* Title */}
-          <div className="flex items-center text-purple-700">
-            <HiHome className="w-5 h-5 mr-2" />
-            <h1 className="text-lg font-bold">Location Details</h1>
+  <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4 relative z-40">
+        <div className="relative w-full mb-4">
+          {/* Title (Location Address) - absolutely centered so it's visually centered regardless of button widths */}
+          <div className="absolute left-1/2 -top-1/2 transform -translate-x-1/2 text-center">
+            <h1 className="text-2xl font-bold text-purple-900">{location.street}</h1>
+            <p className="text-purple-600 mt-2 flex items-center gap-2 justify-center">
+              <span className="bg-purple-100 text-purple-800 text-sm font-semibold px-3 py-1 rounded-full border border-purple-200">
+                {location.area}
+              </span>
+              <span className="text-purple-400">•</span>
+              <span className="font-medium text-purple-700">{location.district}</span>
+            </p>
           </div>
-          
-          {/* Spacer for balance */}
-          <div className="w-6"></div>
-        </div>
 
-        {/* Location Address */}
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-purple-900">{location.street}</h1>
-          <p className="text-purple-600 mt-2 flex items-center gap-2 justify-center">
-            <span className="bg-purple-100 text-purple-800 text-sm font-semibold px-3 py-1 rounded-full border border-purple-200">
-              {location.area}
-            </span>
-            <span className="text-purple-400">•</span>
-            <span className="font-medium text-purple-700">{location.district}</span>
-          </p>
+          {/* Right control — keeps functionality (Filter Facilities) */}
+          <div className="flex items-center justify-end">
+            <button
+              onClick={() => setShowFilterMenu(true)}
+              className="inline-flex items-center px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-semibold border-2 border-purple-300 hover:border-purple-500 hover:bg-purple-50 transition-all"
+            >
+              Filter Facilities
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-auto">
-        <div className="w-full max-w-full mx-auto px-4 sm:px-6 lg:px-8 space-y-6 py-6">
-          {/* Facilities Map - Now takes full width */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 flex flex-col max-h-[70vh] md:max-h-[600px] overflow-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
-                <HiMap className="w-5 h-5 text-purple-500" />
-                Facilities Map
-              </h2>
-              {/* Filter Facility Button - White with purple outline */}
-              <button
-                onClick={() => setShowFilterMenu(true)}
-                className="inline-flex items-center px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-semibold border-2 border-purple-300 hover:border-purple-500 hover:bg-purple-50 transition-all"
-              >
-                Filter Facilities
-              </button>
-            </div>
-            <div className="w-full rounded-xl border border-purple-100 overflow-hidden z-50" style={{ height: '400px' }}>
-              <OneMapEmbedded
-                center={mapCenter}
-                zoom={13}
-                markers={facilityMarkers}
-                zoomOnly={true}
-                className="w-full h-full"
-              />
-            </div>
-            {facilityMarkers.length > 0 && (
-              <div className="mt-3 text-sm text-purple-600 bg-purple-50 px-3 py-2 rounded-lg">
-                Showing {facilityMarkers.length} facilities on map
-              </div>
-            )}
-          </div>
+      {/* Content: full-bleed map in purple background */}
+      <div className="flex-1 relative z-0">
+        <div className="w-full h-full">
+          <OneMapEmbedded
+            center={mapCenter}
+            zoom={13}
+            markers={facilityMarkers}
+            zoomOnly={true}
+            showPlanningAreas={true}
+            planningAreasYear={2019}
+            getPolygonStyle={getPolygonStyle}
+            className="w-full h-full"
+          />
         </div>
       </div>
 
