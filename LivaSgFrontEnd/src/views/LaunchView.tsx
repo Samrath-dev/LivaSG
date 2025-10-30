@@ -1,0 +1,507 @@
+import { useState, useRef, useEffect } from 'react';
+import { HiChevronLeft, HiMenu, HiViewList, HiArrowRight } from 'react-icons/hi';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import type { DragEndEvent } from '@dnd-kit/core';
+
+interface LaunchViewProps {
+  onComplete: () => void; // Called when user saves preferences and should go to explore
+  onSkip: () => void; // Called if user wants to skip preference setting
+}
+
+interface PreferenceCategory {
+  id: string;
+  name: string;
+  description: string;
+}
+
+interface SortableCategoryProps {
+  category: PreferenceCategory;
+  index: number;
+}
+
+const DEFAULT_CATEGORIES: PreferenceCategory[] = [
+  {
+    id: 'affordability',
+    name: 'Affordability',
+    description: 'Property prices and overall cost of living'
+  },
+  {
+    id: 'accessibility',
+    name: 'Accessibility',
+    description: 'Public transport and commute times'
+  },
+  {
+    id: 'amenities',
+    name: 'Amenities',
+    description: 'Shopping, dining, and entertainment options'
+  },
+  {
+    id: 'environment',
+    name: 'Environment',
+    description: 'Parks, greenery, and air quality'
+  },
+  {
+    id: 'community',
+    name: 'Community',
+    description: 'Schools, safety, and neighborhood vibe'
+  }
+];
+
+// Persistent color mapping per category id so colors don't change when reordered
+const CATEGORY_COLORS: Record<string, string> = {
+  affordability: 'from-emerald-500 to-green-500',
+  accessibility: 'from-blue-500 to-cyan-500',
+  amenities: 'from-purple-500 to-indigo-500',
+  environment: 'from-amber-500 to-orange-500',
+  community: 'from-rose-500 to-pink-500',
+};
+
+// Map category id -> API key
+const RANK_KEY_MAP: Record<string, string> = {
+  affordability: 'rAff',
+  accessibility: 'rAcc',
+  amenities: 'rAmen',
+  environment: 'rEnv',
+  community: 'rCom',
+};
+
+const KEY_TO_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(RANK_KEY_MAP).map(([id, key]) => [key, id])
+);
+
+const sendRankUpdate = async (items: PreferenceCategory[]): Promise<boolean> => {
+  const body: Record<string, number> = {};
+  items.forEach((it, idx) => {
+    const key = RANK_KEY_MAP[it.id];
+    if (key) body[key] = idx + 1;
+  });
+
+  try {
+    const res = await fetch('http://localhost:8000/ranks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      console.error('Failed to update ranks:', res.status, await res.text());
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Error sending rank update:', err);
+    return false;
+  }
+};
+
+const SortableCategory = ({ category, index }: SortableCategoryProps) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: category.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  const colorClass = CATEGORY_COLORS[category.id] || 'from-purple-500 to-purple-600';
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all duration-200 ${
+        isDragging
+          ? 'bg-blue-50 border-blue-300 shadow-lg'
+          : 'bg-white border-purple-200 hover:border-blue-300 hover:bg-blue-50'
+      }`}
+    >
+      {/* Drag Handle */}
+      <div 
+        {...attributes}
+        {...listeners}
+        className="flex-shrink-0 text-blue-500 cursor-grab active:cursor-grabbing hover:text-blue-600 transition-colors"
+      >
+        <HiMenu className="w-5 h-5" />
+      </div>
+
+      {/* Rank Number with colored gradient */}
+      <div className={`flex-shrink-0 w-8 h-8 bg-gradient-to-r ${colorClass} text-white rounded-full flex items-center justify-center font-bold text-sm shadow-sm`}>
+        {index + 1}
+      </div>
+
+      {/* Category Info */}
+      <div className="flex-1 min-w-0">
+        <h3 className="font-bold text-gray-900 text-lg">
+          {category.name}
+        </h3>
+        <p className="text-gray-600 text-sm mt-1">
+          {category.description}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+const LaunchView = ({ onComplete, onSkip }: LaunchViewProps) => {
+  const [categories, setCategories] = useState<PreferenceCategory[] | null>(null);
+  const [notification, setNotification] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [notifVisible, setNotifVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const notifTimeout = useRef<number | null>(null);
+  const hideTimeout = useRef<number | null>(null);
+  const isEnteringRef = useRef(false);
+  const showLoaderTimeout = useRef<number | null>(null);
+  const loaderHideTimeout = useRef<number | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadRanks = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/ranks');
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = await res.json();
+
+        const payload = data && typeof data === 'object' ? (data.ranks && typeof data.ranks === 'object' ? data.ranks : data) : null;
+        if (!payload) {
+          if (mounted) setCategories(DEFAULT_CATEGORIES);
+          return;
+        }
+
+        const ranksArr: { id: string; rank: number }[] = Object.entries(payload).reduce((acc, [k, v]) => {
+          const id = KEY_TO_ID[k];
+          const rank = typeof v === 'number' ? v : Number(v);
+          if (id && !Number.isNaN(rank)) acc.push({ id, rank });
+          return acc;
+        }, [] as { id: string; rank: number }[]);
+
+        if (!ranksArr.length) {
+          if (mounted) setCategories(DEFAULT_CATEGORIES);
+          return;
+        }
+
+        ranksArr.sort((a, b) => a.rank - b.rank);
+        const ordered = ranksArr
+          .map((r) => DEFAULT_CATEGORIES.find((c) => c.id === r.id))
+          .filter(Boolean) as PreferenceCategory[];
+
+        for (const c of DEFAULT_CATEGORIES) {
+          if (!ordered.find((o) => o.id === c.id)) ordered.push(c);
+        }
+
+        if (mounted) setCategories(ordered);
+      } catch (err) {
+        console.error('Failed to load ranks, falling back to defaults:', err);
+        if (mounted) setCategories(DEFAULT_CATEGORIES);
+      }
+    };
+
+    void loadRanks();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+      if (hideTimeout.current) window.clearTimeout(hideTimeout.current);
+      if (showLoaderTimeout.current) window.clearTimeout(showLoaderTimeout.current);
+      if (loaderHideTimeout.current) window.clearTimeout(loaderHideTimeout.current);
+    };
+  }, []);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (!categories) return;
+
+    if (active.id !== over?.id) {
+      const oldIndex = categories.findIndex((item) => item.id === active.id);
+      const newIndex = categories.findIndex((item) => item.id === over?.id);
+
+      const newItems = arrayMove(categories, oldIndex, newIndex);
+      setCategories(newItems);
+
+      if (showLoaderTimeout.current) window.clearTimeout(showLoaderTimeout.current);
+      showLoaderTimeout.current = window.setTimeout(() => {
+        setLoading(true);
+        if (loaderHideTimeout.current) window.clearTimeout(loaderHideTimeout.current);
+        loaderHideTimeout.current = window.setTimeout(() => {
+          setLoading(false);
+          loaderHideTimeout.current = null;
+        }, 3000);
+        showLoaderTimeout.current = null;
+      }, 500);
+
+      const ok = await sendRankUpdate(newItems);
+
+      if (showLoaderTimeout.current) {
+        window.clearTimeout(showLoaderTimeout.current);
+        showLoaderTimeout.current = null;
+      }
+      if (loaderHideTimeout.current) {
+        window.clearTimeout(loaderHideTimeout.current);
+        loaderHideTimeout.current = null;
+      }
+      setLoading(false);
+
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      );
+
+      if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+      if (hideTimeout.current) window.clearTimeout(hideTimeout.current);
+
+      setNotification(ok ? { text: 'Preferences Updated!', type: 'success' } : { text: 'Failed to update preferences', type: 'error' });
+      isEnteringRef.current = true;
+      setNotifVisible(false);
+      requestAnimationFrame(() => {
+        isEnteringRef.current = false;
+        setNotifVisible(true);
+      });
+
+      notifTimeout.current = window.setTimeout(() => {
+        setNotifVisible(false);
+        hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+      }, 2000);
+    }
+  };
+
+  const handleSaveAndContinue = async () => {
+    if (!categories) return;
+
+    setIsSaving(true);
+    
+    try {
+      const ok = await sendRankUpdate(categories);
+      
+      if (ok) {
+        setNotification({ text: 'Preferences saved! Redirecting...', type: 'success' });
+        isEnteringRef.current = true;
+        setNotifVisible(false);
+        requestAnimationFrame(() => {
+          isEnteringRef.current = false;
+          setNotifVisible(true);
+        });
+
+        // Wait a moment for the user to see the success message, then redirect
+        setTimeout(() => {
+          onComplete();
+        }, 1500);
+      } else {
+        setNotification({ text: 'Failed to save preferences', type: 'error' });
+        isEnteringRef.current = true;
+        setNotifVisible(false);
+        requestAnimationFrame(() => {
+          isEnteringRef.current = false;
+          setNotifVisible(true);
+        });
+        
+        notifTimeout.current = window.setTimeout(() => {
+          setNotifVisible(false);
+          hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Error saving preferences:', err);
+      setNotification({ text: 'Error saving preferences', type: 'error' });
+      isEnteringRef.current = true;
+      setNotifVisible(false);
+      requestAnimationFrame(() => {
+        isEnteringRef.current = false;
+        setNotifVisible(true);
+      });
+      
+      notifTimeout.current = window.setTimeout(() => {
+        setNotifVisible(false);
+        hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+      }, 3000);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSkip = () => {
+    onSkip();
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-gradient-to-br from-purple-50 to-blue-50">
+
+      {/* Loading overlay */}
+      {loading && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-40">
+          <div className="w-14 h-14 rounded-full border-4 border-white border-t-transparent animate-spin" />
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex-shrink-0 border-b border-purple-200 bg-white p-6">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold text-purple-900 mb-2">
+            Welcome to LocationFinder
+          </h1>
+          <p className="text-purple-600 text-lg">
+            Let's personalize your experience
+          </p>
+        </div>
+      </div>
+
+      {/* Notification */}
+      <div
+        aria-live="polite"
+        className={`fixed left-0 right-0 top-32 z-50 flex justify-center pointer-events-none transition-transform transition-opacity duration-300 ${
+          isEnteringRef.current ? '-translate-y-6' : 'translate-y-0'
+        } ${notifVisible ? 'opacity-100' : 'opacity-0'}`}
+      >
+        {notification && (
+          <div
+            className={`pointer-events-auto max-w-2xl mx-4 p-3 rounded-lg text-center shadow-md ${
+              notification.type === 'success'
+                ? 'bg-green-50 text-green-800 border border-green-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}
+          >
+            {notification.text}
+          </div>
+        )}
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto p-6">
+        <div className="max-w-4xl mx-auto">
+          {/* Welcome Card */}
+          <div className="bg-white rounded-2xl p-8 border border-purple-200 shadow-lg mb-8">
+            <div className="text-center mb-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                Set Your Location Preferences
+              </h2>
+              <p className="text-gray-600 text-lg max-w-2xl mx-auto">
+                Rank what matters most to you when choosing a location. Your top priorities will influence our recommendations.
+              </p>
+            </div>
+
+            {/* Ranking Section */}
+            <div className="bg-white rounded-2xl p-6 border border-purple-200">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-gray-900">Your Priority Ranking</h3>
+                <div className="flex items-center text-sm text-blue-600">
+                  <HiViewList className="w-4 h-4 mr-1" />
+                  <span>Drag to reorder</span>
+                </div>
+              </div>
+
+              {categories ? (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext items={categories} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-3">
+                      {categories.map((category, index) => (
+                        <SortableCategory
+                          key={category.id}
+                          category={category}
+                          index={index}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              ) : (
+                <div className="py-16 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-full border-4 border-purple-300 border-t-transparent animate-spin" />
+                </div>
+              )}
+
+              {/* Instructions */}
+              <div className="mt-8 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl border border-blue-200">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-sm font-bold">
+                    i
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-blue-900 text-sm mb-1">
+                      How it works
+                    </h4>
+                    <p className="text-blue-700 text-sm">
+                      Your top-ranked categories will have more influence on location recommendations. 
+                      Drag categories up or down to match your personal preferences.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mt-8">
+            <button
+              onClick={handleSkip}
+              className="px-8 py-4 rounded-xl font-semibold text-lg transition-all border-2 border-gray-400 text-gray-700 hover:bg-gray-50 hover:border-gray-500"
+            >
+              Skip for Now
+            </button>
+            
+            <button
+              onClick={handleSaveAndContinue}
+              disabled={isSaving || !categories}
+              className="px-8 py-4 rounded-xl font-semibold text-lg transition-all bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:from-purple-600 hover:to-blue-600 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {isSaving ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  Save & Continue
+                  <HiArrowRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Optional: Quick tip */}
+          <div className="text-center mt-6">
+            <p className="text-gray-500 text-sm">
+              You can always update these preferences later in the settings
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default LaunchView;

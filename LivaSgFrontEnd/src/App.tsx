@@ -1,30 +1,45 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PageLayout from './Layouts/PageLayout/PageLayout';
 import ComparisonView from './views/ComparisonView';
 import PreferenceView from './views/PreferenceView';
 import BookmarkView from './views/BookmarkView';
-import SettingsView from './views/SettingsView'; // Import SettingsView
+import LaunchView from './views/LaunchView';
 
 function App() {
   const [activeTab, setActiveTab] = useState('explore');
-  const [showSettings, setShowSettings] = useState(false); // Add state for settings
+  const [showOnboarding, setShowOnboarding] = useState(true);
+
+  useEffect(() => {
+    const hasCompletedOnboarding = localStorage.getItem('hasCompletedOnboarding');
+    if (hasCompletedOnboarding === 'true') {
+      setShowOnboarding(false);
+    }
+  }, []);
 
   const handleBack = () => {
-    setActiveTab('explore'); // Go back to explore tab
-    setShowSettings(false); // Also hide settings when going back
+    setActiveTab('explore');
   };
 
-  const handleSettingsBack = () => {
-    setShowSettings(false); // Hide settings and return to previous view
+  const handleOnboardingComplete = () => {
+    localStorage.setItem('hasCompletedOnboarding', 'true');
+    setShowOnboarding(false);
+  };
+
+  const handleOnboardingSkip = () => {
+    localStorage.setItem('hasCompletedOnboarding', 'true');
+    setShowOnboarding(false);
   };
 
   const renderContent = () => {
-    // If settings is shown, it takes precedence over everything else
-    if (showSettings) {
-      return <SettingsView onBack={handleSettingsBack} />;
+    if (showOnboarding) {
+      return (
+        <LaunchView 
+          onComplete={handleOnboardingComplete}
+          onSkip={handleOnboardingSkip}
+        />
+      );
     }
 
-    // Otherwise render the normal tab content
     switch (activeTab) {
       case 'comparison':
         return <ComparisonView onBack={handleBack} />;
@@ -33,10 +48,13 @@ function App() {
       case 'bookmarks':
         return <BookmarkView onBack={handleBack} />;
       default:
-        // For explore tab, PageLayout will handle MapView/SearchView/DetailsView
         return null;
     }
   };
+
+  if (showOnboarding) {
+    return renderContent();
+  }
 
   return (
     <PageLayout 
