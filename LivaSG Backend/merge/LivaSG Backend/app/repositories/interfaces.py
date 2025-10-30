@@ -1,0 +1,98 @@
+from typing import List, Optional
+from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre, AreaCentroid
+from ..domain.models import Transit, Carpark
+from abc import ABC, abstractmethod
+<<<<<<< HEAD
+from ..domain.models import RankProfile, SavedLocation
+=======
+from ..domain.models import RankProfile, UserPreference, SavedLocation
+>>>>>>> aebfb1e88ac24c0de92153cc418cb9948149cd09
+from typing import Protocol
+
+class IPriceRepo:
+    def series(self, area_id: str, months: int) -> List[PriceRecord]: ...
+
+class IAmenityRepo:
+    def facilities_summary(self, area_id: str) -> FacilitiesSummary: ...
+
+class ICommunityRepo:
+    """Repository interface for community centres"""
+    def list_all(self) -> List[str]: ...  # return list of areaIds that have a community centre
+    def exists(self, area_id: str) -> bool: ...
+    def list_centres(self, area_id: str) -> List[CommunityCentre]: ...
+
+
+class ITransitRepo:
+    """Repository interface for transit nodes (MRT/LRT/Bus)."""
+    def list_near_area(self, area_id: str) -> List[Transit]: ...
+    def all(self) -> List[Transit]: ...
+
+
+class ICarparkRepo:
+    """Repository interface for carparks."""
+    def list_near_area(self, area_id: str) -> List[Carpark]: ...
+    def all(self) -> List[Carpark]: ...
+
+
+class IAreaRepo:
+    """Repository interface for area centroids."""
+    def centroid(self, area_id: str) -> AreaCentroid | None: ...
+    def list_all(self) -> List[AreaCentroid]: ...
+
+class IWeightsRepo:
+    def get_active(self) -> WeightsProfile: ...
+    def list(self) -> List[WeightsProfile]: ...
+    def save(self, p: WeightsProfile) -> None: ...
+
+class IScoreRepo:
+    def latest(self, area_id: str, weights_id: str) -> Optional[NeighbourhoodScore]: ...
+    def save(self, s: NeighbourhoodScore) -> None: ...
+
+
+#new commit stuff
+from typing import Any, Dict, List
+
+class IPlanningAreaRepo:
+    async def geojson(self, year: int = 2020) -> Dict[str, Any]: ...
+    async def names(self, year: int = 2020) -> List[str]: ...
+
+class IRankRepo(ABC):
+    @abstractmethod
+    def get_active(self) -> RankProfile | None: ...
+    @abstractmethod
+    def set(self, r: RankProfile) -> None: ...
+    @abstractmethod
+    def clear(self) -> None: ...
+
+<<<<<<< HEAD
+=======
+class IPreferenceRepo(ABC):
+    @abstractmethod
+    def get_preference(self)->Optional[UserPreference]: ...
+    @abstractmethod
+    def save_preference(self,preference:UserPreference)->None: ...
+    @abstractmethod
+    def delete_preference(self)->None: ...
+>>>>>>> aebfb1e88ac24c0de92153cc418cb9948149cd09
+
+class ISavedLocationRepo(ABC):
+    @abstractmethod
+    def get_saved_locations(self)->List[SavedLocation]: ...
+    @abstractmethod
+    def saved_location(self, location: SavedLocation)->None: ...
+    @abstractmethod
+    def delete_location(self,postal_code:str)-> None: ...
+    @abstractmethod
+    def get_location(self, postal_code:str)->Optional[SavedLocation]: ...
+
+# new 
+from typing import List
+from ..domain.models import PricePoint
+
+class IPriceRepo(Protocol):
+    def series(self, area_id: str, months: int) -> List["PriceRecord"]:
+        ...
+
+
+    def trend_points(self, area_id: str, *, since_year: int = 2017) -> List[PricePoint]:
+        ...
