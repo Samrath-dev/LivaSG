@@ -14,11 +14,8 @@ interface LocationResult {
   street: string;
   area: string;
   district: string;
-  priceRange: [number, number];
-  avgPrice: number;
   facilities: string[];
   description: string;
-  growth: number;
   amenities: string[];
   transitScore: number;
   schoolScore: number;
@@ -33,7 +30,7 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
   const [loading, setLoading] = useState<boolean[]>([false, false]);
   const [compareOpen, setCompareOpen] = useState(false);
 
-  // Suggested locations (top 3 by growth rate)
+  // Suggested locations
   const [suggestedLocations, setSuggestedLocations] = useState<LocationResult[]>([]);
 
   useEffect(() => {
@@ -53,16 +50,13 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
         const json = await res.json();
         const mapped = (json || []).map((loc: any) => ({
           ...loc,
-          priceRange: loc.price_range ?? loc.priceRange,
-          avgPrice: loc.avg_price ?? loc.avgPrice,
-          growth: Number(loc.growth ?? 0),
           transitScore: Number(loc.transit_score ?? loc.transitScore ?? 0),
           schoolScore: Number(loc.school_score ?? loc.schoolScore ?? 0),
           amenitiesScore: Number(loc.amenities_score ?? loc.amenitiesScore ?? 0),
         })) as LocationResult[];
 
         if (cancelled) return;
-        setSuggestedLocations(mapped.slice().sort((a, b) => b.growth - a.growth).slice(0, 3));
+        setSuggestedLocations(mapped.slice(0, 3));
       } catch (err) {
         console.warn('fetchSuggestions error', err);
       }
@@ -70,13 +64,6 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
     fetchSuggestions();
     return () => { cancelled = true; };
   }, []);
-
-  const formatPrice = (price: number) => {
-    if (price >= 1000000) {
-      return `$${(price / 1000000).toFixed(1)}M`;
-    }
-    return `$${(price / 1000).toFixed(0)}K`;
-  };
 
   // Create a unique identifier for each location
   const getLocationKey = (location: LocationResult): string => {
@@ -138,10 +125,6 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
       const json = await response.json();
       const mapped = (json || []).map((loc: any) => ({
         ...loc,
-        priceRange: loc.price_range ?? loc.priceRange,
-        avgPrice: loc.avg_price ?? loc.avgPrice,
-        // ensure numeric fields where possible
-        growth: Number(loc.growth ?? 0),
         transitScore: Number(loc.transit_score ?? loc.transitScore ?? 0),
         schoolScore: Number(loc.school_score ?? loc.schoolScore ?? 0),
         amenitiesScore: Number(loc.amenities_score ?? loc.amenitiesScore ?? 0),
@@ -174,10 +157,8 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
             <h3 className="text-xl font-bold text-purple-900 mb-2">{currentLocation.street}</h3>
             <p className="text-purple-700 mb-3">{currentLocation.area}, {currentLocation.district}</p>
             <div className="text-sm text-purple-600">
-              {formatPrice(currentLocation.priceRange[0])} - {formatPrice(currentLocation.priceRange[1])}
-            </div>
-            <div className="text-sm text-green-600 font-semibold mt-1">
-              +{currentLocation.growth}% Growth
+              {currentLocation.facilities.slice(0, 3).join(', ')}
+              {currentLocation.facilities.length > 3 && '...'}
             </div>
           </div>
           <button
@@ -243,13 +224,9 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
                   >
                     <div className={`font-semibold ${disabled ? 'text-gray-600' : 'text-purple-900'}`}>{location.street}</div>
                     <div className={`text-sm ${disabled ? 'text-gray-500' : 'text-purple-700'}`}>{location.area}, {location.district}</div>
-                    <div className="flex justify-between items-center mt-1">
-                      <div className={`text-xs ${disabled ? 'text-gray-500' : 'text-purple-600'}`}>
-                        {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
-                      </div>
-                      <div className={`text-xs ${disabled ? 'text-gray-500' : 'text-green-600'} font-semibold`}>
-                        +{location.growth}% ↗
-                      </div>
+                    <div className="text-xs text-purple-600 mt-1">
+                      {location.facilities.slice(0, 2).join(', ')}
+                      {location.facilities.length > 2 && '...'}
                     </div>
                     {disabled && (
                       <div className="mt-2 text-xs text-center text-gray-500">Already selected in another slot</div>
@@ -282,13 +259,9 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
                   >
                     <div className={`font-semibold ${disabled ? 'text-gray-600' : 'text-purple-900'}`}>{location.street}</div>
                     <div className={`text-sm ${disabled ? 'text-gray-500' : 'text-purple-700'}`}>{location.area}, {location.district}</div>
-                    <div className="flex justify-between items-center mt-1">
-                      <div className={`text-xs ${disabled ? 'text-gray-500' : 'text-purple-600'}`}>
-                        {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
-                      </div>
-                      <div className={`text-xs ${disabled ? 'text-gray-500' : 'text-green-600'} font-semibold`}>
-                        +{location.growth}% ↗
-                      </div>
+                    <div className="text-xs text-purple-600 mt-1">
+                      {location.facilities.slice(0, 2).join(', ')}
+                      {location.facilities.length > 2 && '...'}
                     </div>
                     {disabled && (
                       <div className="mt-2 text-xs text-center text-gray-500">Already selected in another slot</div>
