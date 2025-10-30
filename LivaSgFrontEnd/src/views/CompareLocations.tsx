@@ -34,10 +34,9 @@ interface Props {
 }
 
 const formatPrice = (price: number) => {
-  if (price >= 1000000) {
-    return `$${(price / 1000000).toFixed(1)}M`;
-  }
-  return `$${(price / 1000).toFixed(0)}K`;
+  // round and format with thousands separator, keep dollar sign
+  const n = Math.round(Number(price) || 0);
+  return `$${n.toLocaleString(undefined)}`;
 };
 
 export default function CompareLocations({ locations, onClose }: Props) {
@@ -49,6 +48,9 @@ export default function CompareLocations({ locations, onClose }: Props) {
 
   // fetched breakdowns keyed by location id
   const [breakdowns, setBreakdowns] = useState<Record<number, Record<string, number>>>({});
+  // fetched price trends keyed by location id
+  const [priceTrends, setPriceTrends] = useState<Record<number, Array<{ month: string; median: number }>>>({});
+  const [loadingPriceTrends, setLoadingPriceTrends] = useState(false);
 
   // Fetch breakdown scores for each provided location from backend:
   useEffect(() => {
@@ -56,6 +58,8 @@ export default function CompareLocations({ locations, onClose }: Props) {
     if (!locs.length) return;
     (async () => {
       const map: Record<number, Record<string, number>> = {};
+      const priceMap: Record<number, Array<{ month: string; median: number }>> = {};
+      setLoadingPriceTrends(true);
       await Promise.all(
         locs.map(async (loc) => {
           try {
@@ -79,12 +83,29 @@ export default function CompareLocations({ locations, onClose }: Props) {
             } else {
               console.warn('Unexpected breakdown payload for', loc.street, json);
             }
+            // fetch price trend for this location (best-effort). Endpoint returns { points: [{month, median}] }
+            try {
+              const tRes = await fetch(`http://localhost:8000/details/${name}/price-trend`);
+              if (tRes.ok) {
+                const tJson = await tRes.json().catch(() => null);
+                const points = Array.isArray(tJson?.points) ? tJson.points : (Array.isArray(tJson) ? tJson : null);
+                if (points && Array.isArray(points)) {
+                  priceMap[loc.id] = points.map((p: any) => ({ month: String(p.month), median: Number(p.median) }));
+                }
+              }
+            } catch (tErr) {
+              // ignore trend fetch errors for individual locations
+            }
           } catch (err) {
             console.warn('Failed to fetch breakdown for', loc.street, err);
           }
         })
       );
-      if (!cancelled) setBreakdowns(map);
+      if (!cancelled) {
+        setBreakdowns(map);
+        setPriceTrends(priceMap);
+        setLoadingPriceTrends(false);
+      }
     })();
     return () => { cancelled = true; };
   }, [locations]);
@@ -165,6 +186,277 @@ export default function CompareLocations({ locations, onClose }: Props) {
     }),
   };
 
+  // Render combined price trend chart for selected locations
+  const renderPriceComparisonChart = () => {
+    // if no trends yet, show placeholder
+    const ids = locs.map(l => l.id);
+    const series = ids.map(id => priceTrends[id] || []);
+    const anyLoaded = series.some(s => s && s.length > 0);
+    if (loadingPriceTrends && !anyLoaded) {
+      return (
+        <div className="flex items-center justify-center h-48">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+          <span className="ml-3 text-purple-600">Loading comparison trends...</span>
+        </div>
+      );
+    }
+
+    // gather unique months across all series and sort
+    const monthSet = new Set<string>();
+    series.forEach(s => s.forEach(p => monthSet.add(p.month)));
+    const months = Array.from(monthSet).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    if (months.length === 0) {
+      return (
+        <div className="flex items-center justify-center h-48 text-gray-500">No price trend data available for selected locations.</div>
+      );
+    }
+
+    // build lookup for each series by month
+    const lookups = series.map(s => {
+      const map: Record<string, number> = {};
+      s.forEach(p => { map[p.month] = Number(p.median) || 0; });
+      return map;
+    });
+
+    // compute global min/max
+    let allValues: number[] = [];
+    lookups.forEach(map => months.forEach(m => { if (map[m] !== undefined) allValues.push(map[m]); }));
+    if (allValues.length === 0) allValues = [0, 1];
+    const minV = Math.min(...allValues);
+    const maxV = Math.max(...allValues);
+  // Layout padding: separate left/right/top/bottom so labels are not clipped
+  const leftPad = 72;
+  const rightPad = 48;
+  const topPad = 48;
+  const bottomPad = 60; // room for rotated x labels
+  const chartWidth = 800;
+  const chartHeight = 400; // plot height
+  const totalHeight = chartHeight + bottomPad;
+    const getX = (idx: number) => leftPad + (idx * (chartWidth - leftPad - rightPad) / Math.max(1, months.length - 1));
+    const getY = (val: number) => chartHeight - bottomPad - ((val - minV) / Math.max(1e-6, (maxV - minV))) * (chartHeight - topPad - bottomPad);
+
+    // build paths
+    const paths = lookups.map((map, i) => {
+      const path = months.map((m, idx) => {
+        const v = map[m] !== undefined ? map[m] : null;
+        const x = getX(idx);
+        const y = v !== null ? getY(v) : getY(minV);
+        return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
+      }).join(' ');
+      return { path, color: paletteBorder[i % paletteBorder.length] };
+    });
+
+    const formatDateLabel = (d: string) => {
+      const date = new Date(d);
+      if (isNaN(date.getTime())) return d;
+      return date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    };
+
+  // determine which month indices should show labels: quarter starts (Jan/Apr/Jul/Oct)
+  // Always include first and last index for context.
+  const quarterIndices = months.reduce((acc: number[], m, idx) => {
+    const d = new Date(m);
+    const mo = isNaN(d.getTime()) ? -1 : d.getMonth();
+    if (mo >= 0 && mo % 3 === 0) acc.push(idx);
+    return acc;
+  }, []);
+  const labelIndicesSet = new Set<number>([0, months.length - 1, ...quarterIndices]);
+
+    return (
+      <div className="bg-white rounded-2xl p-4 border border-purple-100">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-md font-semibold text-purple-900">Price Trends Comparison</h3>
+          <div className="flex items-center gap-3">
+            {locs.map((loc, i) => (
+              <div key={loc.id} className="flex items-center gap-2 text-sm">
+                <span className="w-3 h-3 rounded-sm" style={{ background: paletteBorder[i % paletteBorder.length] }} />
+                <span className="text-gray-700">{loc.street}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div ref={chartContainerRef} className="w-full overflow-hidden relative">
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${chartWidth} ${totalHeight}`}
+            className="w-full h-[400px]"
+            preserveAspectRatio="none"
+            onMouseMove={(e) => {
+              if (!svgRef.current || !chartContainerRef.current) return;
+              const svgRect = svgRef.current.getBoundingClientRect();
+              const clientX = (e as React.MouseEvent).clientX;
+              const relX = clientX - svgRect.left;
+              const approx = (relX / svgRect.width) * (months.length - 1);
+              const idx = Math.max(0, Math.min(months.length - 1, Math.round(approx)));
+              setHoverIdx(idx);
+              // position tooltip near top of chart at the hovered x (relative to container)
+              const leftPx = (getX(idx) / chartWidth) * svgRect.width;
+              setTooltipPos({ left: leftPx, top: 8 });
+            }}
+            onMouseLeave={() => { setHoverIdx(null); setTooltipPos(null); }}
+            onTouchMove={(e) => {
+              if (!svgRef.current || !chartContainerRef.current) return;
+              const touch = (e as React.TouchEvent).touches[0];
+              if (!touch) return;
+              const svgRect = svgRef.current.getBoundingClientRect();
+              const relX = touch.clientX - svgRect.left;
+              const approx = (relX / svgRect.width) * (months.length - 1);
+              const idx = Math.max(0, Math.min(months.length - 1, Math.round(approx)));
+              setHoverIdx(idx);
+              const leftPx = (getX(idx) / chartWidth) * svgRect.width;
+              setTooltipPos({ left: leftPx, top: 8 });
+            }}
+            onTouchEnd={() => { setHoverIdx(null); setTooltipPos(null); }}
+          >
+            {/* horizontal grid lines every 100k */}
+            {(() => {
+              const lines: React.ReactNode[] = [];
+              const step = 100000;
+              // find first tick >= minV that is aligned to step
+              const startTick = Math.ceil(minV / step) * step;
+              const endTick = Math.floor(maxV / step) * step;
+              if (startTick <= endTick) {
+                for (let v = startTick; v <= endTick; v += step) {
+                  const y = getY(v);
+                  lines.push(
+                    <line key={`tick-${v}`} x1={leftPad} y1={y} x2={chartWidth - rightPad} y2={y} stroke="#e5e7eb" strokeWidth="1" />
+                  );
+                }
+              }
+              return lines;
+            })()}
+
+            {/* series paths */}
+            {paths.map((p, i) => (
+              <path key={i} d={p.path} fill="none" stroke={p.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+            ))}
+
+            {/* data markers */}
+            {lookups.map((map, si) => (
+              months.map((m, mi) => {
+                const v = map[m];
+                if (v === undefined) return null;
+                return (
+                  <circle key={`${si}-${mi}`} cx={getX(mi)} cy={getY(v)} r={3} fill={paletteBorder[si % paletteBorder.length]} />
+                );
+              })
+            ))}
+
+            {/* hover vertical line & highlights */}
+            {hoverIdx !== null && (
+              <g>
+                <line
+                  x1={getX(hoverIdx)}
+                  x2={getX(hoverIdx)}
+                  y1={topPad}
+                  y2={chartHeight - bottomPad}
+                  stroke="#9CA3AF"
+                  strokeWidth={1}
+                  strokeDasharray="4 4"
+                />
+                {lookups.map((map, si) => {
+                  const m = months[hoverIdx];
+                  const v = map[m];
+                  if (v === undefined) return null;
+                  return (
+                    <circle key={`h-${si}`} cx={getX(hoverIdx)} cy={getY(v)} r={6} fill="#fff" stroke={paletteBorder[si % paletteBorder.length]} strokeWidth={2} />
+                  );
+                })}
+              </g>
+            )}
+
+            {/* axes */}
+            <line x1={leftPad} y1={topPad} x2={leftPad} y2={chartHeight - bottomPad} stroke="#6b7280" strokeWidth="1" />
+            <line x1={leftPad} y1={chartHeight - bottomPad} x2={chartWidth - rightPad} y2={chartHeight - bottomPad} stroke="#6b7280" strokeWidth="1" />
+
+            {/* left-side labels: top / middle / bottom values (formatted) */}
+            <text
+              x={leftPad - 12}
+              y={topPad}
+              textAnchor="end"
+              dominantBaseline="middle"
+              style={{ fontSize: '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
+            >
+              {formatPrice(maxV)}
+            </text>
+            <text
+              x={leftPad - 12}
+              y={(chartHeight / 2)}
+              textAnchor="end"
+              dominantBaseline="middle"
+              style={{ fontSize: '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
+            >
+              {formatPrice((maxV + minV) / 2)}
+            </text>
+            <text
+              x={leftPad - 12}
+              y={chartHeight - bottomPad}
+              textAnchor="end"
+              dominantBaseline="middle"
+              style={{ fontSize: '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
+            >
+              {formatPrice(minV)}
+            </text>
+
+            {/* soft vertical lines marking start of year (January) */}
+            {months.map((m, idx) => {
+              const d = new Date(m);
+              if (isNaN(d.getTime())) return null;
+              if (d.getMonth() === 0) {
+                return (
+                  <line key={`yr-${idx}`} x1={getX(idx)} x2={getX(idx)} y1={topPad} y2={chartHeight - bottomPad} stroke="#e5e7eb" strokeWidth={1} />
+                );
+              }
+              return null;
+            })}
+
+            {/* month labels: only quarter starts (Jan/Apr/Jul/Oct) plus first & last */}
+            {months.map((m, idx) => {
+              if (!labelIndicesSet.has(idx)) return null;
+              const x = getX(idx);
+              const y = chartHeight - bottomPad + 28;
+              // rotate labels slightly for readability (less steep)
+              return (
+                <text
+                  key={`lbl-${m}-${idx}`}
+                  x={x}
+                  y={y}
+                  transform={`rotate(-45 ${x} ${y})`}
+                  textAnchor="end"
+                  style={{ fontSize: '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
+                >
+                  {formatDateLabel(m)}
+                </text>
+              );
+            })}
+          </svg>
+
+          {/* Tooltip (HTML) positioned over the svg */}
+          {tooltipPos && hoverIdx !== null && (
+            <div
+              style={{ left: tooltipPos.left, top: tooltipPos.top }}
+              className="absolute z-50 pointer-events-none w-max bg-white border border-gray-200 rounded-md shadow-lg p-2 text-xs"
+            >
+              <div className="font-semibold text-gray-800 mb-1">{formatDateLabel(months[hoverIdx])}</div>
+              <div className="space-y-1">
+                {locs.map((loc, i) => {
+                  const val = lookups[i][months[hoverIdx]];
+                  return (
+                    <div key={`t-${loc.id}`} className="flex items-center gap-2">
+                      <span style={{ width: 10, height: 10, background: paletteBorder[i % paletteBorder.length] }} className="inline-block rounded-sm" />
+                      <span className="text-gray-700">{loc.street}:</span>
+                      <span className="font-semibold text-gray-900">{val !== undefined ? formatPrice(val) : '—'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Debug / validation: log props and generated datasets so you can inspect in devtools
   useEffect(() => {
     console.log('CompareLocations.props.locations:', locations);
@@ -216,6 +508,12 @@ export default function CompareLocations({ locations, onClose }: Props) {
   const [visible, setVisible] = useState(false); // used to trigger initial slide-up
   const startYRef = useRef(0);
   const modalRef = useRef<HTMLDivElement | null>(null);
+
+  // chart interactivity refs/state for price comparison
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number } | null>(null);
 
   useEffect(() => {
     // trigger entrance animation on mount
@@ -349,6 +647,11 @@ export default function CompareLocations({ locations, onClose }: Props) {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Price comparison chart for selected locations */}
+          <div className="mt-4">
+            {renderPriceComparisonChart()}
           </div>
 
           {/* Summary cards for selected locations (up to 5) */}
