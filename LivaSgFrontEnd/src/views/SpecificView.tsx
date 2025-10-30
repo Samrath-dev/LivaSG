@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { HiChevronLeft, HiStar, HiInformationCircle, HiBookmark } from 'react-icons/hi';
 import OneMapInteractive from '../components/OneMapInteractive';
-import CompareLocations from './CompareLocations';
+import AnalysisView from './AnalysisView';
 import DetailsView from './DetailsView';
 
 interface SpecificViewProps {
@@ -550,7 +550,7 @@ const SpecificView = ({
 
       {/* Compare / Details overlays */}
       {compareOpen && selectedAreaLocation && (
-        <CompareLocations
+        <AnalysisView
           locations={[selectedAreaLocation]}
           onClose={() => setCompareOpen(false)}
         />

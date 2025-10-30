@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { HiChevronLeft, HiSearch, HiChartBar, HiPlus, HiMinus } from 'react-icons/hi';
-import CompareLocations from './CompareLocations';
+import AnalysisView from './AnalysisView';
 
 const MAXSLOTS = 5;
 const MINSLOTS = 2;
@@ -384,7 +384,7 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
 
       {/* Compare modal */}
       {compareOpen && (
-        <CompareLocations
+        <AnalysisView
           locations={nonNullSelected.length ? nonNullSelected : suggestedLocations.slice(0, 5)}
           onClose={() => setCompareOpen(false)}
         />
