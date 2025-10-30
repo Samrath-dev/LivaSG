@@ -156,7 +156,7 @@ async def street_facilities_locations(
     Frontend can use this to add map markers based on user's filter selection.
     """
     import os, sqlite3, math
-    from ..repositories.memory_impl import MemoryAmenityRepo
+    from ..repositories.memory_impl import MemoryAmenityRepo, MemoryAreaRepo
     
     def haversine(lat1, lon1, lat2, lon2):
         R = 6371.0
@@ -177,11 +177,23 @@ async def street_facilities_locations(
             "SELECT latitude, longitude FROM street_locations WHERE street_name = ?",
             (street_name,)
         ).fetchone()
-        
-        if not loc:
-            return {"error": f"Street {street_name} not found", "facilities": {}}
-        
-        street_lat, street_lon = float(loc[0]), float(loc[1])
+
+        street_lat = street_lon = None
+        if loc:
+            street_lat, street_lon = float(loc[0]), float(loc[1])
+        else:
+            # Fallback: treat input as planning area id and use centroid if available
+            try:
+                _, centroid = MemoryAreaRepo.getAreaGeometry(street_name)
+                if centroid is None:
+                    # Try title-cased area name
+                    _, centroid = MemoryAreaRepo.getAreaGeometry(street_name.title())
+                if centroid is not None:
+                    street_lat, street_lon = float(centroid.latitude), float(centroid.longitude)
+                else:
+                    return {"error": f"Street or area '{street_name}' not found", "facilities": {}}
+            except Exception:
+                return {"error": f"Street or area '{street_name}' not found", "facilities": {}}
         
         # Parse requested types
         requested = types.lower().split(",") if types != "all" else ["schools", "sports", "hawkers", "healthcare", "parks", "carparks"]
