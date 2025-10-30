@@ -47,3 +47,11 @@ class ShortlistService:
             return self.saved_location_repo.get_location(postal_code)
         except Exception as e:
             raise ValueError(f"Failed to get location: {str(e)}")
+        
+    def clear_all_locations(self) -> None:
+        try:
+            locations = self.get_saved_locations()
+            for location in locations:
+                self.delete_saved_location(location.postal_code)
+        except Exception as e:
+            raise ValueError(f"Failed to clear locations: {str(e)}")

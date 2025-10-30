@@ -189,23 +189,29 @@ class SettingsService:
     def _import_json(self, json_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
         try:
             print("DEBUG: Starting JSON import")
+            print(f"DEBUG: Input data length: {len(json_data)}")
+            print(f"DEBUG: First 100 chars: {json_data[:100]}")
             
             data = None
-            if json_data.startswith('data:application/json;base64,'):
-                print("DEBUG: Detected base64 encoded data")
-                json_data = json_data.split(',', 1)[1]
+            
+            try:
+                print("DEBUG: Trying base64 decode...")
+                if json_data.startswith('data:application/json;base64,'):
+                    json_data = json_data.split(',', 1)[1]
+                
                 decoded_data = base64.b64decode(json_data).decode('utf-8')
                 data = json.loads(decoded_data)
-            elif json_data.startswith('{') or json_data.startswith('['):
-                print("DEBUG: Detected raw JSON data")
-                data = json.loads(json_data)
-            else:
+                print("DEBUG: Successfully decoded base64 JSON")
+            except Exception as e1:
+                print(f"DEBUG: Base64 decode failed: {e1}")
+                
                 try:
-                    print("DEBUG: Trying base64 decode without prefix")
-                    decoded_data = base64.b64decode(json_data).decode('utf-8')
-                    data = json.loads(decoded_data)
-                except:
-                    return {"success": False, "message": "Invalid JSON data format"}
+                    print("DEBUG: Trying raw JSON parse...")
+                    data = json.loads(json_data)
+                    print("DEBUG: Successfully parsed raw JSON")
+                except Exception as e2:
+                    print(f"DEBUG: Raw JSON parse failed: {e2}")
+                    return {"success": False, "message": f"Invalid JSON data format: {e2}"}
 
             if not data:
                 return {"success": False, "message": "No data found in import"}
@@ -236,6 +242,7 @@ class SettingsService:
             if 'saved_locations' in data and shortlist_service:
                 print("DEBUG: Importing saved locations")
                 try:
+                    shortlist_service.clear_all_locations() #remove if you want the import to append instead!!
                     locations_data = data['saved_locations']
                     if isinstance(locations_data, list):
                         for loc_data in locations_data:
@@ -295,20 +302,34 @@ class SettingsService:
             return {"success": False, "message": f"JSON import failed: {str(e)}"}
 
     def _import_csv(self, csv_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
-        """Import data from CSV format"""
         try:
             print("DEBUG: Starting CSV import")
+            print(f"DEBUG: Input data length: {len(csv_data)}")
+            print(f"DEBUG: First 100 chars: {csv_data[:100]}")
             
-            if csv_data.startswith('data:text/csv;base64,'):
-                print("DEBUG: Detected base64 encoded CSV")
-                csv_data = csv_data.split(',', 1)[1]
-                csv_data = base64.b64decode(csv_data).decode('utf-8')
-            elif csv_data.startswith('data:application/octet-stream;base64,'):
-                print("DEBUG: Detected base64 encoded file")
-                csv_data = csv_data.split(',', 1)[1]
-                csv_data = base64.b64decode(csv_data).decode('utf-8')
+            processed_csv_data = None
+            
+            try:
+                print("DEBUG: Trying base64 decode for CSV...")
+                if csv_data.startswith('data:text/csv;base64,') or csv_data.startswith('data:application/octet-stream;base64,'):
+                    csv_data = csv_data.split(',', 1)[1]
+                    print("DEBUG: Removed data URL prefix")
+                
+                decoded_data = base64.b64decode(csv_data).decode('utf-8')
+                processed_csv_data = decoded_data
+                print("DEBUG: Successfully decoded base64 CSV")
+            except Exception as e1:
+                print(f"DEBUG: Base64 decode failed: {e1}")
+                print("DEBUG: Using raw CSV data")
+                processed_csv_data = csv_data
 
-            reader = csv.reader(StringIO(csv_data))
+            if not processed_csv_data:
+                return {"success": False, "message": "No CSV data found to import"}
+
+            print(f"DEBUG: CSV data length after processing: {len(processed_csv_data)}")
+            print(f"DEBUG: CSV preview: {processed_csv_data[:200]}")
+
+            reader = csv.reader(StringIO(processed_csv_data))
             lines = list(reader)
             current_section = None
             ranks_data = {}
@@ -324,15 +345,16 @@ class SettingsService:
                 
                 section_header = line[0].strip().lower() if line[0] else ""
                 
-                if "rank" in section_header:
+                if "rank" in section_header and len(line) == 1:
                     current_section = "ranks"
                     print("DEBUG: Entering Ranks section")
                     continue
-                elif "weight" in section_header:
+                elif "weight" in section_header and len(line) == 1:
                     current_section = "weights" 
                     print("DEBUG: Entering Weights section")
                     continue
-                elif "location" in section_header:
+                elif "location" in section_header and len(line) == 1:
+                    shortlist_service.clear_all_locations() #same thing remove if want append
                     current_section = "locations"
                     print("DEBUG: Entering Saved Locations section")
                     continue
@@ -362,6 +384,7 @@ class SettingsService:
                             ranks_data['rEnv'] = rank_int
                         elif "community" in category:
                             ranks_data['rCom'] = rank_int
+                        print(f"DEBUG: Set {category} to {rank_int}")
                     except ValueError:
                         print(f"DEBUG: Invalid rank value: {rank_value}")
                         
@@ -395,6 +418,7 @@ class SettingsService:
                     print(f"DEBUG: Setting ranks to: {ranks}")
                     rank_repo.set(ranks)
                     imported_count += 1
+                    print("DEBUG: Successfully set ranks")
                 except Exception as e:
                     print(f"DEBUG: Failed to set ranks: {e}")
             else:
