@@ -1,25 +1,49 @@
+# app/services/settings_service.py
 from typing import List, Dict, Any, Optional
 import csv
 import json
 import base64
 from datetime import datetime
 from io import StringIO
-from ..domain.models import ExportData, WeightsProfile, ImportRequest, UserPreference, SavedLocation
-from ..repositories.interfaces import IPreferenceRepo, IWeightsRepo
+from pathlib import Path
+import os
+
+from ..domain.models import ExportData, WeightsProfile, ImportRequest, RankProfile, SavedLocation
+from ..repositories.interfaces import IWeightsRepo, IRankRepo
 
 class SettingsService:
     def __init__(
             self,
-            preference_repo: IPreferenceRepo,
+            rank_repo: IRankRepo,
             weights_repo: IWeightsRepo
     ):
-        self.preference_repo = preference_repo
+        self.rank_repo = rank_repo
         self.weights_repo = weights_repo
+        # Create exports directory if it doesn't exist
+        self.exports_dir = Path("exports")
+        self.exports_dir.mkdir(exist_ok=True)
+
+    def _save_export_to_disk(self, content: str, filename: str, export_type: str) -> str:
+        """Save export to server disk and return file path"""
+        try:
+            file_path = self.exports_dir / filename
+            
+            if export_type == "json":
+                file_path.write_text(content, encoding='utf-8')
+            elif export_type == "csv":
+                file_path.write_text(content, encoding='utf-8')
+            else:
+                file_path.write_text(content, encoding='utf-8')
+            
+            return str(file_path)
+        except Exception as e:
+            print(f"Warning: Failed to save export to disk: {e}")
+            return ""
 
     def export_data(self, saved_locations: List[SavedLocation]) -> ExportData:
         """Export user data as JSON-serializable object"""
         try:
-            preference = self._get_preference()
+            ranks = self.rank_repo.get_active()
             
             weights = None
             try:
@@ -28,7 +52,7 @@ class SettingsService:
                 pass
 
             export_data = ExportData(
-                preferences=preference,
+                ranks=ranks,
                 saved_locations=saved_locations,
                 weights=weights,
                 export_date=datetime.now()
@@ -38,8 +62,56 @@ class SettingsService:
         except Exception as e:
             raise ValueError(f"Failed to export data: {str(e)}")
 
-    def export_csv(self, saved_locations: List[SavedLocation]) -> str:
-        """Export user data as CSV format"""
+    def export_json(self, saved_locations: List[SavedLocation], save_to_disk: bool = True) -> Dict[str, Any]:
+        try:
+            export_data = self.export_data(saved_locations)
+            
+            # Convert to serializable dict
+            data_dict = {
+                "ranks": {
+                    "rAff": export_data.ranks.rAff if export_data.ranks else 3,
+                    "rAcc": export_data.ranks.rAcc if export_data.ranks else 3,
+                    "rAmen": export_data.ranks.rAmen if export_data.ranks else 3,
+                    "rEnv": export_data.ranks.rEnv if export_data.ranks else 3,
+                    "rCom": export_data.ranks.rCom if export_data.ranks else 3,
+                } if export_data.ranks else None,
+                "saved_locations": [
+                    {
+                        "postal_code": loc.postal_code,
+                        "address": loc.address,
+                        "area": loc.area,
+                        "name": loc.name,
+                        "notes": loc.notes,
+                        "saved_at": loc.saved_at.isoformat()
+                    }
+                    for loc in export_data.saved_locations
+                ],
+                "weights": {
+                    "id": export_data.weights.id if export_data.weights else "default",
+                    "name": export_data.weights.name if export_data.weights else "Default",
+                    "wAff": export_data.weights.wAff if export_data.weights else 0.2,
+                    "wAcc": export_data.weights.wAcc if export_data.weights else 0.2,
+                    "wAmen": export_data.weights.wAmen if export_data.weights else 0.2,
+                    "wEnv": export_data.weights.wEnv if export_data.weights else 0.2,
+                    "wCom": export_data.weights.wCom if export_data.weights else 0.2,
+                } if export_data.weights else None,
+                "export_date": export_data.export_date.isoformat()
+            }
+            
+            if save_to_disk:
+                import json
+                json_string = json.dumps(data_dict, indent=2)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"livasg_export_{timestamp}.json"
+                saved_path = self._save_export_to_disk(json_string, filename, "json")
+                if saved_path:
+                    print(f"Export saved to: {saved_path}")
+            
+            return data_dict
+        except Exception as e:
+            raise ValueError(f"Failed to export JSON: {str(e)}")
+
+    def export_csv(self, saved_locations: List[SavedLocation], save_to_disk: bool = True) -> str:
         try:
             export_data = self.export_data(saved_locations)
             output = StringIO()
@@ -49,10 +121,16 @@ class SettingsService:
             writer.writerow(["Export Date", datetime.now().isoformat()])
             writer.writerow([])
             
-            writer.writerow(["Preferences"])
+            writer.writerow(["Ranks"])
             writer.writerow(["Category", "Rank"])
-            for category, rank in export_data.preferences.category_ranks.items():
-                writer.writerow([category, rank])
+            if export_data.ranks:
+                writer.writerow(["Affordability", export_data.ranks.rAff])
+                writer.writerow(["Accessibility", export_data.ranks.rAcc])
+                writer.writerow(["Amenities", export_data.ranks.rAmen])
+                writer.writerow(["Environment", export_data.ranks.rEnv])
+                writer.writerow(["Community", export_data.ranks.rCom])
+            else:
+                writer.writerow(["No ranks data available"])
             writer.writerow([])
             
             writer.writerow(["Weights"])
@@ -79,67 +157,33 @@ class SettingsService:
                     location.saved_at.isoformat() if location.saved_at else ""
                 ])
             
-            return output.getvalue()
+            csv_data = output.getvalue()
+            
+            if save_to_disk:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"livasg_export_{timestamp}.csv"
+                saved_path = self._save_export_to_disk(csv_data, filename, "csv")
+                if saved_path:
+                    print(f"Export saved to: {saved_path}")
+            
+            return csv_data
         except Exception as e:
             raise ValueError(f"Failed to export CSV: {str(e)}")
 
-    def export_pdf(self, saved_locations: List[SavedLocation]) -> str:
-        """Export user data as base64 encoded PDF content"""
-        try:
-            export_data = self.export_data(saved_locations)
-            
-            pdf_content = f"""
-LivaSG Export - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-PREFERENCES:
-{chr(10).join([f"- {category}: {rank}" for category, rank in export_data.preferences.category_ranks.items()])}
-
-WEIGHTS:
-Affordability: {export_data.weights.wAff if export_data.weights else 0.2}
-Accessibility: {export_data.weights.wAcc if export_data.weights else 0.2}
-Amenities: {export_data.weights.wAmen if export_data.weights else 0.2}
-Environment: {export_data.weights.wEnv if export_data.weights else 0.2}
-Community: {export_data.weights.wCom if export_data.weights else 0.2}
-
-SAVED LOCATIONS ({len(export_data.saved_locations)}):
-{chr(10).join([f"- {loc.address} ({loc.postal_code}) - {loc.area}" for loc in export_data.saved_locations])}
-
-Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            """.strip()
-            
-            return base64.b64encode(pdf_content.encode('utf-8')).decode('utf-8')
-        except Exception as e:
-            raise ValueError(f"Failed to export PDF: {str(e)}")
-
     def import_data(self, import_data: str, import_type: str = "csv", 
-                   preference_repo: IPreferenceRepo = None,
+                   rank_repo: IRankRepo = None,
                    shortlist_service: Any = None) -> Dict[str, Any]:
-        """Import user data from various formats"""
         try:
             if import_type == "json":
-                return self._import_json(import_data, preference_repo, shortlist_service)
+                return self._import_json(import_data, rank_repo, shortlist_service)
             elif import_type == "csv":
-                return self._import_csv(import_data, preference_repo, shortlist_service)
-            elif import_type == "pdf":
-                return self._import_pdf(import_data, preference_repo, shortlist_service)
+                return self._import_csv(import_data, rank_repo, shortlist_service)
             else:
                 return {"success": False, "message": f"Unsupported import type: {import_type}"}
         except Exception as e:
             return {"success": False, "message": f"Import failed: {str(e)}"}
 
-    def _get_preference(self) -> UserPreference:
-        """Get user preferences, create default if none exists"""
-        try:
-            preference = self.preference_repo.get_preference()
-            if not preference:
-                preference = UserPreference()
-                self.preference_repo.save_preference(preference)
-            return preference
-        except Exception as e:
-            return UserPreference()
-
-    def _import_json(self, json_data: str, preference_repo: IPreferenceRepo, shortlist_service: Any) -> Dict[str, Any]:
-        """Import data from JSON format"""
+    def _import_json(self, json_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
         try:
             if json_data.startswith('data:application/json;base64,'):
                 json_data = json_data.split(',', 1)[1]
@@ -150,18 +194,22 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             except:
                 data = json.loads(json_data)
             
-            preference_repo.delete_preference()
+            rank_repo.clear()
             
             if shortlist_service:
                 for location in shortlist_service.get_saved_locations():
                     shortlist_service.delete_saved_location(location.postal_code)
             
-            if 'preferences' in data:
-                pref_data = data['preferences']
-                preference = UserPreference(
-                    category_ranks=pref_data.get('category_ranks', {})
+            if 'ranks' in data and data['ranks']:
+                ranks_data = data['ranks']
+                ranks = RankProfile(
+                    rAff=ranks_data.get('rAff', 3),
+                    rAcc=ranks_data.get('rAcc', 3),
+                    rAmen=ranks_data.get('rAmen', 3),
+                    rEnv=ranks_data.get('rEnv', 3),
+                    rCom=ranks_data.get('rCom', 3),
                 )
-                preference_repo.save_preference(preference)
+                rank_repo.set(ranks)
             
             if 'saved_locations' in data and shortlist_service:
                 for loc_data in data['saved_locations']:
@@ -174,11 +222,11 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                     }
                     shortlist_service.save_location(location_data)
             
-            if 'weights' in data:
+            if 'weights' in data and data['weights']:
                 weights_data = data['weights']
                 weights = WeightsProfile(
                     id=weights_data.get('id', 'imported'),
-                    label=weights_data.get('label', 'Imported Weights'),
+                    name=weights_data.get('name', 'Imported Weights'),
                     wAff=weights_data.get('wAff', 0.2),
                     wAcc=weights_data.get('wAcc', 0.2),
                     wAmen=weights_data.get('wAmen', 0.2),
@@ -191,10 +239,9 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         except Exception as e:
             return {"success": False, "message": f"JSON import failed: {str(e)}"}
 
-    def _import_csv(self, csv_data: str, preference_repo: IPreferenceRepo, shortlist_service: Any) -> Dict[str, Any]:
-        """Import data from CSV format"""
+    def _import_csv(self, csv_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
         try:
-            preference_repo.delete_preference()
+            rank_repo.clear()
             
             if shortlist_service:
                 for location in shortlist_service.get_saved_locations():
@@ -203,14 +250,14 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             reader = csv.reader(StringIO(csv_data))
             lines = list(reader)
             current_section = None
-            preferences = {}
+            ranks_data = {}
             
             for line in lines:
                 if not line or not any(line):
                     continue
                 
-                if line[0] == "Preferences":
-                    current_section = "preferences"
+                if line[0] == "Ranks":
+                    current_section = "ranks"
                     continue
                 elif line[0] == "Weights":
                     current_section = "weights"
@@ -221,9 +268,19 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                 elif line[0] in ["Export Type", "Export Date"]:
                     continue
                 
-                if current_section == "preferences" and line[0] != "Category":
+                if current_section == "ranks" and line[0] != "Category":
                     if len(line) >= 2:
-                        preferences[line[0]] = int(line[1])
+                        category = line[0].lower()
+                        if "affordability" in category:
+                            ranks_data['rAff'] = int(line[1])
+                        elif "accessibility" in category:
+                            ranks_data['rAcc'] = int(line[1])
+                        elif "amenities" in category:
+                            ranks_data['rAmen'] = int(line[1])
+                        elif "environment" in category:
+                            ranks_data['rEnv'] = int(line[1])
+                        elif "community" in category:
+                            ranks_data['rCom'] = int(line[1])
                 elif current_section == "locations" and line[0] != "Postal Code":
                     if len(line) >= 3 and shortlist_service:
                         location_data = {
@@ -235,66 +292,16 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                         }
                         shortlist_service.save_location(location_data)
             
-            if preferences:
-                preference = UserPreference(category_ranks=preferences)
-                preference_repo.save_preference(preference)
+            if ranks_data:
+                ranks = RankProfile(
+                    rAff=ranks_data.get('rAff', 3),
+                    rAcc=ranks_data.get('rAcc', 3),
+                    rAmen=ranks_data.get('rAmen', 3),
+                    rEnv=ranks_data.get('rEnv', 3),
+                    rCom=ranks_data.get('rCom', 3),
+                )
+                rank_repo.set(ranks)
             
             return {"success": True, "message": "CSV data imported successfully"}
         except Exception as e:
             return {"success": False, "message": f"CSV import failed: {str(e)}"}
-
-    def _import_pdf(self, pdf_data: str, preference_repo: IPreferenceRepo, shortlist_service: Any) -> Dict[str, Any]:
-        """Import data from PDF format (basic text extraction)"""
-        try:
-            try:
-                decoded_data = base64.b64decode(pdf_data).decode('utf-8')
-            except:
-                return {"success": False, "message": "Invalid PDF data format"}
-            
-            lines = decoded_data.split('\n')
-            
-            preference_repo.delete_preference()
-            
-            if shortlist_service:
-                for location in shortlist_service.get_saved_locations():
-                    shortlist_service.delete_saved_location(location.postal_code)
-            
-            current_section = None
-            preferences = {}
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                if "PREFERENCES:" in line:
-                    current_section = "preferences"
-                    continue
-                elif "SAVED LOCATIONS:" in line:
-                    current_section = "locations"
-                    continue
-                
-                if current_section == "preferences" and line.startswith("- "):
-                    parts = line[2:].split(": ")
-                    if len(parts) == 2:
-                        preferences[parts[0]] = int(parts[1])
-                elif current_section == "locations" and line.startswith("- ") and shortlist_service:
-                    import re
-                    match = re.match(r"- (.+) \((\d+)\) - (.+)", line)
-                    if match:
-                        name, postal_code, area = match.groups()
-                        location_data = {
-                            'postal_code': postal_code,
-                            'address': name,
-                            'area': area,
-                            'name': name
-                        }
-                        shortlist_service.save_location(location_data)
-            
-            if preferences:
-                preference = UserPreference(category_ranks=preferences)
-                preference_repo.save_preference(preference)
-            
-            return {"success": True, "message": "PDF data imported successfully"}
-        except Exception as e:
-            return {"success": False, "message": f"PDF import failed: {str(e)}"}

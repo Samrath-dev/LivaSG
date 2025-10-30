@@ -1,0 +1,20 @@
+{
+  "ranks": {
+    "rAff": 1,
+    "rAcc": 2,
+    "rAmen": 3,
+    "rEnv": 4,
+    "rCom": 5
+  },
+  "saved_locations": [],
+  "weights": {
+    "id": "default",
+    "name": "Default",
+    "wAff": 0.2,
+    "wAcc": 0.2,
+    "wAmen": 0.2,
+    "wEnv": 0.2,
+    "wCom": 0.2
+  },
+  "export_date": "2025-10-31T00:22:37.922549"
+}

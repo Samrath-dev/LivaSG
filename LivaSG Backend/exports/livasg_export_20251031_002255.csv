@@ -1,0 +1,21 @@
+Export Type,LivaSG Data Export
+Export Date,2025-10-31T00:22:55.339120
+
+Ranks
+Category,Rank
+Affordability,1
+Accessibility,2
+Amenities,3
+Environment,4
+Community,5
+
+Weights
+Category,Weight
+Affordability,0.2
+Accessibility,0.2
+Amenities,0.2
+Environment,0.2
+Community,0.2
+
+Saved Locations
+Postal Code,Address,Area,Name,Notes,Saved At
