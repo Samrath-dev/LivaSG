@@ -1,4 +1,6 @@
+import {HiTrendingUp } from 'react-icons/hi';
 import React, { useRef, useState, useEffect } from 'react';
+import api from '../api/https';
 import {
   Chart as ChartJS,
   RadialLinearScale,
@@ -51,66 +53,182 @@ export default function CompareLocations({ locations, onClose }: Props) {
   // fetched price trends keyed by location id
   const [priceTrends, setPriceTrends] = useState<Record<number, Array<{ month: string; median: number }>>>({});
   const [loadingPriceTrends, setLoadingPriceTrends] = useState(false);
+  // Errors for radar / price-trend fetches
+  const [radarError, setRadarError] = useState<string | null>(null);
+  const [priceTrendError, setPriceTrendError] = useState<string | null>(null);
+  // simple version keys to trigger retries
+  const [breakdownsFetchVersion, setBreakdownsFetchVersion] = useState(0);
+  // retry helpers
+  const retryFetchBreakdowns = () => {
+    setBreakdownsFetchVersion(v => v + 1);
+    setRadarError(null);
+    setPriceTrendError(null);
+    setLoadingPriceTrends(true);
+  };
+  
+
+  // total unique months across all fetched priceTrends (used for header badge)
+  const totalMonths = React.useMemo(() => {
+    const s = new Set<string>();
+    Object.values(priceTrends).forEach(arr => {
+      if (Array.isArray(arr)) arr.forEach(p => { if (p && p.month) s.add(String(p.month)); });
+    });
+    return s.size;
+  }, [priceTrends]);
+
+  // single-area price trend metrics (mirror DetailsView behavior)
+  interface TrendPoint { month: string; median: number; }
+  const [metrics, setMetrics] = useState<{
+    totalGrowthPercent: number;
+    recentGrowthPercent: number;
+    trendDirection: 'up' | 'down' | 'stable';
+    trendStrength: 'strong' | 'moderate' | 'weak';
+    currentPrice: number;
+    priceChange: number;
+  }>({
+    totalGrowthPercent: 0,
+    recentGrowthPercent: 0,
+    trendDirection: 'stable',
+    trendStrength: 'weak',
+    currentPrice: 0,
+    priceChange: 0,
+  });
+
+  const calculateTrendMetrics = (points: TrendPoint[]) => {
+    if (!points || points.length < 2) {
+      return {
+        totalGrowthPercent: 0,
+        recentGrowthPercent: 0,
+        trendDirection: 'stable' as const,
+        trendStrength: 'weak' as const,
+        currentPrice: 0,
+        priceChange: 0,
+      };
+    }
+
+    const sorted = [...points].sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
+    const startPrice = sorted[0].median || 0;
+    const endPrice = sorted[sorted.length - 1].median || 0;
+    const totalGrowthPercent = startPrice ? ((endPrice - startPrice) / startPrice) * 100 : 0;
+
+    const recentPoints = sorted.slice(-Math.min(6, sorted.length));
+    const recentStart = recentPoints[0].median || 0;
+    const recentEnd = recentPoints[recentPoints.length - 1].median || 0;
+    const recentGrowthPercent = recentStart ? ((recentEnd - recentStart) / recentStart) * 100 : 0;
+
+    const lastThree = sorted.slice(-3);
+    const prices = lastThree.map(p => p.median || 0);
+    const changes = prices.slice(1).map((price, i) => price - prices[i]);
+    const avgChange = changes.length ? changes.reduce((s, c) => s + c, 0) / changes.length : 0;
+
+    let trendDirection: 'up' | 'down' | 'stable' = 'stable';
+    if (avgChange > 500) trendDirection = 'up';
+    else if (avgChange < -500) trendDirection = 'down';
+
+    let trendStrength: 'strong' | 'moderate' | 'weak' = 'weak';
+    const priceRange = Math.max(...prices) - Math.min(...prices) || 0;
+    if (priceRange > 0) {
+      if (Math.abs(avgChange) > priceRange * 0.1) trendStrength = 'strong';
+      else if (Math.abs(avgChange) > priceRange * 0.05) trendStrength = 'moderate';
+    }
+
+    return {
+      totalGrowthPercent,
+      recentGrowthPercent,
+      trendDirection,
+      trendStrength,
+      currentPrice: endPrice,
+      priceChange: endPrice - startPrice,
+    };
+  };
+
+  // Fetch single-area price trend for the first selected location and compute metrics
+  useEffect(() => {
+    let cancelled = false;
+    if (!locs.length) return;
+    const fetchTrend = async () => {
+      try {
+        setPriceTrendError(null);
+        const area = locs[0].area;
+        if (!area) return;
+        const areaId = area.replace(/\s+/g, '-');
+        const res = await api.get(`/details/${areaId}/price-trend`);
+        const raw = (res as any).data;
+        const points = Array.isArray(raw?.points) ? raw.points : (Array.isArray(raw) ? raw : []);
+        const transformed: TrendPoint[] = points.map((p: any) => ({ month: String(p.month), median: Number(p.median) }));
+        if (!cancelled) setMetrics(calculateTrendMetrics(transformed));
+      } catch (err: any) {
+        console.error('Failed to fetch single-area trend in AnalysisView', err);
+        if (!cancelled) setPriceTrendError(`Unable to load price trend: ${err?.message ?? String(err)}`);
+      } finally {
+      }
+    };
+    fetchTrend();
+    return () => { cancelled = true; };
+  }, [locations]);
 
   // Fetch breakdown scores for each provided location from backend:
   useEffect(() => {
     let cancelled = false;
     if (!locs.length) return;
     (async () => {
-      const map: Record<number, Record<string, number>> = {};
-      const priceMap: Record<number, Array<{ month: string; median: number }>> = {};
-      setLoadingPriceTrends(true);
-      await Promise.all(
-        locs.map(async (loc) => {
-          try {
-            // Prefer loc.street or loc.area as identifier
-            const name = encodeURIComponent(loc.street || loc.area || String(loc.id));
-            const res = await fetch(`http://localhost:8000/details/${name}/breakdown`);
-            if (!res.ok) {
-              console.warn('breakdown fetch failed', res.status, loc.street);
-              return;
-            }
-            const json = await res.json().catch(() => null);
-            const scores = json && (json.scores || json) ? (json.scores || json) : null;
-            if (scores && typeof scores === 'object') {
-              // Normalize keys (keep as numbers)
-              const normalized: Record<string, number> = {};
-              Object.keys(scores).forEach(k => {
-                const v = Number(scores[k]);
-                if (!Number.isNaN(v)) normalized[k] = v;
-              });
-              map[loc.id] = normalized;
-            } else {
-              console.warn('Unexpected breakdown payload for', loc.street, json);
-            }
-            // fetch price trend for this location (best-effort). Endpoint returns { points: [{month, median}] }
+      try {
+        setRadarError(null);
+        const map: Record<number, Record<string, number>> = {};
+        const priceMap: Record<number, Array<{ month: string; median: number }>> = {};
+        setLoadingPriceTrends(true);
+        await Promise.all(
+          locs.map(async (loc) => {
             try {
-              const tRes = await fetch(`http://localhost:8000/details/${name}/price-trend`);
-              if (tRes.ok) {
-                const tJson = await tRes.json().catch(() => null);
-                const points = Array.isArray(tJson?.points) ? tJson.points : (Array.isArray(tJson) ? tJson : null);
-                if (points && Array.isArray(points)) {
-                  priceMap[loc.id] = points.map((p: any) => ({ month: String(p.month), median: Number(p.median) }));
-                }
+              // Prefer loc.street or loc.area as identifier
+              const name = encodeURIComponent(loc.street || loc.area || String(loc.id));
+              const res = await fetch(`http://localhost:8000/details/${name}/breakdown`);
+              if (!res.ok) {
+                console.warn('breakdown fetch failed', res.status, loc.street);
+                return;
               }
-            } catch (tErr) {
-              // ignore trend fetch errors for individual locations
+              const json = await res.json().catch(() => null);
+              const scores = json && (json.scores || json) ? (json.scores || json) : null;
+              if (scores && typeof scores === 'object') {
+                // Normalize keys (keep as numbers)
+                const normalized: Record<string, number> = {};
+                Object.keys(scores).forEach(k => { normalized[k] = Number(scores[k]); });
+                map[loc.id] = normalized;
+              } else {
+                console.warn('Unexpected breakdown payload for', loc.street, json);
+              }
+              // fetch price trend for this location (best-effort). Endpoint returns { points: [{month, median}] }
+              try {
+                const tRes = await fetch(`http://localhost:8000/details/${name}/price-trend`);
+                if (tRes.ok) {
+                  const tJson = await tRes.json().catch(() => null);
+                  const pts = tJson && Array.isArray(tJson.points) ? tJson.points : (Array.isArray(tJson) ? tJson : []);
+                  priceMap[loc.id] = pts.map((p: any) => ({ month: String(p.month), median: Number(p.median) }));
+                }
+              } catch (tErr) {
+                // ignore trend fetch errors for individual locations
+              }
+            } catch (err) {
+              console.warn('Failed to fetch breakdown for', loc.street, err);
             }
-          } catch (err) {
-            console.warn('Failed to fetch breakdown for', loc.street, err);
-          }
-        })
-      );
-      if (!cancelled) {
-        setBreakdowns(map);
-        setPriceTrends(priceMap);
-        setLoadingPriceTrends(false);
+          })
+        );
+        if (!cancelled) {
+          setBreakdowns(map);
+          setPriceTrends(priceMap);
+        }
+      } catch (err: any) {
+        console.error('Failed to fetch breakdowns/price trends', err);
+        if (!cancelled) {
+          setRadarError(`Unable to load radar data: ${err?.message ?? String(err)}`);
+          setPriceTrendError(`Unable to load price trends: ${err?.message ?? String(err)}`);
+        }
+      } finally {
+        if (!cancelled) setLoadingPriceTrends(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [locations]);
-
-  // Normalizers across selected locations
+  }, [locations, breakdownsFetchVersion]);
   const growthVals = locs.map((l: LocationResult) => Number(l.growth) || 0);
   const growthMin = growthVals.length ? Math.min(...growthVals) : 0;
   const growthMax = growthVals.length ? Math.max(...growthVals) : 1;
@@ -201,6 +319,15 @@ export default function CompareLocations({ locations, onClose }: Props) {
       );
     }
 
+    if (priceTrendError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-48 text-red-600 p-4">
+          <div className="text-center">{priceTrendError}</div>
+          <button onClick={retryFetchBreakdowns} className="mt-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg">Retry</button>
+        </div>
+      );
+    }
+
     // gather unique months across all series and sort
     const monthSet = new Set<string>();
     series.forEach(s => s.forEach(p => monthSet.add(p.month)));
@@ -224,14 +351,15 @@ export default function CompareLocations({ locations, onClose }: Props) {
     if (allValues.length === 0) allValues = [0, 1];
     const minV = Math.min(...allValues);
     const maxV = Math.max(...allValues);
-  // Layout padding: separate left/right/top/bottom so labels are not clipped
-  const leftPad = 72;
-  const rightPad = 48;
-  const topPad = 48;
-  const bottomPad = 60; // room for rotated x labels
-  const chartWidth = 800;
-  const chartHeight = 400; // plot height
-  const totalHeight = chartHeight + bottomPad;
+
+    // Layout padding: separate left/right/top/bottom so labels are not clipped
+    const leftPad = 72;
+    const rightPad = 48;
+    const topPad = 48;
+    const bottomPad = 60; // room for rotated x labels
+    const chartWidth = 800;
+    const chartHeight = 400; // plot height
+    const totalHeight = chartHeight + bottomPad;
     const getX = (idx: number) => leftPad + (idx * (chartWidth - leftPad - rightPad) / Math.max(1, months.length - 1));
     const getY = (val: number) => chartHeight - bottomPad - ((val - minV) / Math.max(1e-6, (maxV - minV))) * (chartHeight - topPad - bottomPad);
 
@@ -263,9 +391,8 @@ export default function CompareLocations({ locations, onClose }: Props) {
   const labelIndicesSet = new Set<number>([0, months.length - 1, ...quarterIndices]);
 
     return (
-      <div className="bg-white rounded-2xl p-4 border border-purple-100">
+      <div className="bg-white rounded-2xl">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-md font-semibold text-purple-900">Price Trends Comparison</h3>
           <div className="flex items-center gap-3">
             {locs.map((loc, i) => (
               <div key={loc.id} className="flex items-center gap-2 text-sm">
@@ -275,6 +402,20 @@ export default function CompareLocations({ locations, onClose }: Props) {
             ))}
           </div>
         </div>
+
+        {/* Chart Stats */}
+        <div className="flex justify-between items-center mb-4 text-sm">
+          <div className="text-green-600 font-semibold">
+            +{metrics.totalGrowthPercent.toFixed(1)}% total growth
+          </div>
+          <div className={`font-semibold ${
+            metrics.trendDirection === 'up' ? 'text-green-600' : 
+            metrics.trendDirection === 'down' ? 'text-red-600' : 'text-gray-600'
+          }`}>
+            Trend: {metrics.trendDirection} ({metrics.trendStrength})
+          </div>
+        </div>
+
         <div ref={chartContainerRef} className="w-full overflow-hidden relative">
           <svg
             ref={svgRef}
@@ -453,6 +594,24 @@ export default function CompareLocations({ locations, onClose }: Props) {
             </div>
           )}
         </div>
+
+        {/* Data summary: recent growth and current median shown side-by-side */}
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={`flex flex-col items-center justify-center p-4 rounded-lg ${metrics.recentGrowthPercent < 0 ? 'bg-red-50' : metrics.recentGrowthPercent > 0 ? 'bg-green-50' : 'bg-gray-50'}`}>
+            <div className="text-sm text-gray-600">Recent Growth</div>
+            <div className={`${metrics.recentGrowthPercent < 0 ? 'text-red-600' : metrics.recentGrowthPercent > 0 ? 'text-green-600' : 'text-gray-700'} font-semibold text-lg`}>
+              {metrics.recentGrowthPercent > 0 ? '+' : ''}{metrics.recentGrowthPercent.toFixed(1)}%
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center justify-center p-4 bg-purple-50 rounded-lg">
+            <div className="text-sm text-gray-600">Current Median</div>
+            <div className="text-purple-700 font-semibold text-lg">
+              {formatPrice(metrics.currentPrice)}
+            </div>
+          </div>
+        </div>
+
       </div>
     );
   };
@@ -633,40 +792,51 @@ export default function CompareLocations({ locations, onClose }: Props) {
 
         {/* Content area */}
         <div className="p-4 h-[calc(100%-40px)] overflow-auto flex flex-col">
-          {/* Square purple container with centered radar */}
-          <div
-            className="bg-purple-50 p-4 rounded-xl w-full max-w-full mx-auto relative overflow-visible flex-none"
-            style={{ maxHeight: 'min(70vh, 90vw)', aspectRatio: '1 / 1' }}
-          >
-            <div className="absolute inset-0 flex items-center justify-center p-2">
-              <div className="w-full h-full">
-                <Radar
-                  data={data}
-                  options={{ ...options, responsive: true, maintainAspectRatio: false }}
-                  style={{ width: '100%', height: '100%' }}
-                />
+          {/* Radar attributes box — styled to match Price Trend box */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
+                <span className="inline-block w-5 h-5 bg-purple-100 text-purple-700 rounded-md flex items-center justify-center">R</span>
+                Radar Chart
+              </h2>
+              <div className="text-sm text-purple-600 font-medium bg-purple-100 px-3 py-1 rounded-full">
+                {locs.length == 1 ? '1 location' : `${locs.length} locations`}
               </div>
+            </div>
+
+            <div className="relative overflow-visible mx-auto" style={{ maxHeight: 'min(70vh, 90vw)', aspectRatio: '1 / 1' }}>
+              {radarError ? (
+                <div className="flex flex-col items-center justify-center h-64 text-red-600 p-4">
+                  <div className="text-center mb-2">{radarError}</div>
+                  <button onClick={retryFetchBreakdowns} className="mt-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg">Retry</button>
+                </div>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center p-2">
+                  <div className="w-full h-full">
+                    <Radar
+                      data={data}
+                      options={{ ...options, responsive: true, maintainAspectRatio: false }}
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Price comparison chart for selected locations */}
-          <div className="mt-4">
-            {renderPriceComparisonChart()}
-          </div>
-
-          {/* Summary cards for selected locations (up to 5) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mt-4">
-            {locs.map((loc) => (
-              <div key={loc.id} className="p-3 bg-white rounded-lg border border-gray-100">
-                <div className="font-semibold text-purple-900">{loc.street}</div>
-                <div className="text-sm text-purple-700">{loc.area}, {loc.district}</div>
-                <div className="text-sm text-purple-600 mt-2">
-                  Avg Price: {formatPrice(loc.priceRange[0])} - {formatPrice(loc.priceRange[1])}
+          {/* Price History - Updated to handle new data format */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 mt-4 w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
+                  <HiTrendingUp className="w-5 h-5 text-purple-500" />
+                  Price Trend
+                </h2>
+                <div className="text-sm text-purple-600 font-medium bg-purple-100 px-3 py-1 rounded-full">
+                  {totalMonths === 1 ? '1 month' : `${totalMonths} months`}
                 </div>
-                <div className="text-sm text-green-600 font-semibold mt-1">+{loc.growth}% Growth</div>
               </div>
-            ))}
-          </div>
+              {renderPriceComparisonChart()}
+            </div>
         </div>
       </div>
     </div>
