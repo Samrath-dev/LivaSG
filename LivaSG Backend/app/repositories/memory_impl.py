@@ -12,7 +12,7 @@ from datetime import date, datetime
 from pathlib import Path
 from statistics import median
 from typing import DefaultDict, Dict, List, Optional, Tuple
-
+import sqlite3
 
 try:
    
@@ -42,13 +42,12 @@ from ..cache.disk_cache import (
 # domain + interfaces
 from ..domain.models import (
     PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore,
-    CommunityCentre, Transit, Carpark, AreaCentroid, RankProfile,
-    UserPreference, SavedLocation
+    CommunityCentre, Transit, Carpark, AreaCentroid, RankProfile, SavedLocation
 )
 from .interfaces import (
     IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo,
     ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo, IRankRepo,
-    ISavedLocationRepo, IPreferenceRepo
+    ISavedLocationRepo
 )
 from ..integrations import onemap_client as onemap
 
@@ -780,18 +779,6 @@ class MemoryRankRepo(IRankRepo):
     def clear(self) -> None:
         MemoryRankRepo._active = None
 
-class MemoryPreferenceRepo(IPreferenceRepo):
-    _preference: Optional[UserPreference]=None
-
-    def get_preference(self)->Optional[UserPreference]:
-        return self._preference
-    
-    def save_preference(self, preference: UserPreference)-> None:
-        preference.updated_at=lambda: datetime.now()
-        self._preference= preference
-    
-    def delete_preference(self)->None:
-        self._preference = None
 
 class MemorySavedLocationRepo(ISavedLocationRepo):
     _locations: List[SavedLocation]=[]

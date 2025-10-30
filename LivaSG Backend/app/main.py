@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-#transit debug
+# transit debug
 from app.api import transit_debug
 
 # ---- Load env (shell + project .env) ----
@@ -18,29 +18,29 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 # ---- Routers ----
 from app.api import map_controller, details_controller, search_controller, onemap_controller
 from app.api import weights_controller
-from app.api import ranks_controller, preference_controller
-from app.api import shortlist_controller, settings_controller  # NEW
+from app.api import ranks_controller
+from app.api import shortlist_controller, settings_controller
 
 # ---- Repositories ----
 from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
     MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo,
-    MemoryAreaRepo, MemoryCommunityRepo, MemoryRankRepo, 
-    MemoryPreferenceRepo, MemorySavedLocationRepo
+    MemoryAreaRepo, MemoryCommunityRepo,
+    MemorySavedLocationRepo
 )
+
+from app.repositories.sqlite_rank_repo import SQLiteRankRepo
 
 # ---- Services ----
 from app.services.trend_service import TrendService
 from app.services.rating_engine import RatingEngine
 from app.services.search_service import SearchService
-from app.services.preference_service import PreferenceService
-from app.services.shortlist_service import ShortlistService  # NEW
-from app.services.settings_service import SettingsService    # NEW
+from app.services.shortlist_service import ShortlistService
+from app.services.settings_service import SettingsService
 
 # ---- Integrations ----
 from app.integrations.onemap_client import OneMapClientHardcoded
 from app.repositories.api_planning_repo import OneMapPlanningAreaRepo
-
 
 # DI
 # repos
@@ -52,7 +52,7 @@ di_community = MemoryCommunityRepo()
 di_transit   = MemoryTransitRepo()
 di_carpark   = MemoryCarparkRepo()
 di_area      = MemoryAreaRepo()
-di_ranks     = MemoryRankRepo()  # NEW
+di_ranks     = SQLiteRankRepo()
 
 # planning areas / onemap
 di_onemap_client = OneMapClientHardcoded()
@@ -68,26 +68,19 @@ di_engine = RatingEngine(
     di_transit,
     di_carpark,
     di_area,
-    ranks=di_ranks,   # NEW
+    ranks=di_ranks,
 )
 di_search = SearchService(di_engine, di_onemap_client)
 
-di_preference_repo = MemoryPreferenceRepo()           # NEW
-di_saved_location_repo = MemorySavedLocationRepo()    # NEW
+di_saved_location_repo = MemorySavedLocationRepo()
+di_shortlist_service = ShortlistService(di_saved_location_repo)
+di_settings_service = SettingsService(di_ranks, di_weights)
 
-di_shortlist_service = ShortlistService(di_saved_location_repo) 
-di_preference_service = PreferenceService(di_preference_repo) 
-di_settings_service = SettingsService(di_preference_repo, di_weights) 
-
-# new
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: warm any async caches you want ready
     await MemoryTransitRepo.initialize()
-   
     yield
-   
-
 
 # app
 app = FastAPI(title="LivaSG API", lifespan=lifespan)
@@ -115,30 +108,25 @@ app.dependency_overrides[details_controller.get_trend_service] = lambda: di_tren
 # weights
 app.dependency_overrides[weights_controller.get_weights_repo] = lambda: di_weights
 
-# ranks
+# ranks (now handles both ranks and preferences)
 app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks
 
-#transit debug
+# transit debug
 app.dependency_overrides[transit_debug.get_transit_repo] = lambda: di_transit
 
+# shortlist and settings
 app.dependency_overrides[shortlist_controller.get_shortlist_service] = lambda: di_shortlist_service
 app.dependency_overrides[settings_controller.get_settings_service] = lambda: di_settings_service 
 app.dependency_overrides[settings_controller.get_shortlist_service] = lambda: di_shortlist_service
-app.dependency_overrides[settings_controller.get_preference_service] = lambda: di_preference_service
-app.dependency_overrides[preference_controller.get_preference_service] = lambda: di_preference_service
 
 # ========= Routers =========
 app.include_router(map_controller.router)
-app.include_router(details_controller.router)  # prefix handled inside the router
+app.include_router(details_controller.router)
 app.include_router(search_controller.router, prefix="/search", tags=["search"])
 app.include_router(onemap_controller.router)
 app.include_router(weights_controller.router)
 app.include_router(ranks_controller.router)
-
-#transit debug
 app.include_router(transit_debug.router)
-
-app.include_router(preference_controller.router)
 app.include_router(shortlist_controller.router)
 app.include_router(settings_controller.router)
 

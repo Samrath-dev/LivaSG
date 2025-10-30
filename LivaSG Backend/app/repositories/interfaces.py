@@ -2,7 +2,7 @@ from typing import List, Optional
 from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre, AreaCentroid
 from ..domain.models import Transit, Carpark
 from abc import ABC, abstractmethod
-from ..domain.models import RankProfile, UserPreference, SavedLocation
+from ..domain.models import RankProfile, SavedLocation
 from typing import Protocol
 
 class IPriceRepo:
@@ -60,13 +60,6 @@ class IRankRepo(ABC):
     @abstractmethod
     def clear(self) -> None: ...
 
-class IPreferenceRepo(ABC):
-    @abstractmethod
-    def get_preference(self)->Optional[UserPreference]: ...
-    @abstractmethod
-    def save_preference(self,preference:UserPreference)->None: ...
-    @abstractmethod
-    def delete_preference(self)->None: ...
 
 class ISavedLocationRepo(ABC):
     @abstractmethod
