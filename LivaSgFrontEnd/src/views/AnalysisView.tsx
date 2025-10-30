@@ -1,4 +1,4 @@
-import {HiTrendingUp } from 'react-icons/hi';
+import { HiTrendingUp, HiChartBar } from 'react-icons/hi';
 import React, { useRef, useState, useEffect } from 'react';
 import api from '../api/https';
 import {
@@ -796,7 +796,9 @@ export default function CompareLocations({ locations, onClose }: Props) {
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 w-full">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
-                <span className="inline-block w-5 h-5 bg-purple-100 text-purple-700 rounded-md flex items-center justify-center">R</span>
+                <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-purple-100 text-purple-700">
+                  <HiChartBar className="w-4 h-4" />
+                </span>
                 Radar Chart
               </h2>
               <div className="text-sm text-purple-600 font-medium bg-purple-100 px-3 py-1 rounded-full">

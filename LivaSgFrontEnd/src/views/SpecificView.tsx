@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { HiChevronLeft, HiStar, HiInformationCircle, HiBookmark } from 'react-icons/hi';
+import { HiChevronLeft, HiTrendingUp, HiBookmark } from 'react-icons/hi';
+import { FaBuilding } from 'react-icons/fa';
 import OneMapInteractive from '../components/OneMapInteractive';
 import AnalysisView from './AnalysisView';
 import DetailsView from './DetailsView';
@@ -48,7 +49,6 @@ const SpecificView = ({
   const [mapCenter, setMapCenter] = useState<[number, number]>([1.3521, 103.8198]);
   const [mapZoom, setMapZoom] = useState<number>(14);
   const [isSaved, setIsSaved] = useState(false);
-  const [savedLocationId, setSavedLocationId] = useState<number | null>(null);
   const [selectedAreaLocation, setSelectedAreaLocation] = useState<LocationResult | null>(null);
   const [loadingAreaData, setLoadingAreaData] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -75,11 +75,7 @@ const SpecificView = ({
   const detailsOverlayOpacity = detailsVisible ? detailsBaseOverlayOpacity * detailsDragFactor : 0;
   const detailsOverlayTransition = detailsIsDragging ? 'none' : 'opacity 320ms cubic-bezier(0.2,0.9,0.2,1)';
 
-  const detailsModalTransform = detailsIsDragging
-    ? `translateY(${detailsDragY}px)`
-    : !detailsVisible
-    ? 'translateY(100%)'
-    : undefined;
+  
   
   const detailsTransitionStyle = detailsIsDragging ? 'none' : 'transform 220ms cubic-bezier(.2,.9,.2,1)';
   const detailsSheetTranslate = detailsVisible ? `translateY(${detailsDragY}px)` : 'translateY(100%)';
@@ -222,10 +218,8 @@ const SpecificView = ({
       
       if (savedLocation) {
         setIsSaved(true);
-        setSavedLocationId(savedLocation.id);
       } else {
         setIsSaved(false);
-        setSavedLocationId(null);
       }
     } catch (error) {
       console.error('Error checking saved location:', error);
@@ -261,9 +255,9 @@ const SpecificView = ({
 
       if (!response.ok) throw new Error('Failed to save location');
 
-      const savedLocation: SavedLocation = await response.json();
-      setIsSaved(true);
-      setSavedLocationId(savedLocation.id);
+  // Ignore response body; we only need to know the save succeeded
+  await response.json();
+  setIsSaved(true);
       
       // Also save to localStorage as backup
       localStorage.setItem(`saved_${currentArea}`, 'true');
@@ -291,7 +285,6 @@ const SpecificView = ({
       if (!response.ok) throw new Error('Failed to unsave location');
 
       setIsSaved(false);
-      setSavedLocationId(null);
       
       // Remove from localStorage
       localStorage.removeItem(`saved_${currentArea}`);
@@ -518,16 +511,16 @@ const SpecificView = ({
             onClick={handleRatingClick}
             className="flex-1 flex items-center justify-center gap-2 bg-yellow-500 text-white py-3 px-4 rounded-xl font-medium hover:bg-yellow-600 transition-colors shadow-sm"
           >
-            <HiStar className="w-5 h-5" />
-            Rating
+            <HiTrendingUp className="w-5 h-5" />
+            Analysis
           </button>
           
           <button
             onClick={handleDetailsClick}
             className="flex-1 flex items-center justify-center gap-2 bg-purple-600 text-white py-3 px-4 rounded-xl font-medium hover:bg-purple-700 transition-colors shadow-sm"
           >
-            <HiInformationCircle className="w-5 h-5" />
-            Details
+            <FaBuilding className="w-5 h-5" />
+            Facilities
           </button>
         </div>
       </div>
