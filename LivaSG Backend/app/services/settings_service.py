@@ -19,7 +19,6 @@ class SettingsService:
     ):
         self.rank_repo = rank_repo
         self.weights_repo = weights_repo
-        # Create exports directory if it doesn't exist
         self.exports_dir = Path("exports")
         self.exports_dir.mkdir(exist_ok=True)
 
@@ -66,7 +65,6 @@ class SettingsService:
         try:
             export_data = self.export_data(saved_locations)
             
-            # Convert to serializable dict
             data_dict = {
                 "ranks": {
                     "rAff": export_data.ranks.rAff if export_data.ranks else 3,
@@ -174,6 +172,8 @@ class SettingsService:
                    rank_repo: IRankRepo = None,
                    shortlist_service: Any = None) -> Dict[str, Any]:
         try:
+            print(f"DEBUG: Starting import, type: {import_type}, data length: {len(import_data)}")
+            
             if import_type == "json":
                 return self._import_json(import_data, rank_repo, shortlist_service)
             elif import_type == "csv":
@@ -181,127 +181,238 @@ class SettingsService:
             else:
                 return {"success": False, "message": f"Unsupported import type: {import_type}"}
         except Exception as e:
+            print(f"DEBUG: Import failed with exception: {e}")
+            import traceback
+            traceback.print_exc()
             return {"success": False, "message": f"Import failed: {str(e)}"}
 
     def _import_json(self, json_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
         try:
-            if json_data.startswith('data:application/json;base64,'):
-                json_data = json_data.split(',', 1)[1]
+            print("DEBUG: Starting JSON import")
             
-            try:
+            data = None
+            if json_data.startswith('data:application/json;base64,'):
+                print("DEBUG: Detected base64 encoded data")
+                json_data = json_data.split(',', 1)[1]
                 decoded_data = base64.b64decode(json_data).decode('utf-8')
                 data = json.loads(decoded_data)
-            except:
+            elif json_data.startswith('{') or json_data.startswith('['):
+                print("DEBUG: Detected raw JSON data")
                 data = json.loads(json_data)
-            
-            rank_repo.clear()
-            
-            if shortlist_service:
-                for location in shortlist_service.get_saved_locations():
-                    shortlist_service.delete_saved_location(location.postal_code)
-            
+            else:
+                try:
+                    print("DEBUG: Trying base64 decode without prefix")
+                    decoded_data = base64.b64decode(json_data).decode('utf-8')
+                    data = json.loads(decoded_data)
+                except:
+                    return {"success": False, "message": "Invalid JSON data format"}
+
+            if not data:
+                return {"success": False, "message": "No data found in import"}
+
+            print(f"DEBUG: Parsed data keys: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
+
+            imported_count = 0
+            messages = []
+
             if 'ranks' in data and data['ranks']:
-                ranks_data = data['ranks']
-                ranks = RankProfile(
-                    rAff=ranks_data.get('rAff', 3),
-                    rAcc=ranks_data.get('rAcc', 3),
-                    rAmen=ranks_data.get('rAmen', 3),
-                    rEnv=ranks_data.get('rEnv', 3),
-                    rCom=ranks_data.get('rCom', 3),
-                )
-                rank_repo.set(ranks)
-            
+                print("DEBUG: Importing ranks")
+                try:
+                    ranks_data = data['ranks']
+                    ranks = RankProfile(
+                        rAff=ranks_data.get('rAff', 3),
+                        rAcc=ranks_data.get('rAcc', 3),
+                        rAmen=ranks_data.get('rAmen', 3),
+                        rEnv=ranks_data.get('rEnv', 3),
+                        rCom=ranks_data.get('rCom', 3),
+                    )
+                    rank_repo.set(ranks)
+                    imported_count += 1
+                    messages.append("Ranks imported successfully")
+                    print(f"DEBUG: Set ranks to: {ranks}")
+                except Exception as e:
+                    messages.append(f"Failed to import ranks: {str(e)}")
+
             if 'saved_locations' in data and shortlist_service:
-                for loc_data in data['saved_locations']:
-                    location_data = {
-                        'postal_code': loc_data['postal_code'],
-                        'address': loc_data['address'],
-                        'area': loc_data['area'],
-                        'name': loc_data.get('name'),
-                        'notes': loc_data.get('notes')
-                    }
-                    shortlist_service.save_location(location_data)
-            
+                print("DEBUG: Importing saved locations")
+                try:
+                    locations_data = data['saved_locations']
+                    if isinstance(locations_data, list):
+                        for loc_data in locations_data:
+                            try:
+                                location_data = {
+                                    'postal_code': loc_data['postal_code'],
+                                    'address': loc_data['address'],
+                                    'area': loc_data['area'],
+                                    'name': loc_data.get('name'),
+                                    'notes': loc_data.get('notes')
+                                }
+                                shortlist_service.save_location(location_data)
+                                imported_count += 1
+                            except Exception as e:
+                                messages.append(f"Failed to import location {loc_data.get('postal_code', 'unknown')}: {str(e)}")
+                        messages.append(f"Imported {len(locations_data)} saved locations")
+                except Exception as e:
+                    messages.append(f"Failed to import saved locations: {str(e)}")
+
             if 'weights' in data and data['weights']:
-                weights_data = data['weights']
-                weights = WeightsProfile(
-                    id=weights_data.get('id', 'imported'),
-                    name=weights_data.get('name', 'Imported Weights'),
-                    wAff=weights_data.get('wAff', 0.2),
-                    wAcc=weights_data.get('wAcc', 0.2),
-                    wAmen=weights_data.get('wAmen', 0.2),
-                    wEnv=weights_data.get('wEnv', 0.2),
-                    wCom=weights_data.get('wCom', 0.2),
-                )
-                self.weights_repo.save(weights)
-            
-            return {"success": True, "message": "JSON data imported successfully"}
+                print("DEBUG: Importing weights")
+                try:
+                    weights_data = data['weights']
+                    weights = WeightsProfile(
+                        id=weights_data.get('id', 'imported'),
+                        name=weights_data.get('name', 'Imported Weights'),
+                        wAff=weights_data.get('wAff', 0.2),
+                        wAcc=weights_data.get('wAcc', 0.2),
+                        wAmen=weights_data.get('wAmen', 0.2),
+                        wEnv=weights_data.get('wEnv', 0.2),
+                        wCom=weights_data.get('wCom', 0.2),
+                    )
+                    self.weights_repo.save(weights)
+                    imported_count += 1
+                    messages.append("Weights imported successfully")
+                    print(f"DEBUG: Set weights to: {weights}")
+                except Exception as e:
+                    messages.append(f"Failed to import weights: {str(e)}")
+
+            if imported_count > 0:
+                return {
+                    "success": True, 
+                    "message": f"Successfully imported {imported_count} items",
+                    "details": messages
+                }
+            else:
+                return {
+                    "success": False, 
+                    "message": "No valid data found to import",
+                    "details": messages
+                }
+                
         except Exception as e:
+            print(f"DEBUG: JSON import failed with exception: {e}")
+            import traceback
+            traceback.print_exc()
             return {"success": False, "message": f"JSON import failed: {str(e)}"}
 
     def _import_csv(self, csv_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
+        """Import data from CSV format"""
         try:
-            rank_repo.clear()
+            print("DEBUG: Starting CSV import")
             
-            if shortlist_service:
-                for location in shortlist_service.get_saved_locations():
-                    shortlist_service.delete_saved_location(location.postal_code)
-            
+            if csv_data.startswith('data:text/csv;base64,'):
+                print("DEBUG: Detected base64 encoded CSV")
+                csv_data = csv_data.split(',', 1)[1]
+                csv_data = base64.b64decode(csv_data).decode('utf-8')
+            elif csv_data.startswith('data:application/octet-stream;base64,'):
+                print("DEBUG: Detected base64 encoded file")
+                csv_data = csv_data.split(',', 1)[1]
+                csv_data = base64.b64decode(csv_data).decode('utf-8')
+
             reader = csv.reader(StringIO(csv_data))
             lines = list(reader)
             current_section = None
             ranks_data = {}
+            imported_count = 0
             
-            for line in lines:
-                if not line or not any(line):
+            print(f"DEBUG: CSV has {len(lines)} lines")
+
+            for line_num, line in enumerate(lines):
+                if not line or not any(cell.strip() for cell in line):
                     continue
                 
-                if line[0] == "Ranks":
+                print(f"DEBUG: Line {line_num}: {line}")
+                
+                section_header = line[0].strip().lower() if line[0] else ""
+                
+                if "rank" in section_header:
                     current_section = "ranks"
+                    print("DEBUG: Entering Ranks section")
                     continue
-                elif line[0] == "Weights":
-                    current_section = "weights"
+                elif "weight" in section_header:
+                    current_section = "weights" 
+                    print("DEBUG: Entering Weights section")
                     continue
-                elif line[0] == "Saved Locations":
+                elif "location" in section_header:
                     current_section = "locations"
+                    print("DEBUG: Entering Saved Locations section")
                     continue
                 elif line[0] in ["Export Type", "Export Date"]:
                     continue
+                elif "category" in section_header and "rank" in section_header:
+                    continue
+                elif "category" in section_header and "weight" in section_header:
+                    continue
+                elif "postal code" in section_header:
+                    continue
                 
-                if current_section == "ranks" and line[0] != "Category":
-                    if len(line) >= 2:
-                        category = line[0].lower()
+                if current_section == "ranks" and len(line) >= 2:
+                    category = line[0].strip().lower()
+                    rank_value = line[1].strip()
+                    print(f"DEBUG: Processing rank category: {category} = {rank_value}")
+                    
+                    try:
+                        rank_int = int(rank_value)
                         if "affordability" in category:
-                            ranks_data['rAff'] = int(line[1])
+                            ranks_data['rAff'] = rank_int
                         elif "accessibility" in category:
-                            ranks_data['rAcc'] = int(line[1])
+                            ranks_data['rAcc'] = rank_int
                         elif "amenities" in category:
-                            ranks_data['rAmen'] = int(line[1])
+                            ranks_data['rAmen'] = rank_int
                         elif "environment" in category:
-                            ranks_data['rEnv'] = int(line[1])
+                            ranks_data['rEnv'] = rank_int
                         elif "community" in category:
-                            ranks_data['rCom'] = int(line[1])
-                elif current_section == "locations" and line[0] != "Postal Code":
-                    if len(line) >= 3 and shortlist_service:
+                            ranks_data['rCom'] = rank_int
+                    except ValueError:
+                        print(f"DEBUG: Invalid rank value: {rank_value}")
+                        
+                elif current_section == "locations" and len(line) >= 3 and shortlist_service:
+                    print(f"DEBUG: Processing location: {line}")
+                    try:
                         location_data = {
-                            'postal_code': line[0],
-                            'address': line[1],
-                            'area': line[2],
-                            'name': line[3] if len(line) > 3 and line[3] else None,
-                            'notes': line[4] if len(line) > 4 and line[4] else None
+                            'postal_code': line[0].strip(),
+                            'address': line[1].strip(),
+                            'area': line[2].strip(),
+                            'name': line[3].strip() if len(line) > 3 and line[3].strip() else None,
+                            'notes': line[4].strip() if len(line) > 4 and line[4].strip() else None
                         }
                         shortlist_service.save_location(location_data)
+                        imported_count += 1
+                        print(f"DEBUG: Successfully imported location: {location_data['postal_code']}")
+                    except Exception as e:
+                        print(f"DEBUG: Failed to import location: {e}")
+            
+            print(f"DEBUG: Final ranks data: {ranks_data}")
             
             if ranks_data:
-                ranks = RankProfile(
-                    rAff=ranks_data.get('rAff', 3),
-                    rAcc=ranks_data.get('rAcc', 3),
-                    rAmen=ranks_data.get('rAmen', 3),
-                    rEnv=ranks_data.get('rEnv', 3),
-                    rCom=ranks_data.get('rCom', 3),
-                )
-                rank_repo.set(ranks)
+                try:
+                    ranks = RankProfile(
+                        rAff=ranks_data.get('rAff', 3),
+                        rAcc=ranks_data.get('rAcc', 3),
+                        rAmen=ranks_data.get('rAmen', 3),
+                        rEnv=ranks_data.get('rEnv', 3),
+                        rCom=ranks_data.get('rCom', 3),
+                    )
+                    print(f"DEBUG: Setting ranks to: {ranks}")
+                    rank_repo.set(ranks)
+                    imported_count += 1
+                except Exception as e:
+                    print(f"DEBUG: Failed to set ranks: {e}")
+            else:
+                print("DEBUG: No ranks data found in CSV")
             
-            return {"success": True, "message": "CSV data imported successfully"}
+            if imported_count > 0:
+                return {
+                    "success": True, 
+                    "message": f"Successfully imported {imported_count} items from CSV"
+                }
+            else:
+                return {
+                    "success": False, 
+                    "message": "No valid data found to import from CSV"
+                }
+                
         except Exception as e:
+            print(f"DEBUG: CSV import error: {e}")
+            import traceback
+            traceback.print_exc()
             return {"success": False, "message": f"CSV import failed: {str(e)}"}

@@ -84,7 +84,7 @@ def import_data(
     shortlist_service: ShortlistService = Depends(get_shortlist_service)
 ):
     try:
-        from ..main import di_ranks
+        from ..main import di_ranks, di_weights
         
         result = settings_service.import_data(
             import_request.data, 
@@ -94,9 +94,13 @@ def import_data(
         )
         
         if result["success"]:
-            return result
-        else:
-            raise HTTPException(status_code=400, detail=result["message"])
+            try:
+                from ..main import di_engine
+            except:
+                pass
+        
+        return result
+        
     except Exception as e:
         print(f"Import error: {str(e)}")
         print(traceback.format_exc())

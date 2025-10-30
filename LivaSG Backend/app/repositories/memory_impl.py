@@ -780,20 +780,20 @@ class MemoryRankRepo(IRankRepo):
         MemoryRankRepo._active = None
 
 
-class MemorySavedLocationRepo(ISavedLocationRepo):
-    _locations: List[SavedLocation]=[]
-    def get_saved_locations(self)->List[SavedLocation]:
-        return self._locations.copy()
-    
-    def saved_location(self,location: SavedLocation)->None:
-        self._locations=[loc for loc in self._locations if loc.postal_code != location.postal_code]
-        self._locations.append(location)
-
-    def delete_location(self, postal_code: str)->None:
-        self._locations=[loc for loc in self._locations if loc.postal_code != postal_code]
-    
-    def get_location(self, postal_code:str)-> Optional[SavedLocation]:
-        for location in self._locations:
-            if location.postal_code == postal_code:
-                return location
-        return None
+#class MemorySavedLocationRepo(ISavedLocationRepo):
+#    _locations: List[SavedLocation]=[]
+#    def get_saved_locations(self)->List[SavedLocation]:
+#        return self._locations.copy()
+#    
+#    def saved_location(self,location: SavedLocation)->None:
+#        self._locations=[loc for loc in self._locations if loc.postal_code != location.postal_code]
+#        self._locations.append(location)
+#
+#    def delete_location(self, postal_code: str)->None:
+#        self._locations=[loc for loc in self._locations if loc.postal_code != postal_code]
+#    
+#    def get_location(self, postal_code:str)-> Optional[SavedLocation]:
+#        for location in self._locations:
+#            if location.postal_code == postal_code:
+#                return location
+#        return None

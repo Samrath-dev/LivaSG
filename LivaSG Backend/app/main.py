@@ -8,10 +8,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# transit debug
+# --- Transit debugger ---
 from app.api import transit_debug
 
-# ---- Load env (shell + project .env) ----
+# ---- Load env ----
 load_dotenv()
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -25,11 +25,11 @@ from app.api import shortlist_controller, settings_controller
 from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
     MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo,
-    MemoryAreaRepo, MemoryCommunityRepo,
-    MemorySavedLocationRepo
+    MemoryAreaRepo, MemoryCommunityRepo
 )
 
 from app.repositories.sqlite_rank_repo import SQLiteRankRepo
+from app.repositories.sqlite_saved_location_repo import SQLiteSavedLocationRepo  # Add this import
 
 # ---- Services ----
 from app.services.trend_service import TrendService
@@ -53,6 +53,7 @@ di_transit   = MemoryTransitRepo()
 di_carpark   = MemoryCarparkRepo()
 di_area      = MemoryAreaRepo()
 di_ranks     = SQLiteRankRepo()
+di_saved_location_repo = SQLiteSavedLocationRepo()  # Replace the memory implementation
 
 # planning areas / onemap
 di_onemap_client = OneMapClientHardcoded()
@@ -72,8 +73,7 @@ di_engine = RatingEngine(
 )
 di_search = SearchService(di_engine, di_onemap_client)
 
-di_saved_location_repo = MemorySavedLocationRepo()
-di_shortlist_service = ShortlistService(di_saved_location_repo)
+di_shortlist_service = ShortlistService(di_saved_location_repo)  # Use SQLite repo
 di_settings_service = SettingsService(di_ranks, di_weights)
 
 @asynccontextmanager
