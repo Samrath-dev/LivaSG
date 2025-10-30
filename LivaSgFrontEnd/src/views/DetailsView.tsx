@@ -54,7 +54,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     return [1.3521, 103.8198];
   };
 
-  const mapCenter = getLocationCoordinates();
+  const [mapCenter, setMapCenter] = useState<[number, number]>(getLocationCoordinates());
+  const [mapZoom, setMapZoom] = useState<number>(13);
 
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [facilityMarkers, setFacilityMarkers] = useState<Array<{
@@ -91,14 +92,15 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     dining: boolean;
     transport: boolean;
   }>({
-    gym: false,
-    park: false,
-    mall: false,
-    school: false,
-    hospital: false,
-    parking: false,
-    dining: false,
-    transport: false
+    // default: show all facilities when the map opens
+    gym: true,
+    park: true,
+    mall: true,
+    school: true,
+    hospital: true,
+    parking: true,
+    dining: true,
+    transport: true
   });
 
   const toggleOption = (key: keyof typeof selectedOptions) => {
@@ -212,21 +214,112 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     fetchFacilityCounts();
   }, [location.street]);
 
+    // Helpers to compute centroid and zoom for polygon bounds
+    const centroidOf = (coords: [number, number][]) => {
+      const lats = coords.map(c => c[0]);
+      const lngs = coords.map(c => c[1]);
+      const lat = (Math.min(...lats) + Math.max(...lats)) / 2;
+      const lng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+      return [lat, lng] as [number, number];
+    };
+
+    const computeZoomForBounds = (coords: [number, number][], fraction = 0.8) => {
+      if (!coords || coords.length === 0) return 13;
+      const lats = coords.map(c => c[0]);
+      const lngs = coords.map(c => c[1]);
+      const latMin = Math.min(...lats);
+      const latMax = Math.max(...lats);
+      const lonMin = Math.min(...lngs);
+      const lonMax = Math.max(...lngs);
+
+      const lonDelta = Math.max(0.00001, lonMax - lonMin);
+
+      const TILE_SIZE = 256;
+      const viewportW = Math.max(320, window.innerWidth || 1024);
+      const viewportH = Math.max(200, (window.innerHeight || 768) - 160); // leave room for header
+
+      const padding = 32;
+      const frac = Math.max(0.5, Math.min(0.95, fraction));
+      const availableW = Math.max(240, viewportW - padding * 2);
+      const availableH = Math.max(200, viewportH - padding * 2);
+
+      const zoomLon = Math.log2((360 * (availableW * frac)) / (TILE_SIZE * lonDelta));
+
+      const latToMerc = (lat: number) => {
+        const rad = (lat * Math.PI) / 180;
+        return Math.log(Math.tan(Math.PI / 4 + rad / 2));
+      };
+      const mercMin = latToMerc(latMin);
+      const mercMax = latToMerc(latMax);
+      const mercDelta = Math.max(1e-8, Math.abs(mercMax - mercMin));
+
+      const worldMercatorHeight = 2 * Math.PI;
+      const zoomLat = Math.log2((worldMercatorHeight * (availableH * frac)) / (TILE_SIZE * mercDelta));
+
+      const rawZoom = Math.min(zoomLon, zoomLat);
+      const zoom = Math.max(2, Math.min(18, Math.round(rawZoom)));
+      return zoom;
+    };
+
+    // Fetch planning-area geometry and fit map to polygon if available
+    useEffect(() => {
+      const fitToPlanningArea = async () => {
+        if (!location.area) return;
+        try {
+          const resp = await fetch('http://localhost:8000/onemap/planning-areas?year=2019');
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const features = data.features || [];
+          const match = features.find((f: any) => (f.properties?.pln_area_n || '').toString().trim().toUpperCase() === (location.area || '').toString().trim().toUpperCase());
+          if (!match) return;
+          // Use first polygon exterior ring
+          const multi = match.geometry?.coordinates;
+          if (!multi || !Array.isArray(multi) || multi.length === 0) return;
+          const exterior = multi[0] && multi[0][0] ? multi[0][0] : null;
+          if (!exterior || exterior.length === 0) return;
+          const coords: [number, number][] = exterior.map((c: number[]) => [c[1], c[0]]);
+          const center = centroidOf(coords);
+          const zoom = computeZoomForBounds(coords, 0.85);
+          setMapZoom(zoom);
+          // Slight delay to let map mount if needed
+          setMapCenter(center);
+        } catch (err) {
+          // ignore
+        }
+      };
+
+      fitToPlanningArea();
+    }, [location.area]);
+
+  // On mount / when location.street changes, load all facilities (default = all on)
+  useEffect(() => {
+    // Call fetchFacilities to populate markers according to the current selectedOptions (now default all true)
+    fetchFacilities();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.street]);
+
+  // Keep center updated if the raw location coords change
+  useEffect(() => {
+    setMapCenter(getLocationCoordinates());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.latitude, location.longitude, location.lat, location.lng, location.street]);
+
   const handleApplyFilters = async () => {
     await fetchFacilities();
     setShowFilterMenu(false);
   };
 
   const handleResetFilters = () => {
+    // Reset back to default: all facilities shown
     setSelectedOptions({
-      gym: false,
-      park: false,
-      mall: false,
-      school: false,
-      hospital: false,
-      parking: false,
-      dining: false,
-      transport: false
+      gym: true,
+      park: true,
+      mall: true,
+      school: true,
+      hospital: true,
+      parking: true,
+      dining: true,
+      transport: true
     });
     setFacilityMarkers([]);
   };
@@ -318,7 +411,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         <div className="w-full h-full">
           <OneMapEmbedded
             center={mapCenter}
-            zoom={13}
+            zoom={mapZoom}
             markers={facilityMarkers}
             zoomOnly={true}
             className="w-full h-full"
