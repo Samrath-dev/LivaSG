@@ -115,7 +115,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
   const fetchFilteredLocations = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/search/filter', {
+      const response = await fetch('http://localhost:8000/search/filter?view_type=street', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

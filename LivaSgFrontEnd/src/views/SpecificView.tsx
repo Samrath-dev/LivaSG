@@ -107,7 +107,7 @@ const SpecificView = ({
     const fetchAreaStreets = async () => {
       setLoadingAreaData(true);
       try {
-        const response = await fetch(`http://localhost:8000/search/filter`, {
+        const response = await fetch(`http://localhost:8000/search/filter?view_type=planning_area`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
