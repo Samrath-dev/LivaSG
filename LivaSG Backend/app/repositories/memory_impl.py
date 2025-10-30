@@ -42,8 +42,7 @@ from ..cache.disk_cache import (
 # domain + interfaces
 from ..domain.models import (
     PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore,
-    CommunityCentre, Transit, Carpark, AreaCentroid, RankProfile,
-    UserPreference, SavedLocation
+    CommunityCentre, Transit, Carpark, AreaCentroid, RankProfile, SavedLocation
 )
 from .interfaces import (
     IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo,
