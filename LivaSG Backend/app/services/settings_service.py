@@ -32,10 +32,6 @@ class SettingsService:
                 file_path.write_text(content, encoding='utf-8')
             elif export_type == "csv":
                 file_path.write_text(content, encoding='utf-8')
-            elif export_type == "pdf":
-                # For PDF, we have base64 content, so decode it first
-                pdf_bytes = base64.b64decode(content)
-                file_path.write_bytes(pdf_bytes)
             else:
                 file_path.write_text(content, encoding='utf-8')
             
@@ -47,10 +43,8 @@ class SettingsService:
     def export_data(self, saved_locations: List[SavedLocation]) -> ExportData:
         """Export user data as JSON-serializable object"""
         try:
-            # Get active ranks
             ranks = self.rank_repo.get_active()
             
-            # Get active weights
             weights = None
             try:
                 weights = self.weights_repo.get_active()
@@ -69,7 +63,6 @@ class SettingsService:
             raise ValueError(f"Failed to export data: {str(e)}")
 
     def export_json(self, saved_locations: List[SavedLocation], save_to_disk: bool = True) -> Dict[str, Any]:
-        """Export user data as JSON string, set to save to disk"""
         try:
             export_data = self.export_data(saved_locations)
             
@@ -105,8 +98,8 @@ class SettingsService:
                 "export_date": export_data.export_date.isoformat()
             }
             
-            # Save to disk if requested
             if save_to_disk:
+                import json
                 json_string = json.dumps(data_dict, indent=2)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"livasg_export_{timestamp}.json"
@@ -119,7 +112,6 @@ class SettingsService:
             raise ValueError(f"Failed to export JSON: {str(e)}")
 
     def export_csv(self, saved_locations: List[SavedLocation], save_to_disk: bool = True) -> str:
-        """Export user data as CSV format, optionally save to disk"""
         try:
             export_data = self.export_data(saved_locations)
             output = StringIO()
@@ -167,7 +159,6 @@ class SettingsService:
             
             csv_data = output.getvalue()
             
-            # Save to disk if requested
             if save_to_disk:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"livasg_export_{timestamp}.csv"
@@ -179,68 +170,20 @@ class SettingsService:
         except Exception as e:
             raise ValueError(f"Failed to export CSV: {str(e)}")
 
-    def export_pdf(self, saved_locations: List[SavedLocation], save_to_disk: bool = True) -> str:
-        """Export user data as base64 encoded PDF content, optionally save to disk"""
-        try:
-            export_data = self.export_data(saved_locations)
-            
-            pdf_content = f"""
-LivaSG Export - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-RANKS:
-Affordability: {export_data.ranks.rAff if export_data.ranks else 3}
-Accessibility: {export_data.ranks.rAcc if export_data.ranks else 3}
-Amenities: {export_data.ranks.rAmen if export_data.ranks else 3}
-Environment: {export_data.ranks.rEnv if export_data.ranks else 3}
-Community: {export_data.ranks.rCom if export_data.ranks else 3}
-
-WEIGHTS:
-Affordability: {export_data.weights.wAff if export_data.weights else 0.2}
-Accessibility: {export_data.weights.wAcc if export_data.weights else 0.2}
-Amenities: {export_data.weights.wAmen if export_data.weights else 0.2}
-Environment: {export_data.weights.wEnv if export_data.weights else 0.2}
-Community: {export_data.weights.wCom if export_data.weights else 0.2}
-
-SAVED LOCATIONS ({len(export_data.saved_locations)}):
-{chr(10).join([f"- {loc.address} ({loc.postal_code}) - {loc.area}" for loc in export_data.saved_locations])}
-
-Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            """.strip()
-            
-            # Encode to base64 for client
-            pdf_data = base64.b64encode(pdf_content.encode('utf-8')).decode('utf-8')
-            
-            # Save to disk if requested (save the actual text content, not base64)
-            if save_to_disk:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"livasg_export_{timestamp}.txt"
-                saved_path = self._save_export_to_disk(pdf_content, filename, "pdf")
-                if saved_path:
-                    print(f"Export saved to: {saved_path}")
-            
-            return pdf_data
-        except Exception as e:
-            raise ValueError(f"Failed to export PDF: {str(e)}")
-
-    # ... (keep all the existing import methods from previous implementation)
     def import_data(self, import_data: str, import_type: str = "csv", 
                    rank_repo: IRankRepo = None,
                    shortlist_service: Any = None) -> Dict[str, Any]:
-        """Import user data from various formats"""
         try:
             if import_type == "json":
                 return self._import_json(import_data, rank_repo, shortlist_service)
             elif import_type == "csv":
                 return self._import_csv(import_data, rank_repo, shortlist_service)
-            elif import_type == "pdf":
-                return self._import_pdf(import_data, rank_repo, shortlist_service)
             else:
                 return {"success": False, "message": f"Unsupported import type: {import_type}"}
         except Exception as e:
             return {"success": False, "message": f"Import failed: {str(e)}"}
 
     def _import_json(self, json_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
-        """Import data from JSON format"""
         try:
             if json_data.startswith('data:application/json;base64,'):
                 json_data = json_data.split(',', 1)[1]
@@ -251,15 +194,12 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             except:
                 data = json.loads(json_data)
             
-            # Clear existing ranks
             rank_repo.clear()
             
-            # Clear existing shortlist
             if shortlist_service:
                 for location in shortlist_service.get_saved_locations():
                     shortlist_service.delete_saved_location(location.postal_code)
             
-            # Import ranks
             if 'ranks' in data and data['ranks']:
                 ranks_data = data['ranks']
                 ranks = RankProfile(
@@ -271,7 +211,6 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                 )
                 rank_repo.set(ranks)
             
-            # Import saved locations
             if 'saved_locations' in data and shortlist_service:
                 for loc_data in data['saved_locations']:
                     location_data = {
@@ -283,7 +222,6 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                     }
                     shortlist_service.save_location(location_data)
             
-            # Import weights
             if 'weights' in data and data['weights']:
                 weights_data = data['weights']
                 weights = WeightsProfile(
@@ -302,9 +240,7 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             return {"success": False, "message": f"JSON import failed: {str(e)}"}
 
     def _import_csv(self, csv_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
-        """Import data from CSV format"""
         try:
-            # Clear existing data
             rank_repo.clear()
             
             if shortlist_service:
@@ -356,7 +292,6 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                         }
                         shortlist_service.save_location(location_data)
             
-            # Set ranks
             if ranks_data:
                 ranks = RankProfile(
                     rAff=ranks_data.get('rAff', 3),
@@ -370,78 +305,3 @@ Export generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             return {"success": True, "message": "CSV data imported successfully"}
         except Exception as e:
             return {"success": False, "message": f"CSV import failed: {str(e)}"}
-
-    def _import_pdf(self, pdf_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
-        """Import data from PDF format (basic text extraction)"""
-        try:
-            try:
-                decoded_data = base64.b64decode(pdf_data).decode('utf-8')
-            except:
-                return {"success": False, "message": "Invalid PDF data format"}
-            
-            lines = decoded_data.split('\n')
-            
-            # Clear existing data
-            rank_repo.clear()
-            
-            if shortlist_service:
-                for location in shortlist_service.get_saved_locations():
-                    shortlist_service.delete_saved_location(location.postal_code)
-            
-            current_section = None
-            ranks_data = {}
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                if "RANKS:" in line:
-                    current_section = "ranks"
-                    continue
-                elif "SAVED LOCATIONS:" in line:
-                    current_section = "locations"
-                    continue
-                
-                if current_section == "ranks" and ":" in line:
-                    parts = line.split(":")
-                    if len(parts) == 2:
-                        category = parts[0].strip().lower()
-                        rank_value = int(parts[1].strip())
-                        if "affordability" in category:
-                            ranks_data['rAff'] = rank_value
-                        elif "accessibility" in category:
-                            ranks_data['rAcc'] = rank_value
-                        elif "amenities" in category:
-                            ranks_data['rAmen'] = rank_value
-                        elif "environment" in category:
-                            ranks_data['rEnv'] = rank_value
-                        elif "community" in category:
-                            ranks_data['rCom'] = rank_value
-                elif current_section == "locations" and line.startswith("- ") and shortlist_service:
-                    import re
-                    match = re.match(r"- (.+) \((\d+)\) - (.+)", line)
-                    if match:
-                        name, postal_code, area = match.groups()
-                        location_data = {
-                            'postal_code': postal_code,
-                            'address': name,
-                            'area': area,
-                            'name': name
-                        }
-                        shortlist_service.save_location(location_data)
-            
-            # Set ranks
-            if ranks_data:
-                ranks = RankProfile(
-                    rAff=ranks_data.get('rAff', 3),
-                    rAcc=ranks_data.get('rAcc', 3),
-                    rAmen=ranks_data.get('rAmen', 3),
-                    rEnv=ranks_data.get('rEnv', 3),
-                    rCom=ranks_data.get('rCom', 3),
-                )
-                rank_repo.set(ranks)
-            
-            return {"success": True, "message": "PDF data imported successfully"}
-        except Exception as e:
-            return {"success": False, "message": f"PDF import failed: {str(e)}"}

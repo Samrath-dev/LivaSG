@@ -76,26 +76,6 @@ def export_csv(
             detail=f"Failed to export CSV: {str(e)}"
         )
 
-@router.get("/export/pdf")
-def export_pdf(
-    save_to_disk: bool = Query(True, description="Save export to server disk"),
-    settings_service: SettingsService = Depends(get_settings_service),
-    shortlist_service: ShortlistService = Depends(get_shortlist_service)
-):
-    try:
-        saved_locations = shortlist_service.get_saved_locations()
-        pdf_data = settings_service.export_pdf(saved_locations, save_to_disk=save_to_disk)
-        return {
-            "pdf_data": pdf_data,
-            "filename": f"livasg_export_{time.strftime('%Y%m%d_%H%M%S')}.pdf"
-        }
-    except Exception as e:
-        print(f"Export PDF error: {str(e)}")
-        print(traceback.format_exc())
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to export PDF: {str(e)}"
-        )
 
 @router.post("/import")
 def import_data(

@@ -18,7 +18,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 # ---- Routers ----
 from app.api import map_controller, details_controller, search_controller, onemap_controller
 from app.api import weights_controller
-from app.api import ranks_controller  # Only ranks controller now
+from app.api import ranks_controller
 from app.api import shortlist_controller, settings_controller
 
 # ---- Repositories ----
@@ -28,7 +28,7 @@ from app.repositories.memory_impl import (
     MemoryAreaRepo, MemoryCommunityRepo,
     MemorySavedLocationRepo
 )
-# Use SQLite for ranks persistence
+
 from app.repositories.sqlite_rank_repo import SQLiteRankRepo
 
 # ---- Services ----
@@ -52,7 +52,7 @@ di_community = MemoryCommunityRepo()
 di_transit   = MemoryTransitRepo()
 di_carpark   = MemoryCarparkRepo()
 di_area      = MemoryAreaRepo()
-di_ranks     = SQLiteRankRepo()  # Persistent SQLite storage
+di_ranks     = SQLiteRankRepo()
 
 # planning areas / onemap
 di_onemap_client = OneMapClientHardcoded()
