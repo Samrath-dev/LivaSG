@@ -56,27 +56,6 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
   const mapCenter = getLocationCoordinates();
 
-  // Styling for planning-area polygons: highlight the current location area, grey out others
-  const getPolygonStyle = (areaName: string) => {
-    const normalize = (s: string | undefined) => (s || '').toString().trim().toUpperCase();
-    if (normalize(areaName) === normalize(location.area)) {
-      return {
-        fillColor: '#ffff',
-        fillOpacity: 0.0,
-        color: '#030303ff',
-        weight: 3,
-        opacity: 1,
-      };
-    }
-    return {
-      fillColor: '#9CA3AF',
-      fillOpacity: 0.5,
-      color: '#6B7280',
-      weight: 1,
-      opacity: 0.6,
-    };
-  };
-
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [facilityMarkers, setFacilityMarkers] = useState<Array<{
     position: [number, number];
@@ -342,9 +321,6 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
             zoom={13}
             markers={facilityMarkers}
             zoomOnly={true}
-            showPlanningAreas={true}
-            planningAreasYear={2019}
-            getPolygonStyle={getPolygonStyle}
             className="w-full h-full"
           />
         </div>
