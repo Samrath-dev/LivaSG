@@ -26,7 +26,9 @@ interface LocationResult {
   transitScore: number;
   schoolScore: number;
   amenitiesScore: number;
-  postal_code?: string; // Add postal_code for backend integration
+  latitude?: number;
+  longitude?: number;
+  postal_code?: string;
 }
 
 interface SavedLocation {
@@ -34,7 +36,6 @@ interface SavedLocation {
   postal_code: string;
   address: string;
   area: string;
-  // Add other fields as needed
 }
 
 const SpecificView = ({ 
@@ -55,10 +56,12 @@ const SpecificView = ({
   const [detailsDragY, setDetailsDragY] = useState(0);
   const [detailsIsDragging, setDetailsIsDragging] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(false);
+  const [saving, setSaving] = useState(false);
   const detailsStartYRef = useRef(0);
   const detailsModalRef = useRef<HTMLDivElement | null>(null);
   const [currentArea, setCurrentArea] = useState<string>(areaName);
   const [currentCoords, setCurrentCoords] = useState<[number, number][]>(coordinates);
+  const [highlightedArea, setHighlightedArea] = useState<string>(areaName);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const resizeRafRef = useRef<number | null>(null);
@@ -89,6 +92,7 @@ const SpecificView = ({
   useEffect(() => {
     setCurrentArea(areaName);
     setCurrentCoords(coordinates);
+    setHighlightedArea(areaName);
   }, [areaName, coordinates]);
 
   useEffect(() => {
@@ -99,23 +103,91 @@ const SpecificView = ({
       setMapZoom(targetZoom);
     }
 
-    const mockLocationData: LocationResult = {
-      id: Date.now(),
-      street: currentArea,
-      area: currentArea,
-      district: "District",
-      priceRange: [800000, 2000000],
-      avgPrice: 1200,
-      facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
-      description: `${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
-      growth: 10.5,
-      amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
-      transitScore: 85,
-      schoolScore: 80,
-      amenitiesScore: 90,
-      postal_code: generatePostalCode(currentArea) // Generate a postal code for the area
+    // Fetch real street data for the current planning area
+    const fetchAreaStreets = async () => {
+      setLoadingAreaData(true);
+      try {
+        const response = await fetch(`http://localhost:8000/search/filter`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            facilities: [],
+            price_range: [500000, 5000000],
+            search_query: currentArea
+          }),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          // Use the first street result if available
+          if (data && data.length > 0) {
+            const firstStreet = data[0];
+            setSelectedAreaLocation({
+              id: firstStreet.id || Date.now(),
+              street: firstStreet.street || currentArea,
+              area: firstStreet.area || currentArea,
+              district: firstStreet.district || "District",
+              priceRange: firstStreet.price_range || [0, 0],
+              avgPrice: firstStreet.avg_price || 0,
+              facilities: firstStreet.facilities || [],
+              description: firstStreet.description || `${currentArea} is a well-established planning area.`,
+              growth: firstStreet.growth || 0,
+              amenities: firstStreet.amenities || [],
+              transitScore: firstStreet.transit_score || 0,
+              schoolScore: firstStreet.school_score || 0,
+              amenitiesScore: firstStreet.amenities_score || 0,
+              latitude: firstStreet.latitude,
+              longitude: firstStreet.longitude,
+              postal_code: generatePostalCode(currentArea)
+            });
+          } else {
+            // Fallback if no data returned
+            setSelectedAreaLocation({
+              id: Date.now(),
+              street: currentArea,
+              area: currentArea,
+              district: "District",
+              priceRange: [0, 0],
+              avgPrice: 0,
+              facilities: [],
+              description: `${currentArea} planning area.`,
+              growth: 0,
+              amenities: [],
+              transitScore: 0,
+              schoolScore: 0,
+              amenitiesScore: 0,
+              postal_code: generatePostalCode(currentArea)
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching area streets:', error);
+        // Fallback to mock data if API fails
+        const mockLocationData: LocationResult = {
+          id: Date.now(),
+          street: currentArea,
+          area: currentArea,
+          district: "District",
+          priceRange: [12345, 678901],
+          avgPrice: 12345,
+          facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
+          description: `${currentArea} is a well-established planning area with excellent amenities and connectivity.`,
+          growth: 100,
+          amenities: ["Shopping Mall", "MRT Station", "Schools", "Parks"],
+          transitScore: 100,
+          schoolScore: 100,
+          amenitiesScore: 100,
+          postal_code: generatePostalCode(currentArea)
+        };
+        setSelectedAreaLocation(mockLocationData);
+      } finally {
+        setLoadingAreaData(false);
+      }
     };
-    setSelectedAreaLocation(mockLocationData);
+
+    fetchAreaStreets();
   }, [currentCoords, currentArea]);
 
   useEffect(() => {
@@ -130,7 +202,6 @@ const SpecificView = ({
 
   // Generate a mock postal code based on area name
   const generatePostalCode = (area: string): string => {
-    // Simple hash function to generate consistent postal codes
     let hash = 0;
     for (let i = 0; i < area.length; i++) {
       hash = area.charCodeAt(i) + ((hash << 5) - hash);
@@ -173,11 +244,11 @@ const SpecificView = ({
         postal_code: selectedAreaLocation.postal_code || generatePostalCode(currentArea),
         address: selectedAreaLocation.street,
         area: currentArea,
-        // Add other relevant fields from selectedAreaLocation
         district: selectedAreaLocation.district,
         description: selectedAreaLocation.description,
         facilities: selectedAreaLocation.facilities,
-        amenities: selectedAreaLocation.amenities
+        amenities: selectedAreaLocation.amenities,
+        coordinates: currentCoords
       };
 
       const response = await fetch('http://localhost:8000/shortlist/saved-locations', {
@@ -236,10 +307,17 @@ const SpecificView = ({
 
   // Handle save/unsave click
   const handleSaveClick = async () => {
-    if (isSaved) {
-      await unsaveLocation();
-    } else {
-      await saveLocation();
+    setSaving(true);
+    try {
+      if (isSaved) {
+        await unsaveLocation();
+      } else {
+        await saveLocation();
+      }
+    } catch (error) {
+      console.error('Error in save/unsave operation:', error);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -372,6 +450,30 @@ const SpecificView = ({
   const handleInnerAreaClick = (areaNameInner: string, coordsInner: [number, number][]) => {
     setCurrentArea(areaNameInner);
     setCurrentCoords(coordsInner);
+    setHighlightedArea(areaNameInner);
+  };
+
+  // Custom styling function for polygons
+  const getPolygonStyle = (areaName: string) => {
+    if (areaName === highlightedArea) {
+      // Current selected area - white with highlight
+      return {
+        fillColor: '#ffff', // white
+        fillOpacity: 0.7,
+        color: '#030303ff', // black
+        weight: 3,
+        opacity: 1
+      };
+    } else {
+      // Surrounding areas - greyed out
+      return {
+        fillColor: '#9CA3AF', // Gray-400
+        fillOpacity: 0.4,
+        color: '#6B7280', // Gray-500
+        weight: 1,
+        opacity: 0.6
+      };
+    }
   };
 
   return (
@@ -395,14 +497,14 @@ const SpecificView = ({
           {/* Save Button - Top Right */}
           <button
             onClick={handleSaveClick}
+            disabled={saving || loadingAreaData}
             className={`transition-colors ${
               isSaved 
                 ? 'text-yellow-500 hover:text-yellow-600' 
                 : 'text-purple-400 hover:text-purple-600'
-            }`}
-            disabled={loadingAreaData}
+            } ${saving || loadingAreaData ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <HiBookmark className={`w-6 h-6 ${loadingAreaData ? 'opacity-50' : ''}`} />
+            <HiBookmark className="w-6 h-6" />
           </button>
         </div>
 
@@ -441,6 +543,7 @@ const SpecificView = ({
           showPlanningAreas={true}
           planningAreasYear={2019}
           onAreaClick={handleInnerAreaClick}
+          getPolygonStyle={getPolygonStyle} // Pass the custom styling function
           className="w-full h-full"
         />
       </div>
