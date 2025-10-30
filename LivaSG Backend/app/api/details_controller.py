@@ -17,14 +17,35 @@ def get_trend_service():
 
 @router.get("/{area_id}/breakdown", response_model=CategoryBreakdown)
 async def breakdown(area_id: str):
-    """Try street-level breakdown first (if area_id is a street), otherwise fall back to area-level."""
+    """Return category breakdown.
+    - If the area_id matches a street in our local DB, compute a street-level breakdown.
+    - Otherwise, fall back to area-level breakdown from the engine.
+    """
+    # Try street-level first
     try:
-        # Attempt street-level breakdown first
-        return await street_breakdown(area_id)
+        import os, sqlite3
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+        street_db_path = os.path.join(base_dir, 'street_geocode.db')
+        conn = sqlite3.connect(street_db_path)
+        cur = conn.cursor()
+        try:
+            row = cur.execute(
+                "SELECT 1 FROM street_locations WHERE UPPER(street_name) = UPPER(?) LIMIT 1",
+                (area_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if row:
+            # area_id is a street — compute detailed street-specific breakdown
+            return await street_breakdown(area_id)
     except Exception:
-        # Fall back to original area-level breakdown
-        from ..main import di_engine
-        return await di_engine.category_breakdown(area_id)
+        # Any failure -> gracefully fall back to area-level
+        pass
+
+    # Area-level breakdown via engine
+    from ..main import di_engine
+    return await di_engine.category_breakdown(area_id)
 
 @router.get("/{area_id}/facilities", response_model=FacilitiesSummary)
 async def facilities(area_id: str):

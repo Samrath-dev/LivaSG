@@ -2,9 +2,14 @@
 LivaSgFrontEnd/
 get_token.py
 HDBPropertyInformation.csv
+scripts/
+unique_streets.txt
+onemap_locations.json
 
 # Python cache files
 __pycache__/
+*.pyc
+*.cpython-*
 *.py[cod]
 *$py.class
 

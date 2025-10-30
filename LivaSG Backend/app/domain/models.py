@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import date, datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 class FacilitiesSummary(BaseModel):
     schools: int = 0
@@ -123,6 +123,47 @@ class RankProfile(BaseModel):
     rEnv: int  = Field(..., ge=1, le=5)
     rCom: int  = Field(..., ge=1, le=5)
 
+class UserPreference(BaseModel):
+    category_ranks: Dict[str, int] = Field(
+        default_factory=lambda:{
+            "Affordability": 3, #mid point default
+            "Accessibility": 3,
+            "Amenities": 3,
+            "Environment": 3,
+            "Community": 3
+        }
+    )
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now())
+    updated_at: datetime = Field(default_factory=lambda: datetime.now())
+
+
+class SavedLocation(BaseModel):
+    postal_code: str
+    address: str
+    area: str
+    name: Optional[str] = None #remove if you don't want custom name for area
+    notes: Optional[str] = None
+    saved_at: datetime=Field(default_factory=lambda: datetime.now())
+
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+class ExportData(BaseModel):
+    preferences: UserPreference
+    saved_locations: List[SavedLocation]
+    weights: Optional[WeightsProfile]=None
+    export_date: datetime = Field(default_factory=lambda: datetime.now())
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+class ImportRequest(BaseModel):
+    data: str
+    import_type: str = "csv" #functional requirements asked for csv or pdf, but json will suit it better
 
 from datetime import date
 from pydantic import BaseModel

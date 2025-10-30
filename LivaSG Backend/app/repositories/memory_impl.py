@@ -8,19 +8,11 @@ import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from statistics import median
 from typing import DefaultDict, Dict, List, Optional, Tuple
 
-#test
-
-from pathlib import Path
-import csv
-import os
-from collections import defaultdict
-from statistics import median
-from datetime import date
 
 try:
    
@@ -50,11 +42,13 @@ from ..cache.disk_cache import (
 # domain + interfaces
 from ..domain.models import (
     PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore,
-    CommunityCentre, Transit, Carpark, AreaCentroid, RankProfile
+    CommunityCentre, Transit, Carpark, AreaCentroid, RankProfile,
+    UserPreference, SavedLocation
 )
 from .interfaces import (
     IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo,
-    ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo, IRankRepo
+    ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo, IRankRepo,
+    ISavedLocationRepo, IPreferenceRepo
 )
 from ..integrations import onemap_client as onemap
 
@@ -785,3 +779,34 @@ class MemoryRankRepo(IRankRepo):
         MemoryRankRepo._active = r
     def clear(self) -> None:
         MemoryRankRepo._active = None
+
+class MemoryPreferenceRepo(IPreferenceRepo):
+    _preference: Optional[UserPreference]=None
+
+    def get_preference(self)->Optional[UserPreference]:
+        return self._preference
+    
+    def save_preference(self, preference: UserPreference)-> None:
+        preference.updated_at=lambda: datetime.now()
+        self._preference= preference
+    
+    def delete_preference(self)->None:
+        self._preference = None
+
+class MemorySavedLocationRepo(ISavedLocationRepo):
+    _locations: List[SavedLocation]=[]
+    def get_saved_locations(self)->List[SavedLocation]:
+        return self._locations.copy()
+    
+    def saved_location(self,location: SavedLocation)->None:
+        self._locations=[loc for loc in self._locations if loc.postal_code != location.postal_code]
+        self._locations.append(location)
+
+    def delete_location(self, postal_code: str)->None:
+        self._locations=[loc for loc in self._locations if loc.postal_code != postal_code]
+    
+    def get_location(self, postal_code:str)-> Optional[SavedLocation]:
+        for location in self._locations:
+            if location.postal_code == postal_code:
+                return location
+        return None

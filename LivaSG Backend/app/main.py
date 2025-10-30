@@ -18,19 +18,24 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 # ---- Routers ----
 from app.api import map_controller, details_controller, search_controller, onemap_controller
 from app.api import weights_controller
-from app.api import ranks_controller
+from app.api import ranks_controller, preference_controller
+from app.api import shortlist_controller, settings_controller  # NEW
 
 # ---- Repositories ----
 from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
     MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo,
-    MemoryAreaRepo, MemoryCommunityRepo, MemoryRankRepo
+    MemoryAreaRepo, MemoryCommunityRepo, MemoryRankRepo, 
+    MemoryPreferenceRepo, MemorySavedLocationRepo
 )
 
 # ---- Services ----
 from app.services.trend_service import TrendService
 from app.services.rating_engine import RatingEngine
 from app.services.search_service import SearchService
+from app.services.preference_service import PreferenceService
+from app.services.shortlist_service import ShortlistService  # NEW
+from app.services.settings_service import SettingsService    # NEW
 
 # ---- Integrations ----
 from app.integrations.onemap_client import OneMapClientHardcoded
@@ -67,6 +72,12 @@ di_engine = RatingEngine(
 )
 di_search = SearchService(di_engine, di_onemap_client)
 
+di_preference_repo = MemoryPreferenceRepo()           # NEW
+di_saved_location_repo = MemorySavedLocationRepo()    # NEW
+
+di_shortlist_service = ShortlistService(di_saved_location_repo) 
+di_preference_service = PreferenceService(di_preference_repo) 
+di_settings_service = SettingsService(di_preference_repo, di_weights) 
 
 # new
 @asynccontextmanager
@@ -110,6 +121,11 @@ app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks
 #transit debug
 app.dependency_overrides[transit_debug.get_transit_repo] = lambda: di_transit
 
+app.dependency_overrides[shortlist_controller.get_shortlist_service] = lambda: di_shortlist_service
+app.dependency_overrides[settings_controller.get_settings_service] = lambda: di_settings_service 
+app.dependency_overrides[settings_controller.get_shortlist_service] = lambda: di_shortlist_service
+app.dependency_overrides[settings_controller.get_preference_service] = lambda: di_preference_service
+app.dependency_overrides[preference_controller.get_preference_service] = lambda: di_preference_service
 
 # ========= Routers =========
 app.include_router(map_controller.router)
@@ -121,6 +137,10 @@ app.include_router(ranks_controller.router)
 
 #transit debug
 app.include_router(transit_debug.router)
+
+app.include_router(preference_controller.router)
+app.include_router(shortlist_controller.router)
+app.include_router(settings_controller.router)
 
 # ========= Health / debug =========
 @app.get("/")
