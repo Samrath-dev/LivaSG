@@ -18,7 +18,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 # ---- Routers ----
 from app.api import map_controller, details_controller, search_controller, onemap_controller
 from app.api import weights_controller
-from app.api import ranks_controller, preference_controller
+from app.api import ranks_controller
 from app.api import shortlist_controller, settings_controller  # NEW
 
 # ---- Repositories ----
@@ -26,7 +26,7 @@ from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
     MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo,
     MemoryAreaRepo, MemoryCommunityRepo, MemoryRankRepo, 
-    MemoryPreferenceRepo, MemorySavedLocationRepo
+    MemorySavedLocationRepo
 )
 
 # ---- Services ----
@@ -70,12 +70,11 @@ di_engine = RatingEngine(
     ranks=di_ranks,   # NEW
 )
 di_search = SearchService(di_engine, di_onemap_client)
-
-di_preference_repo = MemoryPreferenceRepo()           # NEW
+             # NEW
 di_saved_location_repo = MemorySavedLocationRepo()    # NEW
 
 di_shortlist_service = ShortlistService(di_saved_location_repo) 
-di_settings_service = SettingsService(di_preference_repo, di_weights) 
+di_settings_service = SettingsService(di_weights) 
 
 # new
 @asynccontextmanager
