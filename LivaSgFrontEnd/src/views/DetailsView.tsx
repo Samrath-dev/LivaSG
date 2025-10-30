@@ -1,6 +1,6 @@
-import { HiChevronLeft, HiTrendingUp, HiStar, HiMap, HiHome, HiInformationCircle } from 'react-icons/hi';
+import { HiChevronLeft, HiStar, HiMap, HiHome, HiInformationCircle } from 'react-icons/hi';
 import { useState, useEffect } from 'react';
-import { FaDumbbell, FaTree, FaShoppingBag, FaSchool, FaHospital, FaParking, FaUtensils } from 'react-icons/fa';
+import { FaDumbbell, FaTree, FaShoppingBag, FaSchool, FaHospital, FaParking, FaUtensils, FaBus } from 'react-icons/fa';
 import React, { isValidElement, cloneElement } from 'react';
 import type { ReactNode } from 'react';
 import OneMapEmbedded from '../components/OneMapEmbedded';
@@ -35,21 +35,6 @@ type FilterItemProps = {
   iconStyle?: React.CSSProperties;
   iconClassName?: string;
 };
-
-// Updated interface to match your API response
-interface PriceTrendResponse {
-  areaId: string;
-  points: Array<{
-    month: string;
-    median: number;
-  }>;
-}
-
-// Internal interface for processed data
-interface PricePoint {
-  month: string;
-  medianResale: number;
-}
 
 const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   const formatPrice = (price: number) => {
@@ -86,6 +71,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     hospital: number;
     parking: number;
     dining: number;
+    transport: number;
   }>({
     gym: 0,
     park: 0,
@@ -93,7 +79,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     school: 0,
     hospital: 0,
     parking: 0,
-    dining: 0
+    dining: 0,
+    transport: 0
   });
   const [selectedOptions, setSelectedOptions] = useState<{ 
     gym: boolean; 
@@ -103,6 +90,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     hospital: boolean;
     parking: boolean;
     dining: boolean;
+    transport: boolean;
   }>({
     gym: false,
     park: false,
@@ -110,240 +98,9 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     school: false,
     hospital: false,
     parking: false,
-    dining: false
+    dining: false,
+    transport: false
   });
-
-  // Price trend state - updated to match new API structure
-  const [priceTrend, setPriceTrend] = useState<PricePoint[] | null>(null);
-  const [loadingTrend, setLoadingTrend] = useState(false);
-  const [trendError, setTrendError] = useState<string | null>(null);
-
-  // Calculate trend metrics from the data
-  const calculateTrendMetrics = (points: PricePoint[]) => {
-    if (points.length < 2) {
-      return {
-        totalGrowthPercent: 0,
-        recentGrowthPercent: 0,
-        trendDirection: 'stable',
-        trendStrength: 'weak',
-        currentPrice: 0,
-        priceChange: 0
-      };
-    }
-
-    const sortedPoints = points.sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
-    const startPrice = sortedPoints[0].medianResale;
-    const endPrice = sortedPoints[sortedPoints.length - 1].medianResale;
-    const totalGrowthPercent = ((endPrice - startPrice) / startPrice) * 100;
-
-    // Calculate recent growth (last 6 months or available data)
-    const recentPoints = sortedPoints.slice(-Math.min(6, sortedPoints.length));
-    const recentStartPrice = recentPoints[0].medianResale;
-    const recentEndPrice = recentPoints[recentPoints.length - 1].medianResale;
-    const recentGrowthPercent = ((recentEndPrice - recentStartPrice) / recentStartPrice) * 100;
-
-    // Calculate trend direction based on last 3 points
-    const lastThreePoints = sortedPoints.slice(-3);
-    const prices = lastThreePoints.map(p => p.medianResale);
-    const changes = prices.slice(1).map((price, i) => price - prices[i]);
-    const avgChange = changes.reduce((sum, change) => sum + change, 0) / changes.length;
-    
-    let trendDirection: 'up' | 'down' | 'stable' = 'stable';
-    if (avgChange > 500) trendDirection = 'up';
-    else if (avgChange < -500) trendDirection = 'down';
-
-    let trendStrength: 'strong' | 'moderate' | 'weak' = 'weak';
-    const priceRange = Math.max(...prices) - Math.min(...prices);
-    if (Math.abs(avgChange) > priceRange * 0.1) trendStrength = 'strong';
-    else if (Math.abs(avgChange) > priceRange * 0.05) trendStrength = 'moderate';
-
-    return {
-      totalGrowthPercent,
-      recentGrowthPercent,
-      trendDirection,
-      trendStrength,
-      currentPrice: endPrice,
-      priceChange: endPrice - startPrice
-    };
-  };
-
-  // Fetch price trend data - updated to handle new API format
-  useEffect(() => {
-    const fetchPriceTrend = async () => {
-      setLoadingTrend(true);
-      setTrendError(null);
-      try {
-        // Use area name as areaId - replace spaces with hyphens for URL
-        const areaId = location.area.replace(/\s+/g, '-');
-        
-        console.log('Fetching price trend for area:', areaId);
-        const response = await api.get<PriceTrendResponse>(`/details/${areaId}/price-trend`);
-        console.log('Price trend response:', response.data);
-        
-        // Transform the data to match the expected format
-        const transformedData: PricePoint[] = response.data.points.map(point => ({
-          month: point.month,
-          medianResale: point.median
-        }));
-        
-        setPriceTrend(transformedData);
-      } catch (error: any) {
-        console.error('Failed to fetch price trend:', error);
-        setTrendError(`Unable to load price trend data: ${error.response?.data?.detail || error.message}`);
-      } finally {
-        setLoadingTrend(false);
-      }
-    };
-
-    fetchPriceTrend();
-  }, [location.area]);
-
-  // Render price trend chart
-  const renderPriceChart = () => {
-    if (loadingTrend) {
-      return (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
-          <span className="ml-3 text-purple-600">Loading price trend...</span>
-        </div>
-      );
-    }
-
-    if (trendError) {
-      return (
-        <div className="flex flex-col items-center justify-center h-64 text-red-600 p-4">
-          <span className="text-center">{trendError}</span>
-          <button 
-            onClick={() => window.location.reload()}
-            className="mt-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      );
-    }
-
-    if (!priceTrend || priceTrend.length === 0) {
-      return (
-        <div className="flex items-center justify-center h-64 text-gray-500">
-          <span>No price trend data available for {location.area}</span>
-        </div>
-      );
-    }
-
-    const points = priceTrend;
-    const metrics = calculateTrendMetrics(points);
-    const maxPrice = Math.max(...points.map(p => p.medianResale));
-    const minPrice = Math.min(...points.map(p => p.medianResale));
-    const priceRange = maxPrice - minPrice || 1;
-    
-    // Simple SVG line chart
-    const chartHeight = 200;
-    const chartWidth = 400;
-    const padding = 40;
-
-    const getX = (index: number) => padding + (index * (chartWidth - 2 * padding) / (points.length - 1));
-    const getY = (price: number) => chartHeight - padding - ((price - minPrice) / priceRange) * (chartHeight - 2 * padding);
-
-    const pathData = points.map((point, index) => 
-      `${index === 0 ? 'M' : 'L'} ${getX(index)} ${getY(point.medianResale)}`
-    ).join(' ');
-
-    // Format date for display
-    const formatDate = (dateString: string) => {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
-    };
-
-    return (
-      <div className="w-full">
-        {/* Chart Stats */}
-        <div className="flex justify-between items-center mb-4 text-sm">
-          <div className="text-green-600 font-semibold">
-            +{metrics.totalGrowthPercent.toFixed(1)}% total growth
-          </div>
-          <div className={`font-semibold ${
-            metrics.trendDirection === 'up' ? 'text-green-600' : 
-            metrics.trendDirection === 'down' ? 'text-red-600' : 'text-gray-600'
-          }`}>
-            Trend: {metrics.trendDirection} ({metrics.trendStrength})
-          </div>
-        </div>
-
-        {/* SVG Chart */}
-        <div className="w-full overflow-hidden">
-          <svg 
-            viewBox={`0 0 ${chartWidth} ${chartHeight}`} 
-            className="w-full h-48"
-            preserveAspectRatio="none"
-          >
-            {/* Grid lines */}
-            <line x1={padding} y1={padding} x2={chartWidth - padding} y2={padding} stroke="#e5e7eb" strokeWidth="1" />
-            <line x1={padding} y1={chartHeight / 2} x2={chartWidth - padding} y2={chartHeight / 2} stroke="#e5e7eb" strokeWidth="1" />
-            <line x1={padding} y1={chartHeight - padding} x2={chartWidth - padding} y2={chartHeight - padding} stroke="#e5e7eb" strokeWidth="1" />
-            
-            {/* Price line */}
-            <path 
-              d={pathData} 
-              fill="none" 
-              stroke={metrics.trendDirection === 'up' ? '#10b981' : '#ef4444'} 
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            
-            {/* Data points */}
-            {points.map((point, index) => (
-              <circle 
-                key={index}
-                cx={getX(index)} 
-                cy={getY(point.medianResale)} 
-                r="3" 
-                fill={metrics.trendDirection === 'up' ? '#10b981' : '#ef4444'}
-                className="hover:r-4 transition-all"
-              />
-            ))}
-            
-            {/* Axes */}
-            <line x1={padding} y1={padding} x2={padding} y2={chartHeight - padding} stroke="#6b7280" strokeWidth="2" />
-            <line x1={padding} y1={chartHeight - padding} x2={chartWidth - padding} y2={chartHeight - padding} stroke="#6b7280" strokeWidth="2" />
-            
-            {/* Labels */}
-            <text x={padding - 10} y={padding} textAnchor="end" dominantBaseline="middle" className="text-xs fill-gray-600">
-              {formatPrice(maxPrice)}
-            </text>
-            <text x={padding - 10} y={chartHeight / 2} textAnchor="end" dominantBaseline="middle" className="text-xs fill-gray-600">
-              {formatPrice((maxPrice + minPrice) / 2)}
-            </text>
-            <text x={padding - 10} y={chartHeight - padding} textAnchor="end" dominantBaseline="middle" className="text-xs fill-gray-600">
-              {formatPrice(minPrice)}
-            </text>
-          </svg>
-        </div>
-
-        {/* Timeline labels */}
-        <div className="flex justify-between text-xs text-gray-500 mt-2 px-4">
-          <span>{points[0]?.month ? formatDate(points[0].month) : 'Start'}</span>
-          <span>{points[points.length - 1]?.month ? formatDate(points[points.length - 1].month) : 'Present'}</span>
-        </div>
-
-        {/* Data summary - REMOVED: Time frame blue box, kept only recent growth */}
-        <div className="mt-4 text-center p-2 bg-green-50 rounded-lg">
-          <div className="text-green-600 font-semibold">
-            {metrics.recentGrowthPercent > 0 ? '+' : ''}{metrics.recentGrowthPercent.toFixed(1)}%
-          </div>
-          <div className="text-green-800">Recent Growth</div>
-        </div>
-
-        {/* Current Price */}
-        <div className="mt-4 text-center p-3 bg-purple-50 rounded-lg">
-          <div className="text-purple-700 font-semibold">
-            Current Median: {formatPrice(metrics.currentPrice)}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   const toggleOption = (key: keyof typeof selectedOptions) => {
     setSelectedOptions(prev => ({ ...prev, [key]: !prev[key] }));
@@ -362,7 +119,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         school: 'schools',
         hospital: 'healthcare',
         parking: 'carparks',
-        dining: 'hawkers'
+        dining: 'hawkers',
+        transport: 'transport' // Add transport mapping
       };
 
       // Get selected types
@@ -394,7 +152,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         hawkers: '🍽️',
         healthcare: '🏥',
         parks: '🌳',
-        carparks: '🅿️'
+        carparks: '🅿️',
+        transport: '🚌' // Add transport icon
       };
 
       Object.entries(data.facilities).forEach(([category, items]: [string, any]) => {
@@ -426,7 +185,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         // Fetch all facilities to get counts
         const response = await api.get(
           `/details/street/${encodeURIComponent(location.street)}/facilities-locations`,
-          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks' } }
+          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks,transport' } } // Add transport
         );
 
         const data = response.data as {
@@ -441,7 +200,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
           school: data.facilities.schools?.length || 0,
           hospital: data.facilities.healthcare?.length || 0,
           parking: data.facilities.carparks?.length || 0,
-          dining: data.facilities.hawkers?.length || 0
+          dining: data.facilities.hawkers?.length || 0,
+          transport: data.facilities.transport?.length || 0 // Add transport count
         };
 
         setFacilityCounts(counts);
@@ -466,7 +226,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       school: false,
       hospital: false,
       parking: false,
-      dining: false
+      dining: false,
+      transport: false
     });
     setFacilityMarkers([]);
   };
@@ -564,52 +325,35 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       {/* Content */}
       <div className="flex-1 overflow-auto">
         <div className="w-full max-w-full mx-auto px-4 sm:px-6 lg:px-8 space-y-6 py-6">
-          {/* Price History and Facilities Map shown first */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-            {/* Price History - Updated to handle new data format */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 flex flex-col max-h-[50vh] md:max-h-[520px] overflow-auto">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
-                  <HiTrendingUp className="w-5 h-5 text-purple-500" />
-                  Price Trend
-                </h2>
-                <div className="text-sm text-purple-600 font-medium bg-purple-100 px-3 py-1 rounded-full">
-                  {priceTrend?.length || 0} months
-                </div>
-              </div>
-              {renderPriceChart()}
+          {/* Facilities Map - Now takes full width */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 flex flex-col max-h-[70vh] md:max-h-[600px] overflow-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
+                <HiMap className="w-5 h-5 text-purple-500" />
+                Facilities Map
+              </h2>
+              {/* Filter Facility Button - White with purple outline */}
+              <button
+                onClick={() => setShowFilterMenu(true)}
+                className="inline-flex items-center px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-semibold border-2 border-purple-300 hover:border-purple-500 hover:bg-purple-50 transition-all"
+              >
+                Filter Facilities
+              </button>
             </div>
-
-            {/* Facilities Map */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 flex flex-col max-h-[50vh] md:max-h-[520px] overflow-auto">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
-                  <HiMap className="w-5 h-5 text-purple-500" />
-                  Facilities Map
-                </h2>
-                {/* Filter Facility Button - White with purple outline */}
-                <button
-                  onClick={() => setShowFilterMenu(true)}
-                  className="inline-flex items-center px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-semibold border-2 border-purple-300 hover:border-purple-500 hover:bg-purple-50 transition-all"
-                >
-                  Filter Facilities
-                </button>
-              </div>
-              <div className="w-full rounded-xl border border-purple-100 overflow-hidden z-50" style={{ height: '400px' }}>
-                <OneMapEmbedded
-                  center={mapCenter}
-                  zoom={13}
-                  markers={facilityMarkers}
-                  zoomOnly={true}
-                  className="w-full h-full"
-                />
-              </div>
-              {facilityMarkers.length > 0 && (
-                <div className="mt-3 text-sm text-purple-600 bg-purple-50 px-3 py-2 rounded-lg">
-                  Showing {facilityMarkers.length} facilities on map
-                </div>
-              )}
+            <div className="w-full rounded-xl border border-purple-100 overflow-hidden z-50" style={{ height: '400px' }}>
+              <OneMapEmbedded
+                center={mapCenter}
+                zoom={13}
+                markers={facilityMarkers}
+                zoomOnly={true}
+                className="w-full h-full"
+              />
             </div>
+            {facilityMarkers.length > 0 && (
+              <div className="mt-3 text-sm text-purple-600 bg-purple-50 px-3 py-2 rounded-lg">
+                Showing {facilityMarkers.length} facilities on map
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -655,7 +399,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
                 { key: 'school' as const, label: 'Schools', icon: <FaSchool />, count: facilityCounts.school },
                 { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: facilityCounts.hospital },
                 { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: facilityCounts.parking },
-                { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: facilityCounts.dining }
+                { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: facilityCounts.dining },
+                { key: 'transport' as const, label: 'Transport', icon: <FaBus />, count: facilityCounts.transport } // Added transport filter
               ].map(f => (
                 <FilterItem
                   key={f.key}
