@@ -48,7 +48,7 @@ from ..domain.models import (
 from .interfaces import (
     IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo,
     ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo, IRankRepo,
-    ISavedLocationRepo, IPreferenceRepo
+    ISavedLocationRepo
 )
 from ..integrations import onemap_client as onemap
 
