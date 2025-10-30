@@ -1,3 +1,4 @@
+# app/api/settings_controller.py
 from fastapi import APIRouter, Depends, HTTPException
 import time
 import traceback
@@ -5,7 +6,6 @@ import traceback
 from ..domain.models import ExportData, ImportRequest
 from ..services.settings_service import SettingsService
 from ..services.shortlist_service import ShortlistService
-from ..services.preference_service import PreferenceService
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -17,11 +17,7 @@ def get_shortlist_service():
     from ..main import di_shortlist_service
     return di_shortlist_service
 
-def get_preference_service():
-    from ..main import di_preference_service
-    return di_preference_service
-
-@router.get("/export", response_model=ExportData)
+@router.get("/export/json")
 def export_json(
     settings_service: SettingsService = Depends(get_settings_service),
     shortlist_service: ShortlistService = Depends(get_shortlist_service)
@@ -29,9 +25,27 @@ def export_json(
     """Export user data as JSON"""
     try:
         saved_locations = shortlist_service.get_saved_locations()
-        return settings_service.export_data(saved_locations)
+        json_data = settings_service.export_json(saved_locations)
+        return json_data
     except Exception as e:
         print(f"Export JSON error: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to export data: {str(e)}"
+        )
+
+@router.get("/export", response_model=ExportData)
+def export_data(
+    settings_service: SettingsService = Depends(get_settings_service),
+    shortlist_service: ShortlistService = Depends(get_shortlist_service)
+):
+    """Export user data as Pydantic model"""
+    try:
+        saved_locations = shortlist_service.get_saved_locations()
+        return settings_service.export_data(saved_locations)
+    except Exception as e:
+        print(f"Export error: {str(e)}")
         print(traceback.format_exc())
         raise HTTPException(
             status_code=500, 
@@ -84,17 +98,16 @@ def export_pdf(
 def import_data(
     import_request: ImportRequest,
     settings_service: SettingsService = Depends(get_settings_service),
-    shortlist_service: ShortlistService = Depends(get_shortlist_service),
-    preference_service: PreferenceService = Depends(get_preference_service)
+    shortlist_service: ShortlistService = Depends(get_shortlist_service)
 ):
     """Import user data from backup (default: CSV)"""
     try:
-        from ..main import di_preference_repo
+        from ..main import di_ranks
         
         result = settings_service.import_data(
             import_request.data, 
             import_request.import_type,
-            di_preference_repo,
+            di_ranks,  # Using ranks repo instead of preference repo
             shortlist_service
         )
         

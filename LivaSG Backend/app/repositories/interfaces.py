@@ -2,7 +2,8 @@ from typing import List, Optional
 from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre, AreaCentroid
 from ..domain.models import Transit, Carpark
 from abc import ABC, abstractmethod
-from ..domain.models import RankProfile, UserPreference, SavedLocation
+from ..domain.models import RankProfile, SavedLocation
+from typing import Protocol
 
 class IPriceRepo:
     def series(self, area_id: str, months: int) -> List[PriceRecord]: ...
@@ -59,13 +60,6 @@ class IRankRepo(ABC):
     @abstractmethod
     def clear(self) -> None: ...
 
-class IPreferenceRepo(ABC):
-    @abstractmethod
-    def get_preference(self)->Optional[UserPreference]: ...
-    @abstractmethod
-    def save_preference(self,preference:UserPreference)->None: ...
-    @abstractmethod
-    def delete_preference(self)->None: ...
 
 class ISavedLocationRepo(ABC):
     @abstractmethod
@@ -77,3 +71,14 @@ class ISavedLocationRepo(ABC):
     @abstractmethod
     def get_location(self, postal_code:str)->Optional[SavedLocation]: ...
 
+# new 
+from typing import List
+from ..domain.models import PricePoint
+
+class IPriceRepo(Protocol):
+    def series(self, area_id: str, months: int) -> List["PriceRecord"]:
+        ...
+
+
+    def trend_points(self, area_id: str, *, since_year: int = 2017) -> List[PricePoint]:
+        ...

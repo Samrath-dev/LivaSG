@@ -1,40 +1,48 @@
 # app/main.py
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.services.preference_service import PreferenceService
-from app.services.shortlist_service import ShortlistService  # NEW
-from app.services.settings_service import SettingsService    # NEW
+#transit debug
+from app.api import transit_debug
 
-#-----
-from app.repositories.memory_impl import MemoryRankRepo, MemoryPreferenceRepo, MemorySavedLocationRepo   # NEW
+# ---- Load env (shell + project .env) ----
+load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+
+# ---- Routers ----
+from app.api import map_controller, details_controller, search_controller, onemap_controller
+from app.api import weights_controller
 from app.api import ranks_controller, preference_controller
 from app.api import shortlist_controller, settings_controller  # NEW
 
-# --- Existing Routers (module imports only) ---
-from app.api import map_controller, details_controller, search_controller
-from app.api import onemap_controller  # keep after DI objects created if you prefer
-
-# --- new
-from app.api import weights_controller  
-
-# --- Existing Memory Repositories ---
+# ---- Repositories ----
 from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
     MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo,
-    MemoryAreaRepo, MemoryCommunityRepo
+    MemoryAreaRepo, MemoryCommunityRepo, MemoryRankRepo, 
+    MemoryPreferenceRepo, MemorySavedLocationRepo
 )
 
-# --- Existing Services ---
+# ---- Services ----
 from app.services.trend_service import TrendService
 from app.services.rating_engine import RatingEngine
 from app.services.search_service import SearchService
+from app.services.shortlist_service import ShortlistService  # NEW
+from app.services.settings_service import SettingsService    # NEW
 
-# --- NEW: OneMap Integrations (hardcoded token path) ---
+# ---- Integrations ----
 from app.integrations.onemap_client import OneMapClientHardcoded
 from app.repositories.api_planning_repo import OneMapPlanningAreaRepo
 
-# --- Create DI singletons (memory repos) ---
+
+# DI
+# repos
 di_price     = MemoryPriceRepo()
 di_amenity   = MemoryAmenityRepo()
 di_weights   = MemoryWeightsRepo()
@@ -42,14 +50,14 @@ di_scores    = MemoryScoreRepo()
 di_community = MemoryCommunityRepo()
 di_transit   = MemoryTransitRepo()
 di_carpark   = MemoryCarparkRepo()
-di_area      = MemoryAreaRepo()   # still used by RatingEngine for now
-di_ranks = MemoryRankRepo()  
+di_area      = MemoryAreaRepo()
+di_ranks     = MemoryRankRepo()  # NEW
 
-# --- Create DI for OneMap planning areas ---
+# planning areas / onemap
 di_onemap_client = OneMapClientHardcoded()
 di_planning_repo = OneMapPlanningAreaRepo(di_onemap_client)
 
-# --- Services ---
+# services
 di_trend  = TrendService(di_price)
 di_engine = RatingEngine(
     di_price,
@@ -59,23 +67,29 @@ di_engine = RatingEngine(
     di_transit,
     di_carpark,
     di_area,
-    di_ranks
+    ranks=di_ranks,   # NEW
 )
 di_search = SearchService(di_engine, di_onemap_client)
 
-# --- NEW: Create the separated services ---
 di_preference_repo = MemoryPreferenceRepo()           # NEW
 di_saved_location_repo = MemorySavedLocationRepo()    # NEW
 
-# Create services with correct dependencies
 di_shortlist_service = ShortlistService(di_saved_location_repo) 
-di_preference_service = PreferenceService(di_preference_repo) 
 di_settings_service = SettingsService(di_preference_repo, di_weights) 
 
-# --- FastAPI app ---
-app = FastAPI(title="LivaSG API")
+# new
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: warm any async caches you want ready
+    await MemoryTransitRepo.initialize()
+   
+    yield
+   
 
-# CORS for local React dev
+
+# app
+app = FastAPI(title="LivaSG API", lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -83,38 +97,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- Dependency overrides (avoid circular imports) ----
+# ========= Dependency overrides =========
+# onemap planning areas + client
 app.dependency_overrides[onemap_controller.get_planning_repo] = lambda: di_planning_repo
+app.dependency_overrides[onemap_controller.get_onemap_client] = lambda: di_onemap_client
+
+# map
 app.dependency_overrides[map_controller.get_engine] = lambda: di_engine
 app.dependency_overrides[map_controller.get_weights_service] = lambda: di_weights
 app.dependency_overrides[map_controller.get_planning_repo] = lambda: di_planning_repo
 
-# Provide the OneMap client instance to controllers that depend on it
-app.dependency_overrides[onemap_controller.get_onemap_client] = lambda: di_onemap_client
+# details (trend)
+app.dependency_overrides[details_controller.get_trend_service] = lambda: di_trend
 
-# new
+# weights
 app.dependency_overrides[weights_controller.get_weights_repo] = lambda: di_weights
 
-# ---- Mount routers ----
+# ranks
+app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks
+
+#transit debug
+app.dependency_overrides[transit_debug.get_transit_repo] = lambda: di_transit
+
+app.dependency_overrides[shortlist_controller.get_shortlist_service] = lambda: di_shortlist_service
+app.dependency_overrides[settings_controller.get_settings_service] = lambda: di_settings_service 
+app.dependency_overrides[settings_controller.get_shortlist_service] = lambda: di_shortlist_service
+
+# ========= Routers =========
 app.include_router(map_controller.router)
-app.include_router(details_controller.router, prefix="/details", tags=["details"])
+app.include_router(details_controller.router)  # prefix handled inside the router
 app.include_router(search_controller.router, prefix="/search", tags=["search"])
 app.include_router(onemap_controller.router)
-
-# Configuration and ranking in the middle
 app.include_router(weights_controller.router)
 app.include_router(ranks_controller.router)
 
-app.include_router(preference_controller.router)
+#transit debug
+app.include_router(transit_debug.router)
 app.include_router(shortlist_controller.router)
 app.include_router(settings_controller.router)
 
-# Health
+# ========= Health / debug =========
 @app.get("/")
 def health():
     return {"ok": True}
 
-# --- simple PopAPI debug probe ---
 @app.get("/test-onemap")
 async def test_onemap():
     import httpx
@@ -126,11 +152,3 @@ async def test_onemap():
             return {"status": r.status_code, "raw": r.text[:500]}
     except Exception as e:
         return {"error": str(e)}
-
-
-app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks
-app.dependency_overrides[shortlist_controller.get_shortlist_service] = lambda: di_shortlist_service
-app.dependency_overrides[settings_controller.get_settings_service] = lambda: di_settings_service 
-app.dependency_overrides[settings_controller.get_shortlist_service] = lambda: di_shortlist_service
-app.dependency_overrides[settings_controller.get_preference_service] = lambda: di_preference_service
-app.dependency_overrides[preference_controller.get_preference_service] = lambda: di_preference_service

@@ -1,38 +1,65 @@
-from datetime import date, datetime
+# app/repositories/memory_impl.py
+from __future__ import annotations
+
+# stdlib
+import csv
 import math
 import os
 import time
-from typing import List, Optional
-from ..repositories.interfaces import IRankRepo, ISavedLocationRepo, IPreferenceRepo
-from ..domain.models import RankProfile, UserPreference, SavedLocation
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date, datetime
+from pathlib import Path
+from statistics import median
+from typing import DefaultDict, Dict, List, Optional, Tuple
 
 
+try:
+   
+    from ..cache.paths import PROJECT_ROOT
+except Exception:
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _norm_town(s: str) -> str:
+    return (s or "").strip().upper()
+
+def _parse_month(s: str) -> date:
+    y, m = s.strip().split("-", 1)
+    return date(int(y), int(m), 1)
+
+# third-party
 import requests
-from shapely import MultiPolygon, Point, Polygon
+from shapely.geometry import Point, Polygon, MultiPolygon  # FIXED import path for shapely v2
 
-# NEW
-from ..cache.paths import cache_file
-from ..cache.disk_cache import load_cache, save_cache
+# local cache utils
+from ..cache.paths import PROJECT_ROOT, cache_file
+from ..cache.disk_cache import (
+    load_cache, save_cache,
+    save_cache_with_manifest, try_load_valid_cache, hash_sources
+)
 
+# domain + interfaces
 from ..domain.models import (
     PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore,
-    CommunityCentre, Transit, Carpark, AreaCentroid
+    CommunityCentre, Transit, Carpark, AreaCentroid, RankProfile,
+    UserPreference, SavedLocation
 )
 from .interfaces import (
     IPriceRepo, IAmenityRepo, IWeightsRepo, IScoreRepo,
-    ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo
+    ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo, IRankRepo,
+    ISavedLocationRepo, IPreferenceRepo
 )
 from ..integrations import onemap_client as onemap
 
-# -------------- Cache helpers & settings --------------
 
+# --------------------------------------------------------------------------------------
+# General cache helpers
+# --------------------------------------------------------------------------------------
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "86400"))  # 24h default
 DEBUG_AMEN = os.getenv("DEBUG_AMEN", "0") == "1"
 
 def _cache_get(name: str, ttl: Optional[int] = None):
-    """
-    Return cached payload if exists and is fresh; else None.
-    """
     p = cache_file(name, version=1)
     blob = load_cache(p)
     if not blob:
@@ -49,9 +76,6 @@ def _cache_put(name: str, payload, extra_meta=None):
     save_cache(p, payload=payload, meta=(extra_meta or {}))
 
 def _fetch_json_cached(cache_name: str, url: str, *, ttl: Optional[int] = None):
-    """
-    Cache the JSON result of a GET request (for open data endpoints).
-    """
     cached = _cache_get(cache_name, ttl=ttl)
     if cached is not None:
         return cached
@@ -61,31 +85,193 @@ def _fetch_json_cached(cache_name: str, url: str, *, ttl: Optional[int] = None):
     _cache_put(cache_name, data, {"url": url})
     return data
 
-# -------------- Repositories --------------
 
+# --------------------------------------------------------------------------------------
+# CSV-backed resale price index (for MemoryPriceRepo)
+# --------------------------------------------------------------------------------------
+def _percentile(sorted_vals: List[float], q: float) -> Optional[float]:
+    if not sorted_vals:
+        return None
+    n = len(sorted_vals)
+    if n == 1:
+        return float(sorted_vals[0])
+    idx = q * (n - 1)
+    lo = int(idx)
+    hi = min(lo + 1, n - 1)
+    frac = idx - lo
+    return float(sorted_vals[lo] * (1 - frac) + sorted_vals[hi] * frac)
+
+def _parse_month(s: str) -> date:
+    y, m = s.strip().split("-", 1)
+    return date(int(y), int(m), 1)
+
+def _normalize_area_name(s: str) -> str:
+    return (s or "").strip().upper()
+
+def _load_or_build_price_index(csv_path: Path):
+    """
+    Build and cache:
+      { TOWN_UPPER: [ {month:(y,m), median,p25,p75,volume}, ... ] }
+    """
+    cache_path = cache_file("resale_prices_index", version=1)
+    manifest = hash_sources([csv_path])
+
+    cached = try_load_valid_cache(cache_path, manifest)
+    if cached is not None:
+        return cached
+
+    if not csv_path.exists():
+        save_cache_with_manifest(cache_path, manifest, {}, meta={"reason": "csv_missing"})
+        return {}
+
+    buckets: Dict[Tuple[str, date], List[float]] = defaultdict(list)
+    with csv_path.open("r", newline="", encoding="utf-8") as f:
+        rdr = csv.DictReader(f)
+        for row in rdr:
+            town = _normalize_area_name(row.get("town", ""))
+            month_str = row.get("month")
+            price_str = row.get("resale_price") or row.get("price")
+            if not (town and month_str and price_str):
+                continue
+            try:
+                d = _parse_month(month_str)
+                p = float(str(price_str).replace(",", ""))
+            except Exception:
+                continue
+            buckets[(town, d)].append(p)
+
+    out: Dict[str, List[Dict[str, float]]] = defaultdict(list)
+    per_town: Dict[str, List[Tuple[date, List[float]]]] = defaultdict(list)
+    for (town, d), vals in buckets.items():
+        per_town[town].append((d, vals))
+
+    for town, items in per_town.items():
+        items.sort(key=lambda x: x[0])
+        for d, vals in items:
+            vals_sorted = sorted(vals)
+            med = float(median(vals_sorted))
+            p25 = _percentile(vals_sorted, 0.25) or med
+            p75 = _percentile(vals_sorted, 0.75) or med
+            out[town].append({
+                "month": (d.year, d.month),
+                "median": med,
+                "p25": p25,
+                "p75": p75,
+                "volume": len(vals_sorted),
+            })
+
+    save_cache_with_manifest(cache_path, manifest, out, meta={"source": str(csv_path)})
+    return out
+
+
+# --------------------------------------------------------------------------------------
+# Repositories
+# --------------------------------------------------------------------------------------
 class MemoryPriceRepo(IPriceRepo):
+    """
+    Reads a CSV once into memory. Falls back to the old synthetic series
+    if the town has no rows or the CSV is missing.
+    """
+    def __init__(self):
+        # 1) Resolve path (env wins, else app/data/resale_2017_onwards.csv)
+        env_path = os.getenv("RESALE_CSV_PATH")
+        self._csv_path = Path(env_path).expanduser() if env_path else (PROJECT_ROOT / "data" / "resale_2017_onwards.csv")
+        self._by_town = self._build_index(self._csv_path)
+    @staticmethod
+    def _build_index(csv_path: Path) -> dict[str, list[tuple[date, float, int]]]:
+        """
+        Return: { 'TAMPINES': [(date, median_price, volume), ...], ... }
+        """
+        out: dict[str, list[tuple[date, float, int]]] = {}
+        if not csv_path.exists():
+            return out
+
+        # Aggregate prices per (town, month)
+        buckets = defaultdict(list)  # (town, month_date) -> [prices]
+
+        with csv_path.open("r", newline="", encoding="utf-8") as f:
+            rdr = csv.DictReader(f)
+            for row in rdr:
+                # Normalize keys to lowercase and strip whitespace
+                row = {
+                    k.strip().lower(): (v.strip() if isinstance(v, str) else v)
+                    for k, v in row.items()
+                }
+
+                town = _norm_town(row.get("town"))
+                month_s = row.get("month")
+                price_s = row.get("resale_price")
+
+                if not (town and month_s and price_s):
+                    continue
+
+                try:
+                    d = _parse_month(month_s)
+                    p =float(str(price_s).replace(",", ""))
+                except Exception:
+                    continue
+
+                buckets[(town, d)].append(p)
+
+        per_town = defaultdict(list)
+        for (town, d), vals in buckets.items():
+            vals.sort()
+            per_town[town].append((d, vals))
+
+        for town, items in per_town.items():
+            items.sort(key=lambda x: x[0])
+            series = []
+            for d, vals in items:
+                med = median(vals)
+                series.append((d, med, len(vals)))
+            out[town] = series
+
+        print(f"[PriceRepo] Loaded {sum(len(v) for v in out.values())} months across {len(out)} towns")
+        return out
+ 
+
     def series(self, area_id: str, months: int) -> List[PriceRecord]:
-        base = 500_000 if area_id != "Tampines" else 520_000
+        key = _norm_town(area_id)
+        rows = self._by_town.get(key, [])
+        if rows:
+            tail = rows[-months:] if months > 0 else rows[:]
+            return [
+                PriceRecord(
+                    areaId=area_id,
+                    month=d,
+                    medianResale=int(round(med)),
+                    # quick fill for now; extend later if needed
+                    p25=int(round(med)),
+                    p75=int(round(med)),
+                    volume=vol,
+                )
+                for (d, med, vol) in tail
+            ]
+
+        # Fallback (keeps app working if mapping/town mismatch)
+        base = 520_000 if key == "TAMPINES" else 500_000
         out: List[PriceRecord] = []
         y, m = 2024, 1
-        for i in range(months):
+        for i in range(max(1, months)):
             out.append(PriceRecord(
-                areaId=area_id, month=date(y, m, 1),
-                medianResale=base + i*1200, p25=base-40_000, p75=base+40_000, volume=50-i%5
+                areaId=area_id,
+                month=date(y, m, 1),
+                medianResale=base + i * 1200,
+                p25=base - 40_000,
+                p75=base + 40_000,
+                volume=50 - (i % 5),
             ))
             m += 1
             if m > 12:
-                m, y = 1, y+1
+                m, y = 1, y + 1
         return out
 
-
 class MemoryAmenityRepo(IAmenityRepo):
-    _schools_data = None    # OneMap API
-    _sports_data = None     # data.gov.sg
-    _hawkers_data = None    # data.gov.sg
-    _clinics_data = None    # data.gov.sg
-    _parks_data = None      # data.gov.sg
-    _carparks_data = None   # not used here (carparks in MemoryCarparkRepo)
+    _schools_data = None
+    _sports_data = None
+    _hawkers_data = None
+    _clinics_data = None
+    _parks_data = None
 
     @classmethod
     async def initialize(cls):
@@ -101,10 +287,6 @@ class MemoryAmenityRepo(IAmenityRepo):
             cls._parks_data = cls.getParks()
 
     def _snapshot_id(self) -> str:
-        """
-        Lightweight snapshot string used to invalidate per-area summaries
-        when upstream datasets change (length-based; cheap & sufficient).
-        """
         s = len(self._schools_data or [])
         sp = len(self._sports_data or [])
         h = len(self._hawkers_data or [])
@@ -115,13 +297,11 @@ class MemoryAmenityRepo(IAmenityRepo):
     async def facilities_summary(self, area_id: str) -> FacilitiesSummary:
         await MemoryAmenityRepo.initialize()
 
-        # Per-area cached summary (fast path)
         cache_key = f"fac_summary_{area_id.title()}"
         cached = _cache_get(cache_key, ttl=int(os.getenv("FAC_SUMMARY_TTL", "86400")))
         if cached is not None:
             meta = cached.get("_meta") or {}
             if meta.get("snapshot") == self._snapshot_id():
-                # Reconstruct FacilitiesSummary from cached dict
                 d = cached["data"]
                 return FacilitiesSummary(**d)
 
@@ -129,13 +309,7 @@ class MemoryAmenityRepo(IAmenityRepo):
         areaPolygon, _areaCentroid = area_repo.getAreaGeometry(area_id)
 
         cp_repo = MemoryCarparkRepo()
-        # (Optional) remove noisy prints of CCs
-        # cc_repo = MemoryCommunityRepo()
-        # if DEBUG_AMEN:
-        #     for cc in cc_repo.list_near_area(area_id):
-        #         print(cc.name)
 
-        # Compute fresh
         summary = FacilitiesSummary(
             schools=len(self.filterInside(areaPolygon, self._schools_data)),
             sports=len(self.filterInside(areaPolygon, self._sports_data)),
@@ -145,7 +319,6 @@ class MemoryAmenityRepo(IAmenityRepo):
             carparks=len(cp_repo.list_near_area(area_id)),
         )
 
-        # Save to cache
         _cache_put(cache_key, {
             "_meta": {"snapshot": self._snapshot_id()},
             "data": {
@@ -158,7 +331,7 @@ class MemoryAmenityRepo(IAmenityRepo):
             }
         })
         return summary
-    
+
     @staticmethod
     def filterInside(polygon, locations: List[dict]) -> List[dict]:
         if polygon is None or locations is None:
@@ -174,12 +347,9 @@ class MemoryAmenityRepo(IAmenityRepo):
                 continue
         return inside
 
-    # -------- Cached OneMap search paging --------
+    # ----- Cached OneMap search paging -----
     @staticmethod
     async def searchAllPages(query: str) -> List[dict]:
-        """
-        Cached aggregator across OneMap paging; key is the query string.
-        """
         cache_key = f"onemap_search_{query.replace(' ', '_').lower()}"
         cached = _cache_get(cache_key, ttl=int(os.getenv("ONEMAP_SEARCH_TTL", str(7*24*3600))))
         if cached is not None:
@@ -203,11 +373,11 @@ class MemoryAmenityRepo(IAmenityRepo):
         _cache_put(cache_key, all_results, {"type": "onemap_search_allpages"})
         return all_results
 
-    # -------- Dataset loaders (cached via _fetch_json_cached) --------
+    # ----- Datasets (via data.gov.sg poll-download) -----
     @staticmethod
     async def getSchools():
         return await MemoryAmenityRepo.searchAllPages(query="school")
-    
+
     @staticmethod
     def getSportFacilities():
         dataset_id = "d_9b87bab59d036a60fad2a91530e10773"
@@ -218,16 +388,15 @@ class MemoryAmenityRepo(IAmenityRepo):
             exit(1)
         data_url = poll_json['data']['url']
         location_data = _fetch_json_cached("sports_dataset", data_url)
-        sportfacilities = [
+        return [
             {
-                "name": feature["properties"]["Description"].split("<td>")[1].split("</td>")[0],
-                "address": feature["properties"].get("address"),
-                "latitude": feature['geometry']['coordinates'][0][0][1] if feature['geometry']['type'] == "Polygon" else feature['geometry']['coordinates'][0][0][0][1],
-                "longitude": feature["geometry"]["coordinates"][0][0][0] if feature["geometry"]["type"] == "Polygon" else feature["geometry"]["coordinates"][0][0][0][0]
+                "name": f["properties"]["Description"].split("<td>")[1].split("</td>")[0],
+                "address": f["properties"].get("address"),
+                "latitude": f['geometry']['coordinates'][0][0][1] if f['geometry']['type'] == "Polygon" else f['geometry']['coordinates'][0][0][0][1],
+                "longitude": f["geometry"]["coordinates"][0][0][0] if f["geometry"]["type"] == "Polygon" else f["geometry"]["coordinates"][0][0][0][0]
             }
-            for feature in location_data["features"]
+            for f in location_data["features"]
         ]
-        return sportfacilities
 
     @staticmethod
     def getHawkerCentres():
@@ -241,13 +410,12 @@ class MemoryAmenityRepo(IAmenityRepo):
         location_data = _fetch_json_cached("hawkers_dataset", data_url)
         return [
             {
-                "name": feature["properties"].get("NAME"),
-                "address": feature["properties"].get("address"),
-                "latitude": feature["geometry"]["coordinates"][1],
-                "longitude": feature["geometry"]["coordinates"][0]
+                "name": f["properties"].get("NAME"),
+                "address": f["properties"].get("address"),
+                "latitude": f["geometry"]["coordinates"][1],
+                "longitude": f["geometry"]["coordinates"][0]
             }
-            for feature in location_data["features"]
-            if feature["geometry"]["type"] == "Point"
+            for f in location_data["features"] if f["geometry"]["type"] == "Point"
         ]
 
     @staticmethod
@@ -262,12 +430,11 @@ class MemoryAmenityRepo(IAmenityRepo):
         location_data = _fetch_json_cached("chas_dataset", data_url)
         return [
             {
-                "name": feature["properties"]["Description"].split("<td>")[2].split("</td>")[0],
-                "latitude": feature["geometry"]["coordinates"][1],
-                "longitude": feature["geometry"]["coordinates"][0]
+                "name": f["properties"]["Description"].split("<td>")[2].split("</td>")[0],
+                "latitude": f["geometry"]["coordinates"][1],
+                "longitude": f["geometry"]["coordinates"][0]
             }
-            for feature in location_data["features"]
-            if feature["geometry"]["type"] == "Point"
+            for f in location_data["features"] if f["geometry"]["type"] == "Point"
         ]
 
     @staticmethod
@@ -282,12 +449,11 @@ class MemoryAmenityRepo(IAmenityRepo):
         location_data = _fetch_json_cached("parks_dataset", data_url)
         return [
             {
-                "name": feature["properties"].get("NAME"),
-                "latitude": feature["geometry"]["coordinates"][1],
-                "longitude": feature["geometry"]["coordinates"][0]
+                "name": f["properties"].get("NAME"),
+                "latitude": f["geometry"]["coordinates"][1],
+                "longitude": f["geometry"]["coordinates"][0]
             }
-            for feature in location_data["features"]
-            if feature["geometry"]["type"] == "Point"
+            for f in location_data["features"] if f["geometry"]["type"] == "Point"
         ]
 
 
@@ -301,7 +467,7 @@ class MemoryWeightsRepo(IWeightsRepo):
 class MemoryScoreRepo(IScoreRepo):
     _scores: List[NeighbourhoodScore] = []
     def latest(self, area_id: str, weights_id: str) -> Optional[NeighbourhoodScore]:
-        arr = [s for s in self._scores if s.areaId==area_id and s.weightsProfileId==weights_id]
+        arr = [s for s in self._scores if s.areaId == area_id and s.weightsProfileId == weights_id]
         return arr[-1] if arr else None
     def save(self, s: NeighbourhoodScore) -> None: self._scores.append(s)
 
@@ -318,10 +484,10 @@ class MemoryCommunityRepo(ICommunityRepo):
 
     def exists(self, area_id: str) -> bool:
         return any(c.areaId and c.areaId.lower() == area_id.lower() for c in self._centres)
-    
+
     def list_near_area(self, area_id: str) -> List[CommunityCentre]:
         return [c for c in self._centres if c.areaId and c.areaId.lower() == area_id.lower()]
-    
+
     @classmethod
     def updateCommunityCentres(cls):
         dataset_id = "d_f706de1427279e61fe41e89e24d440fa"
@@ -335,24 +501,27 @@ class MemoryCommunityRepo(ICommunityRepo):
 
         communitycentres: List[CommunityCentre] = []
         for feature in location_data["features"]:
-            if feature["geometry"]["type"] == "Point":
-                communitycentres.append(CommunityCentre(
-                    id = feature["properties"]['Name'],
-                    name = feature["properties"]["Description"].split("<th>NAME</th> <td>")[1].split("</td>")[0],
-                    areaId = MemoryAreaRepo.getArea(feature["geometry"]["coordinates"][0], feature["geometry"]["coordinates"][1]),
-                    address = feature["properties"]["Description"].split("<th>ADDRESSSTREETNAME</th> <td>")[1].split("</td>")[0] 
-                                + " Singapore " 
-                                + feature["properties"]["Description"].split("<th>ADDRESSPOSTALCODE</th> <td>")[1].split("</td>")[0],
-                    latitude = feature["geometry"]["coordinates"][1],
-                    longitude = feature["geometry"]["coordinates"][0]
-                ))
+            if feature["geometry"]["type"] != "Point":
+                continue
+            try:
+                name = feature["properties"]["Description"].split("<th>NAME</th> <td>")[1].split("</td>")[0]
+            except Exception:
+                name = feature["properties"].get('Name')
+            communitycentres.append(CommunityCentre(
+                id=feature["properties"]['Name'],
+                name=name,
+                areaId=MemoryAreaRepo.getArea(feature["geometry"]["coordinates"][0], feature["geometry"]["coordinates"][1]),
+                address=feature["properties"]["Description"].split("<th>ADDRESSSTREETNAME</th> <td>")[1].split("</td>")[0]
+                        + " Singapore "
+                        + feature["properties"]["Description"].split("<th>ADDRESSPOSTALCODE</th> <td>")[1].split("</td>")[0],
+                latitude=feature["geometry"]["coordinates"][1],
+                longitude=feature["geometry"]["coordinates"][0]
+            ))
         cls._centres = communitycentres
 
 
 class MemoryTransitRepo(ITransitRepo):
-    _transit_data = []  # unused, keeping for compatibility
     _nodes: List[Transit] = [
-        # default seed; will be extended/replaced by cached build
         Transit(id="mrt_bukit_panjang", type="mrt", name="Bukit Panjang MRT", areaId="Bukit Panjang", latitude=1.38, longitude=103.77),
         Transit(id="lrt_bukit_panjang", type="lrt", name="Bukit Panjang LRT", areaId="Bukit Panjang", latitude=1.379, longitude=103.771),
         Transit(id="mrt_tampines", type="mrt", name="Tampines MRT", areaId="Tampines", latitude=1.352, longitude=103.94),
@@ -367,22 +536,21 @@ class MemoryTransitRepo(ITransitRepo):
 
     @classmethod
     async def initialize(cls):
-        """
-        Load transit nodes from cache if available, else build (then cache).
-        """
         cache_key = "transit_nodes_v1"
         ttl = int(os.getenv("TRANSIT_TTL", str(7*24*3600)))
         cached = _cache_get(cache_key, ttl=ttl)
-        if cached is not None and isinstance(cached, list) and cached:
-            # hydrate objects
+        if cached and isinstance(cached, list):
             cls._nodes = [
                 Transit(
-                    id=it.get("id"), type=it.get("type"), name=it.get("name"),
-                    areaId=it.get("areaId"), latitude=it.get("latitude"), longitude=it.get("longitude")
+                    id=it.get("id"),
+                    type=it.get("type"),
+                    name=it.get("name"),
+                    areaId=it.get("areaId"),
+                    latitude=it.get("latitude"),
+                    longitude=it.get("longitude"),
                 ) for it in cached
             ]
             return
-        # else build and cache
         await cls.updateTransits()
         _cache_put(cache_key, [
             {
@@ -393,19 +561,14 @@ class MemoryTransitRepo(ITransitRepo):
 
     @classmethod
     async def updateTransits(cls):
-        """
-        Build nodes from OneMap 'MRT' (and later buses); quiet + cached via Amenity search.
-        """
-        trains = await cls.getTrains()
-        buses: List[dict] = []  # placeholder for future LTA DataMall
-
+        trains = await MemoryAmenityRepo.searchAllPages(query="MRT")
         built: List[Transit] = []
         for t in trains:
             name = t.get('SEARCHVAL', '')
             if not name:
                 continue
             u = name.upper()
-            if "EXIT" in u:       # skip exits
+            if "EXIT" in u:
                 continue
             if "MRT" not in u and "LRT" not in u:
                 continue
@@ -422,20 +585,11 @@ class MemoryTransitRepo(ITransitRepo):
                 latitude=lat,
                 longitude=lon
             ))
-        # (future) add buses similarly with a cap
-        cls._nodes = built or cls._nodes  # keep seeds if nothing built
+        cls._nodes = built or cls._nodes
 
     @staticmethod
-    async def searchAllPages(query: str) -> List[dict]:
-        # Reuse the cached OneMap search in MemoryAmenityRepo
-        return await MemoryAmenityRepo.searchAllPages(query)
-    
-    @staticmethod
-    async def getTrains():
-        return await MemoryAmenityRepo.searchAllPages(query="MRT")
-    
-    @staticmethod
     async def getBus():
+        # placeholder for LTA DataMall integration
         return await MemoryAmenityRepo.searchAllPages(query="BUS STOP")
 
 
@@ -451,26 +605,25 @@ class MemoryCarparkRepo(ICarparkRepo):
 
     def list_all(self) -> List[Carpark]:
         return list(self._carparks)
-    
+
     @classmethod
     def updateCarparks(cls):
-        # 1) availability (live) — keep uncached to stay current
+        # 1) live availability
         avail_url = "https://api.data.gov.sg/v1/transport/carpark-availability"
         response = requests.get(avail_url, timeout=30)
         response.raise_for_status()
         carpark_data = response.json()
 
-        # Initialize carpark lots dictionary
-        carpark_lots = {}
-        for record in carpark_data["items"][0]["carpark_data"]:
-            carpark_number = record["carpark_number"]
-            available_lots = 0
-            for lots in record["carpark_info"]:
-                available_lots += int(lots["lots_available"])
-            carpark_lots[carpark_number] = available_lots
+        carpark_lots: Dict[str, int] = {}
+        for rec in carpark_data["items"][0]["carpark_data"]:
+            cp_no = rec["carpark_number"]
+            total = 0
+            for lots in rec["carpark_info"]:
+                total += int(lots["lots_available"])
+            carpark_lots[cp_no] = total
 
-        # 2) HDB carpark information (heavy, paginated) — cache combined records
-        dataset_id = "d_23f946fa557947f93a8043bbef41dd09" # HDB Carpark Information
+        # 2) static info (heavy, paginate) – cached
+        dataset_id = "d_23f946fa557947f93a8043bbef41dd09"
         base_url = "https://data.gov.sg/"
         start_url = "api/action/datastore_search?resource_id=" + dataset_id
 
@@ -480,13 +633,12 @@ class MemoryCarparkRepo(ICarparkRepo):
             curr_url = start_url
             all_records = []
             total = None
-
             while True:
                 url = base_url + curr_url
                 resp = requests.get(url, timeout=60)
                 resp.raise_for_status()
-                location_data = resp.json()
-                result = location_data["result"]
+                payload = resp.json()
+                result = payload["result"]
                 total = result.get("total", total)
                 all_records.extend(result.get("records", []))
                 if DEBUG_AMEN:
@@ -494,32 +646,30 @@ class MemoryCarparkRepo(ICarparkRepo):
                 curr_url = result["_links"]["next"]
                 if len(all_records) >= int(total or 0):
                     break
-
             _cache_put(records_cache_key, all_records, {"dataset": dataset_id, "total": len(all_records)})
             records = all_records
         else:
             records = cached_records
 
-        # Build in-memory objects
         for record in records:
             try:
                 easting = float(record['x_coord'])
                 northing = float(record['y_coord'])
                 lat, lon = svy21_to_wgs84(easting, northing)
                 cls._carparks.append(Carpark(
-                    id = record['address'],
-                    areaId = MemoryAreaRepo.getArea(lon, lat),
-                    latitude = lat,
-                    longitude = lon,
-                    capacity = carpark_lots.get(record.get('car_park_no', ''), 0)
+                    id=record['address'],
+                    areaId=MemoryAreaRepo.getArea(lon, lat),
+                    latitude=lat,
+                    longitude=lon,
+                    capacity=carpark_lots.get(record.get('car_park_no', ''), 0)
                 ))
             except Exception:
                 continue
 
 
 class MemoryAreaRepo(IAreaRepo):
-    _polygons = {}
-    _centroids = {}
+    _polygons: Dict[str, Polygon | MultiPolygon] = {}
+    _centroids: Dict[str, AreaCentroid] = {}
 
     def __init__(self):
         if not MemoryAreaRepo._polygons:
@@ -529,59 +679,54 @@ class MemoryAreaRepo(IAreaRepo):
     def updateArea(cls):
         dataset_id = "d_4765db0e87b9c86336792efe8a1f7a66"
         poll_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
-
         poll_json = _fetch_json_cached("areas_poll", poll_url)
         if poll_json.get('code') != 0:
             print(poll_json.get('errMsg'))
             exit(1)
-
         data_url = poll_json['data']['url']
         location_data = _fetch_json_cached("areas_dataset", data_url)
 
-        # Convert geojson to Polygon or MultiPolygon
         for feature in location_data['features']:
             area_name = feature["properties"]["Description"].split("<td>")[1].split("</td>")[0].title()
+            geom = feature['geometry']
+            gtype = geom['type']
 
-            if feature['geometry']['type'] == "MultiPolygon":
+            if gtype == "MultiPolygon":
                 polygons = []
-                for polygon_coords in feature['geometry']['coordinates']:
+                for polygon_coords in geom['coordinates']:
                     for ring in polygon_coords:
                         polygons.append(Polygon(ring))
                 cls._polygons[area_name] = MultiPolygon(polygons)
-            elif feature['geometry']['type'] == "Polygon":
-                cls._polygons[area_name] = Polygon(feature['geometry']['coordinates'][0])
+            elif gtype == "Polygon":
+                cls._polygons[area_name] = Polygon(geom['coordinates'][0])
 
-            # Calculate centroid
+            # centroid
             coords = []
-            if feature['geometry']['type'] == "MultiPolygon":
-                for polygon_coords in feature['geometry']['coordinates']:
+            if gtype == "MultiPolygon":
+                for polygon_coords in geom['coordinates']:
                     for ring in polygon_coords:
                         coords.extend(ring)
-            elif feature['geometry']['type'] == "Polygon":
-                for ring in feature['geometry']['coordinates']:
+            elif gtype == "Polygon":
+                for ring in geom['coordinates']:
                     coords.extend(ring)
 
             if coords:
                 avg_lon = sum(c[0] for c in coords) / len(coords)
                 avg_lat = sum(c[1] for c in coords) / len(coords)
-                cls._centroids[area_name] = AreaCentroid(
-                    areaId=area_name, latitude=avg_lat, longitude=avg_lon
-                )
+                cls._centroids[area_name] = AreaCentroid(areaId=area_name, latitude=avg_lat, longitude=avg_lon)
 
     @classmethod
     def getArea(cls, longitude: float, latitude: float) -> str:
         if not cls._polygons:
             cls.updateArea()
-        area_id = "None"
         point = Point(longitude, latitude)
         for area_name, polygon in cls._polygons.items():
             try:
                 if polygon.contains(point):
-                    area_id = area_name
-                    break
+                    return area_name
             except Exception:
                 continue
-        return area_id
+        return "None"
 
     @classmethod
     def getAreaGeometry(cls, area_id: str):
@@ -590,12 +735,13 @@ class MemoryAreaRepo(IAreaRepo):
 
     @classmethod
     def list_all(cls) -> List[AreaCentroid]:
-        return list(cls._centroids)
+        return list(cls._centroids.values())
 
 
-# Convert X Y to Latitude Longitude
+# --------------------------------------------------------------------------------------
+# Utilities
+# --------------------------------------------------------------------------------------
 def svy21_to_wgs84(E, N):
-    # Constants
     a = 6378137.0
     f = 1 / 298.257223563
     e2 = 2*f - f**2
@@ -605,59 +751,35 @@ def svy21_to_wgs84(E, N):
     N0 = 38744.572
     E0 = 28001.642
 
-    # Meridional arc
     M = (N - N0) / k0
-
-    # Footprint latitude
     phi = phi0 + M / (a * (1 - e2/4 - 3*e2**2/64 - 5*e2**3/256))
-
-    # Radii of curvature
     nu = a / math.sqrt(1 - e2 * math.sin(phi)**2)
     rho = a * (1 - e2) / (1 - e2 * math.sin(phi)**2)**1.5
     eta2 = nu / rho - 1
-
-    # Delta Easting
     dE = E - E0
 
-    # Latitude series
     phi_lat = phi - (math.tan(phi) / (2 * rho * nu)) * dE**2 \
                    + (math.tan(phi) / (24 * rho * nu**3)) * (5 + 3*math.tan(phi)**2 + eta2 - 9*math.tan(phi)**2*eta2) * dE**4
-
-    # Longitude series
     lambda_lon = lambda0 + (1 / (math.cos(phi) * nu)) * dE \
                         - (1 / (6 * math.cos(phi) * nu**3)) * (nu/rho + 2*math.tan(phi)**2) * dE**3
 
-    # Convert to degrees
     lat = math.degrees(phi_lat)
     lon = math.degrees(lambda_lon)
-
     return lat, lon
 
 
+# --------------------------------------------------------------------------------------
+# Ranks (user priorities) in-memory repo
+# --------------------------------------------------------------------------------------
 class MemoryRankRepo(IRankRepo):
     _active: RankProfile | None = None
-
     def get_active(self) -> RankProfile | None:
         return MemoryRankRepo._active
-
     def set(self, r: RankProfile) -> None:
         MemoryRankRepo._active = r
-
     def clear(self) -> None:
         MemoryRankRepo._active = None
 
-class MemoryPreferenceRepo(IPreferenceRepo):
-    _preference: Optional[UserPreference]=None
-
-    def get_preference(self)->Optional[UserPreference]:
-        return self._preference
-    
-    def save_preference(self, preference: UserPreference)-> None:
-        preference.updated_at=lambda: datetime.now()
-        self._preference= preference
-    
-    def delete_preference(self)->None:
-        self._preference = None
 
 class MemorySavedLocationRepo(ISavedLocationRepo):
     _locations: List[SavedLocation]=[]

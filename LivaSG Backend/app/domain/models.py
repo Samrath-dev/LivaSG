@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime
 from typing import Dict, List, Optional
-
 
 class FacilitiesSummary(BaseModel):
     schools: int = 0
@@ -32,7 +31,7 @@ class NeighbourhoodScore(BaseModel):
     areaId: str
     total: float
     weightsProfileId: str = "default"
-    computedAt: datetime = Field(default_factory=lambda: datetime.now())
+    computedAt: datetime = Field(default_factory=datetime.utcnow)
 
 class CategoryBreakdown(BaseModel):
     # keys are: Affordability, Accessibility, Amenities, Environment, Community
@@ -115,6 +114,7 @@ class AreaCentroid(BaseModel):
     longitude: float
 
 
+from pydantic import BaseModel, Field
 class RankProfile(BaseModel):
     # 1 = highest priority … 5 = lowest. Duplicates allowed.
     rAff: int = Field(..., ge=1, le=5)
@@ -123,20 +123,6 @@ class RankProfile(BaseModel):
     rEnv: int  = Field(..., ge=1, le=5)
     rCom: int  = Field(..., ge=1, le=5)
 
-
-class UserPreference(BaseModel):
-    category_ranks: Dict[str, int] = Field(
-        default_factory=lambda:{
-            "Affordability": 3, #mid point default
-            "Accessibility": 3,
-            "Amenities": 3,
-            "Environment": 3,
-            "Community": 3
-        }
-    )
-
-    created_at: datetime = Field(default_factory=lambda: datetime.now())
-    updated_at: datetime = Field(default_factory=lambda: datetime.now())
 
 
 class SavedLocation(BaseModel):
@@ -153,7 +139,7 @@ class SavedLocation(BaseModel):
         }
 
 class ExportData(BaseModel):
-    preferences: UserPreference
+    ranks: Optional[RankProfile] = None
     saved_locations: List[SavedLocation]
     weights: Optional[WeightsProfile]=None
     export_date: datetime = Field(default_factory=lambda: datetime.now())
@@ -165,3 +151,14 @@ class ExportData(BaseModel):
 class ImportRequest(BaseModel):
     data: str
     import_type: str = "csv" #functional requirements asked for csv or pdf, but json will suit it better
+
+from datetime import date
+from pydantic import BaseModel
+
+class PricePoint(BaseModel):
+    month: date
+    median: int
+
+class PriceTrend(BaseModel):
+    areaId: str
+    points: list[PricePoint]
