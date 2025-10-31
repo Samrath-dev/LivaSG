@@ -10,8 +10,9 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState(true);
 
   useEffect(() => {
-    const hasCompletedOnboarding = localStorage.getItem('hasCompletedOnboarding');
-    if (hasCompletedOnboarding === 'true') {
+    // Check if onboarding was already completed in this session
+    const hasCompletedOnboardingInSession = sessionStorage.getItem('hasCompletedOnboardingInSession');
+    if (hasCompletedOnboardingInSession === 'true') {
       setShowOnboarding(false);
     }
   }, []);
@@ -21,12 +22,14 @@ function App() {
   };
 
   const handleOnboardingComplete = () => {
-    localStorage.setItem('hasCompletedOnboarding', 'true');
+    // Save to sessionStorage (survives refreshes but not browser close)
+    sessionStorage.setItem('hasCompletedOnboardingInSession', 'true');
     setShowOnboarding(false);
   };
 
   const handleOnboardingSkip = () => {
-    localStorage.setItem('hasCompletedOnboarding', 'true');
+    // Save to sessionStorage (survives refreshes but not browser close)
+    sessionStorage.setItem('hasCompletedOnboardingInSession', 'true');
     setShowOnboarding(false);
   };
 
