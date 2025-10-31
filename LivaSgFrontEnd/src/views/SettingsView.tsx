@@ -1,4 +1,4 @@
-import { HiChevronLeft, HiDownload, HiUpload, HiCog, HiShieldCheck, HiQuestionMarkCircle, HiCode, HiTable, HiDocumentText } from 'react-icons/hi';
+import { HiChevronLeft, HiDownload, HiUpload, HiCog, HiShieldCheck, HiQuestionMarkCircle, HiCode, HiTable } from 'react-icons/hi';
 import { useRef, useState, useEffect } from 'react';
 
 interface SettingsViewProps {
@@ -10,6 +10,11 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
   const [loading, setLoading] = useState(false);
   const showLoaderTimeout = useRef<number | null>(null);
   const loaderHideTimeout = useRef<number | null>(null);
+  const [notification, setNotification] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [notifVisible, setNotifVisible] = useState(false);
+  const notifTimeout = useRef<number | null>(null);
+  const hideTimeout = useRef<number | null>(null);
+  const isEnteringRef = useRef(false);
 
   const startLoader = () => {
     if (showLoaderTimeout.current) window.clearTimeout(showLoaderTimeout.current);
@@ -36,34 +41,54 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
     setLoading(false);
   };
 
-  // Upload selected file (CSV or JSON) directly to backend import endpoint
+  // Upload selected JSON file to backend import endpoint (backend expects JSON body)
   const processImportedFile = async (file: File) => {
-    const form = new FormData();
-    form.append('file', file, file.name);
-
     startLoader();
     try {
+      const text = await file.text();
+
+      // The import endpoint expects a JSON payload like { data: "<string>", import_type: "json" }
+      const payload = {
+        data: text,
+        import_type: 'json'
+      };
+
       const res = await fetch('http://localhost:8000/settings/import', {
         method: 'POST',
-        body: form,
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
       });
+
       stopLoaderImmediate();
-      if (!res.ok) throw new Error(`status ${res.status}`);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`status ${res.status} ${txt}`);
+      }
 
       const data = await res.json().catch(() => null);
       const detail = data && typeof data === 'object' ? data : null;
       window.dispatchEvent(new CustomEvent('ranksUpdated', { detail }));
-      alert('Import successful');
+      // show inline notification instead of alert
+      showNotification('Import successful', 'success');
     } catch (err) {
       stopLoaderImmediate();
       console.error('Import failed', err);
-      alert('Failed to import data');
+      showNotification('Failed to import data. Make sure you selected a valid .json file.', 'error');
     }
   };
 
   const onFileChange: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Only accept .json files
+    const name = (file.name || '').toLowerCase();
+    if (!name.endsWith('.json')) {
+      showNotification('Please select a .json file for import.', 'error');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     await processImportedFile(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -79,9 +104,8 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
   };
 
   const EXPORT_ENDPOINTS: Record<string, string> = {
-    json: 'http://localhost:8000/settings/export',
+    json: 'http://localhost:8000/settings/export/json',
     csv: 'http://localhost:8000/settings/export/csv',
-    pdf: 'http://localhost:8000/settings/export/pdf',
   };
 
   const downloadBlob = (blob: Blob, filename: string) => {
@@ -95,29 +119,18 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
     URL.revokeObjectURL(url);
   };
 
-  const blobFromExportData = (format: 'json' | 'csv' | 'pdf', data: any) => {
+  const blobFromExportData = (format: 'json' | 'csv', data: any) => {
     if (format === 'json') {
       const filename = (data && (data.filename || 'settings.json')) || 'settings.json';
       return { blob: new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), filename };
     }
-    if (format === 'csv') {
-      const csv = typeof data.csv_data === 'string' ? data.csv_data : '';
-      const filename = data.filename || 'export.csv';
-      return { blob: new Blob([csv], { type: 'text/csv' }), filename };
-    }
-    // pdf (base64)
-    const b64 = typeof data.pdf_data === 'string' ? data.pdf_data : '';
-    const filename = data.filename || 'export.pdf';
-    const byteChars = atob(b64 || '');
-    const byteNumbers = new Array(byteChars.length);
-    for (let i = 0; i < byteChars.length; i++) {
-      byteNumbers[i] = byteChars.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    return { blob: new Blob([byteArray], { type: 'application/pdf' }), filename };
+    // csv
+    const csv = typeof data.csv_data === 'string' ? data.csv_data : '';
+    const filename = data.filename || 'export.csv';
+    return { blob: new Blob([csv], { type: 'text/csv' }), filename };
   };
 
-  const performExport = async (format: 'json' | 'csv' | 'pdf') => {
+  const performExport = async (format: 'json' | 'csv') => {
     setExportModalOpen(false);
     startLoader();
     try {
@@ -131,7 +144,7 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
     } catch (err) {
       stopLoaderImmediate();
       console.error('Export failed', err);
-      alert('Failed to export data');
+      showNotification('Failed to export data', 'error');
     }
   };
 
@@ -164,11 +177,11 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
       stopLoaderImmediate();
       // tell PreferenceView to reset locally
       window.dispatchEvent(new CustomEvent('ranksReset'));
-      alert('App data reset to default');
+      showNotification('App data reset to default', 'success');
     } catch (err) {
       stopLoaderImmediate();
       console.error('Reset failed', err);
-      alert('Failed to reset app data');
+      showNotification('Failed to reset app data', 'error');
     }
   };
 
@@ -177,8 +190,28 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
     return () => {
       if (showLoaderTimeout.current) window.clearTimeout(showLoaderTimeout.current);
       if (loaderHideTimeout.current) window.clearTimeout(loaderHideTimeout.current);
+      if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+      if (hideTimeout.current) window.clearTimeout(hideTimeout.current);
     };
   }, []);
+
+  const showNotification = (text: string, type: 'success' | 'error') => {
+    if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+    if (hideTimeout.current) window.clearTimeout(hideTimeout.current);
+
+    setNotification({ text, type });
+    isEnteringRef.current = true;
+    setNotifVisible(false);
+    requestAnimationFrame(() => {
+      isEnteringRef.current = false;
+      setNotifVisible(true);
+    });
+
+    notifTimeout.current = window.setTimeout(() => {
+      setNotifVisible(false);
+      hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+    }, 3000);
+  };
 
   return (
     <div className="h-full flex flex-col bg-purple-50">
@@ -186,7 +219,7 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json,.csv,application/json,text/csv,application/*,text/*"
+        accept=".json,application/json"
         onChange={onFileChange}
         className="hidden"
       />
@@ -218,13 +251,7 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
                 <HiTable className="w-5 h-5 text-green-500" />
                 <span>CSV</span>
               </button>
-              <button
-                onClick={() => performExport('pdf')}
-                className="w-full flex items-center justify-center gap-3 px-4 py-3 border-2 border-red-400 rounded-lg hover:bg-red-50 text-base font-semibold text-gray-900"
-              >
-                <HiDocumentText className="w-5 h-5 text-red-500" />
-                <span>PDF</span>
-              </button>
+              
             </div>
             <div className="mt-4">
               <button onClick={() => setExportModalOpen(false)} className="text-sm text-gray-600">Cancel</button>
@@ -253,6 +280,26 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
         <p className="text-purple-600 text-sm text-center">
           Manage your app preferences and data
         </p>
+      </div>
+
+      {/* Slide-down overlay notification: positioned below header */}
+      <div
+        aria-live="polite"
+        className={`fixed left-0 right-0 top-24 z-50 flex justify-center pointer-events-none transition-transform transition-opacity duration-300 ${
+          isEnteringRef.current ? '-translate-y-6' : 'translate-y-0'
+        } ${notifVisible ? 'opacity-100' : 'opacity-0'}`}
+      >
+        {notification && (
+          <div
+            className={`pointer-events-auto max-w-2xl mx-4 p-3 rounded-lg text-center shadow-md ${
+              notification.type === 'success'
+                ? 'bg-green-50 text-green-800 border border-green-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}
+          >
+            {notification.text}
+          </div>
+        )}
       </div>
 
       {/* Content */}
