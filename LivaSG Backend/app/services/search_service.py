@@ -588,6 +588,7 @@ class SearchService:
                                         healthcare INTEGER,
                                         greenSpaces INTEGER,
                                         carparks INTEGER,
+                                        transit INTEGER,
                                         radius_km REAL DEFAULT 1.0,
                                         calculated_at TEXT DEFAULT (datetime('now'))
                                     )
@@ -657,6 +658,7 @@ class SearchService:
                                         healthcare INTEGER,
                                         greenSpaces INTEGER,
                                         carparks INTEGER,
+                                        transit INTEGER,
                                         radius_km REAL DEFAULT 1.0,
                                         calculated_at TEXT DEFAULT (datetime('now'))
                                     )
@@ -934,6 +936,7 @@ class SearchService:
                                         healthcare INTEGER,
                                         greenSpaces INTEGER,
                                         carparks INTEGER,
+                                        transit INTEGER,
                                         radius_km REAL DEFAULT 1.0,
                                         calculated_at TEXT DEFAULT (datetime('now'))
                                     )
@@ -1057,6 +1060,7 @@ class SearchService:
                                         healthcare INTEGER,
                                         greenSpaces INTEGER,
                                         carparks INTEGER,
+                                        transit INTEGER,
                                         radius_km REAL DEFAULT 1.0,
                                         calculated_at TEXT DEFAULT (datetime('now'))
                                     )
@@ -1194,23 +1198,147 @@ class SearchService:
                                     longitude=lon
                                 ))
         else:
-            # No search query: return all planning areas as LocationResults
-            for idx, area_name in enumerate(planning_areas, start=1):
-                lat, lon = centroids.get(area_name, (0.0, 0.0))
-                results.append(LocationResult(
-                    id=idx,
-                    street=area_name,
-                    area=area_name,
-                    district=area_name,
-                    price_range=[0, 0],
-                    avg_price=0,
-                    facilities=[],
-                    description=f"Planning area: {area_name}",
-                    growth=0.0,
-                    amenities=[],
-                    latitude=lat if lat != 0.0 else None,
-                    longitude=lon if lon != 0.0 else None
-                ))
+            # No search query: if facility filters are provided, pre-filter planning
+            # areas using cached planning_area_facilities so we only return matching
+            # planning areas (and build simple facility strings). Otherwise return
+            # all planning areas and let the later enrichment step fill facility lists.
+            try:
+                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+                planning_db_path = os.path.join(base_dir, 'planning_cache.db')
+
+                # Map human-friendly filter names to DB columns (same map used later)
+                facility_filter_map = {
+                    'good schools': 'schools', 'schools': 'schools',
+                    'sports facilities': 'sports', 'sports': 'sports',
+                    'hawker centres': 'hawkers', 'hawkers': 'hawkers',
+                    'healthcare': 'healthcare',
+                    'parks': 'greenSpaces', 'green spaces': 'greenSpaces',
+                    'carparks': 'carparks', 'parking': 'carparks',
+                    'transit': 'transit', 'near mrt': 'transit', 'mrt': 'transit'
+                }
+
+                # Normalize requested columns
+                requested_cols = set()
+                if filters.facilities:
+                    for f in filters.facilities:
+                        col = facility_filter_map.get(f.lower().strip())
+                        if col:
+                            requested_cols.add(col)
+
+                if requested_cols:
+                    # Query planning cache for areas with any requested facility > 0
+                    try:
+                        conn_pa = sqlite3.connect(planning_db_path)
+                        cursor_pa = conn_pa.cursor()
+                        cond = ' OR '.join(f"paf.{c} > 0" for c in sorted(requested_cols))
+                        sql = f"""
+                            SELECT pa.area_name, pa.centroid_lat, pa.centroid_lon,
+                                   paf.schools, paf.sports, paf.hawkers, paf.healthcare, paf.greenSpaces, paf.carparks, paf.transit
+                            FROM planning_area_polygons pa
+                            JOIN planning_area_facilities paf ON pa.area_name = paf.area_name
+                            WHERE pa.year = ? AND ({cond})
+                            ORDER BY pa.area_name
+                        """
+                        rows = cursor_pa.execute(sql, (2019,)).fetchall()
+                        idx = 1
+                        for r in rows:
+                            area_name = r[0]
+                            lat = float(r[1]) if r[1] is not None else 0.0
+                            lon = float(r[2]) if r[2] is not None else 0.0
+                            schools = int(r[3]) if r[3] is not None else 0
+                            sports = int(r[4]) if r[4] is not None else 0
+                            hawkers = int(r[5]) if r[5] is not None else 0
+                            healthcare = int(r[6]) if r[6] is not None else 0
+                            greenSpaces = int(r[7]) if r[7] is not None else 0
+                            carparks = int(r[8]) if r[8] is not None else 0
+                            transit = int(r[9]) if r[9] is not None else 0
+
+                            facility_list = []
+                            if schools > 0:
+                                facility_list.append(f"{schools} Schools")
+                            if sports > 0:
+                                facility_list.append(f"{sports} Sports Facilities")
+                            if hawkers > 0:
+                                facility_list.append(f"{hawkers} Hawker Centres")
+                            if healthcare > 0:
+                                facility_list.append(f"{healthcare} Healthcare")
+                            if greenSpaces > 0:
+                                facility_list.append(f"{greenSpaces} Parks")
+                            if carparks > 0:
+                                facility_list.append(f"{carparks} Carparks")
+                            if transit > 0:
+                                facility_list.append(f"{transit} Transit Stations")
+
+                            results.append(LocationResult(
+                                id=idx,
+                                street=area_name,
+                                area=area_name,
+                                district=area_name,
+                                price_range=[0, 0],
+                                avg_price=0,
+                                facilities=facility_list,
+                                description=f"Planning area: {area_name}",
+                                growth=0.0,
+                                amenities=[],
+                                latitude=lat if lat != 0.0 else None,
+                                longitude=lon if lon != 0.0 else None
+                            ))
+                            idx += 1
+                        conn_pa.close()
+                    except Exception:
+                        # On any failure, fall back to returning all planning areas
+                        for idx, planning_area in enumerate(sorted(planning_areas), start=1):
+                            lat, lon = centroids.get(planning_area, (0.0, 0.0))
+                            results.append(LocationResult(
+                                id=idx,
+                                street=planning_area,
+                                area=planning_area,
+                                district=planning_area,
+                                price_range=[0, 0],
+                                avg_price=0,
+                                facilities=[],
+                                description=f"Planning area: {planning_area}",
+                                growth=0.0,
+                                amenities=[],
+                                latitude=lat if lat != 0.0 else None,
+                                longitude=lon if lon != 0.0 else None
+                            ))
+                else:
+                    # No facility filters — return all planning areas (existing behavior)
+                    for idx, planning_area in enumerate(sorted(planning_areas), start=1):
+                        lat, lon = centroids.get(planning_area, (0.0, 0.0))
+                        results.append(LocationResult(
+                            id=idx,
+                            street=planning_area,
+                            area=planning_area,
+                            district=planning_area,
+                            price_range=[0, 0],
+                            avg_price=0,
+                            facilities=[],  # enrichment will fill later
+                            description=f"Planning area: {planning_area}",
+                            growth=0.0,
+                            amenities=[],
+                            latitude=lat if lat != 0.0 else None,
+                            longitude=lon if lon != 0.0 else None
+                        ))
+            except Exception:
+                # Last-resort fallback: return all planning areas
+                for idx, planning_area in enumerate(sorted(planning_areas), start=1):
+                    lat, lon = centroids.get(planning_area, (0.0, 0.0))
+                    results.append(LocationResult(
+                        id=idx,
+                        street=planning_area,
+                        area=planning_area,
+                        district=planning_area,
+                        price_range=[0, 0],
+                        avg_price=0,
+                        facilities=[],
+                        description=f"Planning area: {planning_area}",
+                        growth=0.0,
+                        amenities=[],
+                        latitude=lat if lat != 0.0 else None,
+                        longitude=lon if lon != 0.0 else None
+                    ))
 
         # Enrich results with facility data. For planning-area results, prefer the
         # `planning_area_facilities` table in planning_cache.db; otherwise fall back
@@ -1305,18 +1433,11 @@ class SearchService:
             except Exception as e:
                 print(f"Error loading facility data: {e}")
         
-        # Apply filter logic (price range, facilities)
+        # Apply filter logic (facilities)
         filtered_results = []
         for location in results:
-            # Check if location's price range overlaps with filter's price range
-            # Skip price check for OneMap results without price data
-            price_check_passed = False
-            if location.price_range == [0, 0]:
-                # OneMap results without price data - pass price check
-                price_check_passed = True
-            elif (location.price_range[1] >= filters.price_range[0] and 
-                  location.price_range[0] <= filters.price_range[1]):
-                price_check_passed = True
+            # this not in used already since price range is removed but kept so that the indentation does not need to change
+            price_check_passed = True
             
             if price_check_passed:
                 # Apply facilities filter
@@ -1348,6 +1469,49 @@ class SearchService:
                     
                     # Try to get facility counts from street_facilities
                     if location.street:
+                        # If this location is a planning area name, prefer planning_area_facilities
+                        try:
+                            if location.street in planning_areas:
+                                try:
+                                    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+                                    planning_db_path = os.path.join(base_dir, 'planning_cache.db')
+                                    conn_pa_filter = sqlite3.connect(planning_db_path)
+                                    cursor_pa_filter = conn_pa_filter.cursor()
+                                    # Select relevant columns
+                                    fac_cols = ['schools','sports','hawkers','healthcare','greenSpaces','carparks','transit']
+                                    sel = ','.join(fac_cols)
+                                    row = cursor_pa_filter.execute(f"SELECT {sel} FROM planning_area_facilities WHERE area_name = ?", (location.street,)).fetchone()
+                                    if row:
+                                        facility_counts = dict(zip(fac_cols, row))
+                                        # Local map to translate human labels to DB columns
+                                        local_map = {
+                                            'good schools': 'schools', 'schools': 'schools',
+                                            'sports facilities': 'sports', 'sports': 'sports',
+                                            'hawker centres': 'hawkers', 'hawkers': 'hawkers',
+                                            'healthcare': 'healthcare',
+                                            'parks': 'greenSpaces', 'green spaces': 'greenSpaces',
+                                            'carparks': 'carparks', 'parking': 'carparks',
+                                            'transit': 'transit', 'near mrt': 'transit', 'mrt': 'transit'
+                                        }
+                                        for filter_facility in filters.facilities:
+                                            filter_key = filter_facility.lower()
+                                            db_column = local_map.get(filter_key)
+                                            if db_column and facility_counts.get(db_column, 0) > 0:
+                                                has_matching_facility = True
+                                                break
+                                    conn_pa_filter.close()
+                                    if has_matching_facility:
+                                        filtered_results.append(location)
+                                        continue
+                                except Exception:
+                                    try:
+                                        conn_pa_filter.close()
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            # ignore and continue to street-level checks
+                            pass
+
                         try:
                             base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
                             street_db_path = os.path.join(base_dir, 'street_geocode.db')
