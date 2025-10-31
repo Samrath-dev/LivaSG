@@ -60,27 +60,30 @@ export default function CompareLocations({ locations, onClose }: Props) {
     setLoadingPriceTrends(true);
   };
 
-  // Time range filter state
-  const [timeRange, setTimeRange] = useState<TimeRange>('1y');
+  // Time range filter state - CHANGED DEFAULT FROM '1y' TO '6m'
+  const [timeRange, setTimeRange] = useState<TimeRange>('6m');
   const [showTimeFilter, setShowTimeFilter] = useState(false);
 
-  // Dynamic chart dimensions based on screen size
-  const [chartDimensions, setChartDimensions] = useState({ width: 800, height: 400 });
+  // Dynamic chart dimensions - INCREASED SIZES
+  const [chartDimensions, setChartDimensions] = useState({ 
+    width: 900,  // Increased from 800
+    height: 500  // Increased from 400
+  });
   
   useEffect(() => {
     const updateDimensions = () => {
       const isMobile = window.innerWidth < 768;
-      const containerWidth = Math.min(window.innerWidth * 0.8, 800);
+      const containerWidth = Math.min(window.innerWidth * 0.85, 900); // Increased from 0.8 to 0.85
       
       if (isMobile) {
         setChartDimensions({
           width: containerWidth,
-          height: 350
+          height: 420 // Increased from 350
         });
       } else {
         setChartDimensions({
           width: containerWidth,
-          height: 300
+          height: 450 // Increased from 400
         });
       }
     };
@@ -401,16 +404,15 @@ export default function CompareLocations({ locations, onClose }: Props) {
     const minV = Math.min(...allValues);
     const maxV = Math.max(...allValues);
 
-    // Dynamic padding based on screen size
+    // Layout padding: increased for larger chart
     const isMobile = window.innerWidth < 768;
-    const leftPad = isMobile ? 60 : 72;
-    const rightPad = isMobile ? 24 : 48;
-    const topPad = isMobile ? 40 : 48;
-    const bottomPad = isMobile ? 50 : 60;
+    const leftPad = isMobile ? 80 : 90;  // Increased padding
+    const rightPad = isMobile ? 40 : 60;  // Increased padding
+    const topPad = isMobile ? 50 : 60;    // Increased padding
+    const bottomPad = isMobile ? 70 : 80; // Increased padding
     
     const { width: chartWidth, height: chartHeight } = chartDimensions;
     const totalHeight = chartHeight + bottomPad;
-    
     const getX = (idx: number) => leftPad + (idx * (chartWidth - leftPad - rightPad) / Math.max(1, filteredMonths.length - 1));
     const getY = (val: number) => chartHeight - bottomPad - ((val - minV) / Math.max(1e-6, (maxV - minV))) * (chartHeight - topPad - bottomPad);
 
@@ -436,18 +438,23 @@ export default function CompareLocations({ locations, onClose }: Props) {
       return `$${n.toLocaleString(undefined)}`;
     };
 
-    // Smart label selection - fewer labels on mobile
+    // Find January months for yearly vertical grid lines
+    const januaryMonths = filteredMonths.reduce((acc: number[], month, idx) => {
+      const date = new Date(month);
+      if (date.getMonth() === 0) { // January is month 0
+        acc.push(idx);
+      }
+      return acc;
+    }, []);
+
+    // determine which month indices should show labels: quarter starts (Jan/Apr/Jul/Oct)
     const quarterIndices = filteredMonths.reduce((acc: number[], m, idx) => {
       const d = new Date(m);
       const mo = isNaN(d.getTime()) ? -1 : d.getMonth();
       if (mo >= 0 && mo % 3 === 0) acc.push(idx);
       return acc;
     }, []);
-    
-    // On mobile, show fewer labels (only first, last, and some quarters)
-    const labelIndicesSet = isMobile 
-      ? new Set<number>([0, filteredMonths.length - 1, ...quarterIndices.filter((_, i) => i % 2 === 0)])
-      : new Set<number>([0, filteredMonths.length - 1, ...quarterIndices]);
+    const labelIndicesSet = new Set<number>([0, filteredMonths.length - 1, ...quarterIndices]);
 
     return (
       <div className="bg-white rounded-2xl">
@@ -507,8 +514,8 @@ export default function CompareLocations({ locations, onClose }: Props) {
           </div>
         </div>
 
-        {/* Chart Stats - Stack on mobile */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 text-sm">
+        {/* Chart Stats */}
+        <div className="flex justify-between items-center mb-4 text-sm">
           <div className="text-green-600 font-semibold">
             +{metrics.totalGrowthPercent.toFixed(1)}% total growth
           </div>
@@ -525,7 +532,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
             ref={svgRef}
             viewBox={`0 0 ${chartWidth} ${totalHeight}`}
             className="w-full"
-            style={{ height: isMobile ? '350px' : '300px' }}
+            style={{ height: isMobile ? '420px' : '450px' }} // Updated heights
             preserveAspectRatio="xMidYMid meet"
             onMouseMove={(e) => {
               if (!svgRef.current || !chartContainerRef.current) return;
@@ -553,7 +560,21 @@ export default function CompareLocations({ locations, onClose }: Props) {
             }}
             onTouchEnd={() => { setHoverIdx(null); setTooltipPos(null); }}
           >
-            {/* horizontal grid lines every 100k */}
+            {/* Vertical grid lines at January of each year */}
+            {januaryMonths.map((idx) => (
+              <line 
+                key={`vline-${idx}`} 
+                x1={getX(idx)} 
+                y1={topPad} 
+                x2={getX(idx)} 
+                y2={chartHeight - bottomPad} 
+                stroke="#e5e7eb" 
+                strokeWidth="1" 
+                strokeDasharray="4 2"
+              />
+            ))}
+
+            {/* Horizontal grid lines every 100k */}
             {(() => {
               const lines: React.ReactNode[] = [];
               const step = 100000;
@@ -575,7 +596,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
               <path key={i} d={p.path} fill="none" stroke={p.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
             ))}
 
-            {/* data markers - smaller on mobile */}
+            {/* data markers */}
             {lookups.map((map, si) => (
               filteredMonths.map((m, mi) => {
                 const v = map[m];
@@ -615,7 +636,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
 
             {/* left-side labels */}
             <text
-              x={leftPad - 8}
+              x={leftPad - 12}
               y={topPad}
               textAnchor="end"
               dominantBaseline="middle"
@@ -624,7 +645,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
               {formatPrice(maxV)}
             </text>
             <text
-              x={leftPad - 8}
+              x={leftPad - 12}
               y={(chartHeight / 2)}
               textAnchor="end"
               dominantBaseline="middle"
@@ -633,7 +654,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
               {formatPrice((maxV + minV) / 2)}
             </text>
             <text
-              x={leftPad - 8}
+              x={leftPad - 12}
               y={chartHeight - bottomPad}
               textAnchor="end"
               dominantBaseline="middle"
@@ -642,7 +663,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
               {formatPrice(minV)}
             </text>
 
-            {/* month labels with responsive styling */}
+            {/* month labels: only quarter starts (Jan/Apr/Jul/Oct) plus first & last */}
             {filteredMonths.map((m, idx) => {
               if (!labelIndicesSet.has(idx)) return null;
               const x = getX(idx);
@@ -666,7 +687,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
             })}
           </svg>
 
-          {/* Tooltip */}
+          {/* Tooltip (HTML) positioned over the svg */}
           {tooltipPos && hoverIdx !== null && (
             <div
               style={{ left: tooltipPos.left, top: tooltipPos.top }}
@@ -689,7 +710,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
           )}
         </div>
 
-        {/* Data summary */}
+        {/* Data summary: recent growth and current median shown side-by-side */}
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className={`flex flex-col items-center justify-center p-4 rounded-lg ${metrics.recentGrowthPercent < 0 ? 'bg-red-50' : metrics.recentGrowthPercent > 0 ? 'bg-green-50' : 'bg-gray-50'}`}>
             <div className="text-sm text-gray-600">Recent Growth</div>
@@ -741,7 +762,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
         suggestedMin: 0,
         suggestedMax: 100,
         ticks: { stepSize: 20, color: '#6b21a8' },
-        pointLabels: { color: '#6b21a8', font: { size: 12 }, padding: 14 },
+        pointLabels: { color: '#6b21a8', font: { size: 14 }, padding: 18 }, // Increased font size and padding
         grid: { color: 'rgba(79,70,229,0.1)' },
       },
     },
@@ -883,7 +904,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
 
         {/* Content area */}
         <div className="p-4 h-[calc(100%-40px)] overflow-auto flex flex-col">
-          {/* Radar attributes box — styled to match Price Trend box */}
+          {/* Radar attributes box — increased size */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 w-full">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
@@ -897,7 +918,12 @@ export default function CompareLocations({ locations, onClose }: Props) {
               </div>
             </div>
 
-            <div className="relative overflow-visible mx-auto" style={{ maxHeight: 'min(70vh, 90vw)', aspectRatio: '1 / 1' }}>
+            {/* Increased radar chart size */}
+            <div className="relative overflow-visible mx-auto" style={{ 
+              maxHeight: 'min(80vh, 95vw)', // Increased from 70vh, 90vw
+              aspectRatio: '1 / 1',
+              width: '100%'
+            }}>
               {radarError ? (
                 <div className="flex flex-col items-center justify-center h-64 text-red-600 p-4">
                   <div className="text-center mb-2">{radarError}</div>
