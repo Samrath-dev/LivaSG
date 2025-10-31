@@ -33,7 +33,7 @@ import requests
 from shapely.geometry import Point, Polygon, MultiPolygon  # FIXED import path for shapely v2
 
 # local cache utils
-from ..cache.paths import PROJECT_ROOT, cache_file
+from ..cache.paths import cache_file
 from ..cache.disk_cache import (
     load_cache, save_cache,
     save_cache_with_manifest, try_load_valid_cache, hash_sources
@@ -532,6 +532,41 @@ class MemoryTransitRepo(ITransitRepo):
 
     def all(self) -> List[Transit]:
         return list(self._nodes)
+     
+    @staticmethod
+    def _load_bus_stops_from_csv(csv_path: Path) -> List[Transit]:
+        nodes: List[Transit] = []
+        if not csv_path.exists():
+            return nodes
+        try:
+            with csv_path.open("r", newline="", encoding="utf-8") as f:
+                rdr = csv.DictReader(f)
+                for row in rdr:
+                    code = (row.get("BusStopCode") or row.get("bus_stop_code") or "").strip()
+                    lat_s = (row.get("Latitude") or row.get("latitude") or "").strip()
+                    lon_s = (row.get("Longitude") or row.get("longitude") or "").strip()
+                    name  = (row.get("Description") or row.get("description") or row.get("RoadName") or "").strip()
+                    if not (code and lat_s and lon_s):
+                        continue
+                    try:
+                        lat = float(lat_s)
+                        lon = float(lon_s)
+                    except Exception:
+                        continue
+                    area = MemoryAreaRepo.getArea(lon, lat)
+                    nodes.append(Transit(
+                        id=f"bus_{code}",
+                        type="bus",
+                        name=name or f"Bus Stop {code}",
+                        areaId=area,
+                        latitude=lat,
+                        longitude=lon
+                    ))
+        except Exception:
+  
+            if DEBUG_AMEN:
+                import traceback; traceback.print_exc()
+        return nodes
 
     @classmethod
     async def initialize(cls):
@@ -556,10 +591,11 @@ class MemoryTransitRepo(ITransitRepo):
                 "id": n.id, "type": n.type, "name": n.name,
                 "areaId": n.areaId, "latitude": n.latitude, "longitude": n.longitude
             } for n in cls._nodes
-        ], {"source": "onemap_search_mrt"})
+        ], {"source": "onemap_search_mrt_plus_bus_csv"})
 
     @classmethod
     async def updateTransits(cls):
+        # --- Load MRT/LRT ---
         trains = await MemoryAmenityRepo.searchAllPages(query="MRT")
         built: List[Transit] = []
         for t in trains:
@@ -584,12 +620,50 @@ class MemoryTransitRepo(ITransitRepo):
                 latitude=lat,
                 longitude=lon
             ))
+
+        # --- Load bus stops from CSV if available ---
+        csv_env = os.getenv("BUS_STOPS_CSV_PATH")
+        if csv_env:
+            csv_path = Path(csv_env).expanduser()
+            if csv_path.exists():
+                try:
+                    with csv_path.open("r", newline="", encoding="utf-8") as f:
+                        rdr = csv.DictReader(f)
+                        for row in rdr:
+                            code = (row.get("BusStopCode") or "").strip()
+                            lat_s = (row.get("Latitude") or "").strip()
+                            lon_s = (row.get("Longitude") or "").strip()
+                            name = (row.get("Description") or row.get("RoadName") or "").strip()
+                            if not (code and lat_s and lon_s):
+                             continue
+                            try:
+                                lat = float(lat_s)
+                                lon = float(lon_s)
+                            except Exception:
+                                continue
+                            area = MemoryAreaRepo.getArea(lon, lat)
+                            built.append(Transit(
+                                id=f"bus_{code}",
+                                type="bus",
+                                name=name or f"Bus Stop {code}",
+                                areaId=area,
+                                latitude=lat,
+                                longitude=lon
+                            ))
+                    if DEBUG_AMEN:
+                        print(f"[transit] loaded {len(built)} total nodes (including buses)")
+                except Exception:
+                    if DEBUG_AMEN:
+                        import traceback; traceback.print_exc()
+
         cls._nodes = built or cls._nodes
 
     @staticmethod
-    async def getBus():
-        # placeholder for LTA DataMall integration
-        return await MemoryAmenityRepo.searchAllPages(query="BUS STOP")
+    def getBus() -> List[Transit]:
+        csv_env = os.getenv("BUS_STOPS_CSV_PATH")
+        if not csv_env:
+            return []
+        return MemoryTransitRepo._load_bus_stops_from_csv(Path(csv_env).expanduser())
 
 
 class MemoryCarparkRepo(ICarparkRepo):
