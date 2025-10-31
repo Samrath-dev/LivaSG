@@ -111,6 +111,11 @@ const OneMapInteractive = ({
   const [choroplethData, setChoroplethData] = useState<ChoroplethData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingChoropleth, setIsLoadingChoropleth] = useState(false);
+  const [dataRange, setDataRange] = useState<{ min: number; max: number; range: number }>({ 
+    min: 0, 
+    max: 1, 
+    range: 1 
+  });
 
   // Singapore bounds to prevent grey areas - using LatLng objects
   const singaporeBounds = L.latLngBounds(
@@ -150,7 +155,7 @@ const OneMapInteractive = ({
     fetchPlanningAreas();
   }, [showPlanningAreas, planningAreasYear]);
 
-  // Fetch choropleth data
+  // Fetch choropleth data and calculate dynamic range
   useEffect(() => {
     if (!showPlanningAreas) return;
 
@@ -167,6 +172,22 @@ const OneMapInteractive = ({
         
         const data: ChoroplethData[] = await response.json();
         setChoroplethData(data);
+        
+        // Calculate dynamic range from actual data
+        if (data.length > 0) {
+          const ratings = data.map(d => d.total).filter(total => total != null);
+          if (ratings.length > 0) {
+            const minRating = Math.min(...ratings);
+            const maxRating = Math.max(...ratings);
+            const range = maxRating - minRating;
+            
+            setDataRange({
+              min: minRating,
+              max: maxRating,
+              range: range
+            });
+          }
+        }
       } catch (error) {
         console.error('Error fetching choropleth data:', error);
         setChoroplethData([]);
@@ -267,41 +288,57 @@ const OneMapInteractive = ({
     return areaData ? areaData.total : null;
   };
 
-  // Generate color based on rating (green = high, red = low)
+  // Normalize rating to 0-1 scale based on actual data range
+  const normalizeRating = (rating: number | null): number | null => {
+    if (rating === null) return null;
+    
+    // If range is 0 (all values are the same), return middle value
+    if (dataRange.range === 0) return 0.5;
+    
+    // Normalize to 0-1 based on actual data range
+    return (rating - dataRange.min) / dataRange.range;
+  };
+
+  // Generate color based on normalized rating
   const getRatingColor = (rating: number | null): string => {
     if (rating === null) {
       return '#cccccc'; // Gray for areas without data
     }
     
-    // Normalize rating to 0-1 scale (assuming ratings are between 0 and 1)
-    const normalizedRating = Math.max(0, Math.min(1, rating));
+    const normalizedRating = normalizeRating(rating);
+    if (normalizedRating === null) return '#cccccc';
     
-    // Create gradient from red (0) to green (1)
-    if (normalizedRating < 0.5) {
-      // Red to Yellow
-      const ratio = normalizedRating * 2;
-      const red = 255;
-      const green = Math.floor(255 * ratio);
-      return `rgb(${red}, ${green}, 0)`;
-    } else {
-      // Yellow to Green
-      const ratio = (normalizedRating - 0.5) * 2;
-      const red = Math.floor(255 * (1 - ratio));
-      const green = 255;
-      return `rgb(${red}, ${green}, 0)`;
-    }
+    // Different color for every 0.1 interval in the normalized range
+    if (normalizedRating <= 0.1) return '#ff0000'; // Red
+    if (normalizedRating <= 0.2) return '#ff3300';
+    if (normalizedRating <= 0.3) return '#ff6600';
+    if (normalizedRating <= 0.4) return '#ff9900'; // Orange
+    if (normalizedRating <= 0.5) return '#ffcc00';
+    if (normalizedRating <= 0.6) return '#ffff00'; // Yellow
+    if (normalizedRating <= 0.7) return '#ccff00';
+    if (normalizedRating <= 0.8) return '#99ff00';
+    if (normalizedRating <= 0.9) return '#66ff00';
+    return '#00ff00'; // Green
   };
 
-  // Get color intensity for fill opacity
+  // Get color intensity for fill opacity based on normalized rating
   const getFillOpacity = (rating: number | null): number => {
     if (rating === null) return 0.1;
-    return 0.3 + (rating * 0.4); // 0.3 to 0.7 opacity based on rating
+    
+    const normalizedRating = normalizeRating(rating);
+    if (normalizedRating === null) return 0.1;
+    
+    return 0.4 + (normalizedRating * 0.5); // 0.4 to 0.9 opacity based on normalized rating
   };
 
-  // Get border weight based on rating
+  // Get border weight based on normalized rating
   const getBorderWeight = (rating: number | null): number => {
     if (rating === null) return 1;
-    return 1 + (rating * 2); // 1 to 3 weight based on rating
+    
+    const normalizedRating = normalizeRating(rating);
+    if (normalizedRating === null) return 1;
+    
+    return 1.5 + (normalizedRating * 2.5); // 1.5 to 4 weight based on normalized rating
   };
 
   // Default polygon styling when no custom styling is provided
@@ -537,7 +574,7 @@ const OneMapInteractive = ({
           if (!locked) {
             polygon.on('mouseover', function (this: L.Polygon, e: L.LeafletMouseEvent) {
               this.setStyle({
-                fillOpacity: Math.min(0.8, style.fillOpacity + 0.2),
+                fillOpacity: Math.min(0.9, style.fillOpacity + 0.2),
                 weight: style.weight + 1
               });
             });
@@ -555,7 +592,7 @@ const OneMapInteractive = ({
         });
       }
     });
-  }, [planningAreas, choroplethData, showPlanningAreas, onAreaClick, locked, getPolygonStyle]);
+  }, [planningAreas, choroplethData, showPlanningAreas, onAreaClick, locked, getPolygonStyle, dataRange]);
 
   return (
     <div className="relative w-full h-full">
