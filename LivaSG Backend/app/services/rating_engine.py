@@ -70,11 +70,13 @@ class RatingEngine:
     def _rank_multipliers(self) -> dict[str, float]:
         """
         Rank (1 best … 5 worst) -> multiplier applied to category scores BEFORE weights.
-        Stronger spread + tunable strength, with light mean-normalization so totals don’t explode.
+        Stronger spread + tunable strength + gamma curve, with light mean-normalization so totals don’t explode.
         Env knobs:
-        RANK_STRENGTH in [0..1.5]  (default 0.85) — how far from 1.0 we allow the multipliers to move
-        RANK_NORMALIZE in [0..1]   (default 0.40) — how much to pull the average back toward 1.0
+        RANK_STRENGTH  in [0..2.0]  (default 1.5) — how far from 1.0 the multipliers can pull
+        RANK_NORMALIZE in [0..1]    (default 0.15) — how much to pull the average back toward 1.0
+        RANK_GAMMA     in [1..3+]   (default 2.0)  — ive made it exponential now to pull even more. Exponential curve
         """
+        import os, math
         neutral = {"Affordability": 1.0, "Accessibility": 1.0, "Amenities": 1.0, "Environment": 1.0, "Community": 1.0}
         rp = None
         if self.rank:
@@ -87,33 +89,37 @@ class RatingEngine:
 
         r_aff = int(getattr(rp, "rAff", 3) or 3)
         r_acc = int(getattr(rp, "rAcc", 3) or 3)
-        r_amen= int(getattr(rp, "rAmen",3) or 3)
+        r_amen = int(getattr(rp, "rAmen", 3) or 3)
         r_env = int(getattr(rp, "rEnv", 3) or 3)
         r_com = int(getattr(rp, "rCom", 3) or 3)
 
-        # Wider spread than before
+        # base spread
         LUT = {1: 1.75, 2: 1.30, 3: 1.00, 4: 0.75, 5: 0.45}
+        gamma = float(os.getenv("RANK_GAMMA", "2.0"))
+        strength = float(os.getenv("RANK_STRENGTH", "1.2"))
+        normalize = float(os.getenv("RANK_NORMALIZE", "0.3"))
+
+        # apply exponential curve for contrast
+        def curved(v: float) -> float:
+            return math.copysign(abs(v) ** gamma, v) if v != 0 else 0.0
 
         raw = {
-            "Affordability": LUT.get(r_aff, 1.0),
-            "Accessibility": LUT.get(r_acc, 1.0),
-            "Amenities":     LUT.get(r_amen,1.0),
-            "Environment":   LUT.get(r_env, 1.0),
-            "Community":     LUT.get(r_com, 1.0),
+            "Affordability": curved(LUT.get(r_aff, 1.0)),
+            "Accessibility": curved(LUT.get(r_acc, 1.0)),
+            "Amenities":     curved(LUT.get(r_amen, 1.0)),
+            "Environment":   curved(LUT.get(r_env, 1.0)),
+            "Community":     curved(LUT.get(r_com, 1.0)),
         }
 
-        # this is the main upgrade, The strength allows the ranks to pull away harder.
-        strength = float(os.getenv("RANK_STRENGTH", "1.5"))
+        # scale by strength
         blended = {k: 1.0 + strength * (v - 1.0) for k, v in raw.items()}
 
-        # this is also a minor upgrade, its going to allow less ups and downs.
-        gamma = float(os.getenv("RANK_NORMALIZE", "0.15"))  
+        # normalize toward 1.0 to stabilize totals
         mean = sum(blended.values()) / 5.0
-        if mean > 0 and gamma > 0:
-            norm = mean ** gamma
+        if mean > 0 and normalize > 0:
+            norm = mean ** normalize
             return {k: v / norm for k, v in blended.items()}
         return blended
-
     async def category_breakdown(self, area_id: str) -> CategoryBreakdown:
         # Affordability from price series (sync repo)
         series = self.price.series(area_id, months=1)
@@ -166,19 +172,43 @@ class RatingEngine:
             "Community":     round(comm, 3),
         })
 
+    def _apply_rank_to_weights(self, w: WeightsProfile) -> WeightsProfile:
+        mult = self._rank_multipliers()
+        # scale weights by rank multipliers
+        w2 = WeightsProfile(
+            id=w.id,
+            wAff=w.wAff * mult.get("Affordability", 1.0),
+            wAcc=w.wAcc * mult.get("Accessibility", 1.0),
+            wAmen=w.wAmen * mult.get("Amenities", 1.0),
+            wEnv=w.wEnv * mult.get("Environment", 1.0),
+            wCom=w.wCom * mult.get("Community", 1.0),
+        )
+        # renormalize to sum=1 (keeps score scale stable)
+        s = (w2.wAff + w2.wAcc + w2.wAmen + w2.wEnv + w2.wCom) or 1.0
+        return WeightsProfile(
+            id=w2.id,
+            wAff=w2.wAff / s,
+            wAcc=w2.wAcc / s,
+            wAmen=w2.wAmen / s,
+            wEnv=w2.wEnv / s,
+            wCom=w2.wCom / s,
+        )
     async def aggregate(self, area_id: str, w: WeightsProfile) -> NeighbourhoodScore:
         base = (await self.category_breakdown(area_id)).scores
-        mult = self._rank_multipliers()
-        # Apply rank multipliers BEFORE weights
-        adj = {k: clamp01(base[k] * mult.get(k, 1.0)) for k in base.keys()}
 
+        # NEW: push rank effect into weights (bigger global impact)
+        eff_w = self._apply_rank_to_weights(w)
+
+        # keep base categories un-clamped here; clamp only if you must, at the very end
         total = (
-            adj["Affordability"] * w.wAff +
-            adj["Accessibility"] * w.wAcc +
-            adj["Amenities"]     * w.wAmen +
-            adj["Environment"]   * w.wEnv +
-            adj["Community"]     * w.wCom
+            base["Affordability"] * eff_w.wAff +
+            base["Accessibility"] * eff_w.wAcc +
+            base["Amenities"]     * eff_w.wAmen +
+            base["Environment"]   * eff_w.wEnv +
+            base["Community"]     * eff_w.wCom
         )
+        total=clamp01(total)
+
         score = NeighbourhoodScore(areaId=area_id, total=round(total, 3), weightsProfileId=w.id)
         self.scores.save(score)
         return score
