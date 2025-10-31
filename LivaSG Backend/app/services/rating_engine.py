@@ -2,7 +2,7 @@
 from __future__ import annotations
 from math import radians, sin, cos, sqrt, atan2
 from typing import Optional, Any
-
+import os
 from ..domain.models import CategoryBreakdown, NeighbourhoodScore, WeightsProfile
 from ..repositories.interfaces import (
     IPriceRepo, IAmenityRepo, IScoreRepo, ICommunityRepo, ITransitRepo, ICarparkRepo, IAreaRepo
@@ -69,8 +69,11 @@ class RatingEngine:
 
     def _rank_multipliers(self) -> dict[str, float]:
         """
-        Map rank (1=highest priority … 5=lowest) to a multiplier.
-        Mean-normalize to keep overall scale stable so weights remain meaningful.
+        Rank (1 best … 5 worst) -> multiplier applied to category scores BEFORE weights.
+        Stronger spread + tunable strength, with light mean-normalization so totals don’t explode.
+        Env knobs:
+        RANK_STRENGTH in [0..1.5]  (default 0.85) — how far from 1.0 we allow the multipliers to move
+        RANK_NORMALIZE in [0..1]   (default 0.40) — how much to pull the average back toward 1.0
         """
         neutral = {"Affordability": 1.0, "Accessibility": 1.0, "Amenities": 1.0, "Environment": 1.0, "Community": 1.0}
         rp = None
@@ -88,8 +91,9 @@ class RatingEngine:
         r_env = int(getattr(rp, "rEnv", 3) or 3)
         r_com = int(getattr(rp, "rCom", 3) or 3)
 
-        # Strong but bounded effect; rank 1 boosts, rank 5 dampens
-        LUT = {1: 1.40, 2: 1.18, 3: 1.00, 4: 0.85, 5: 0.65}
+        # Wider spread than before
+        LUT = {1: 1.75, 2: 1.30, 3: 1.00, 4: 0.75, 5: 0.45}
+
         raw = {
             "Affordability": LUT.get(r_aff, 1.0),
             "Accessibility": LUT.get(r_acc, 1.0),
@@ -97,8 +101,18 @@ class RatingEngine:
             "Environment":   LUT.get(r_env, 1.0),
             "Community":     LUT.get(r_com, 1.0),
         }
-        mean = sum(raw.values()) / 5.0
-        return {k: v / mean for k, v in raw.items()} if mean > 0 else neutral
+
+        # this is the main upgrade, The strength allows the ranks to pull away harder.
+        strength = float(os.getenv("RANK_STRENGTH", "1.5"))
+        blended = {k: 1.0 + strength * (v - 1.0) for k, v in raw.items()}
+
+        # this is also a minor upgrade, its going to allow less ups and downs.
+        gamma = float(os.getenv("RANK_NORMALIZE", "0.15"))  
+        mean = sum(blended.values()) / 5.0
+        if mean > 0 and gamma > 0:
+            norm = mean ** gamma
+            return {k: v / norm for k, v in blended.items()}
+        return blended
 
     async def category_breakdown(self, area_id: str) -> CategoryBreakdown:
         # Affordability from price series (sync repo)

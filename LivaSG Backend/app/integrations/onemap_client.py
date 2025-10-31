@@ -17,7 +17,7 @@ except Exception:
     pass
 
 
-AUTH_URL = "https://developers.onemap.sg/privateapi/auth/post/getToken"
+AUTH_URL = "https://www.onemap.gov.sg//api/auth/post/getToken"
 
 REFRESH_SKEW_SECONDS = 300 #6 * 3600            # refresh ~6 hours before exp
 REFRESH_JITTER_RANGE = (60, 300)           
