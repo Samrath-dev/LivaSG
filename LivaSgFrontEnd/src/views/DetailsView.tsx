@@ -33,6 +33,7 @@ type FilterItemProps = {
   count?: number;
   iconStyle?: React.CSSProperties;
   iconClassName?: string;
+  color?: string;
 };
 
 const DetailsView = ({ location, onBack }: DetailsViewProps) => {
@@ -43,7 +44,6 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     return `$${(price / 1000).toFixed(0)}K`;
   };
 
-  // Get coordinates from location, with fallback to Singapore center
   const getLocationCoordinates = (): [number, number] => {
     if (location.latitude !== undefined && location.longitude !== undefined) {
       return [location.latitude, location.longitude];
@@ -61,6 +61,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   const [facilityMarkers, setFacilityMarkers] = useState<Array<{
     position: [number, number];
     popup: string;
+    color?: string;
   }>>([]);
   const [loadingFacilities, setLoadingFacilities] = useState(false);
   const [facilityCounts, setFacilityCounts] = useState<{
@@ -107,12 +108,35 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     setSelectedOptions(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const UI_KEY_COLORS: Record<string, string> = {
+    gym: 'yellow',
+    park: 'green',
+    mall: 'violet',
+    school: 'blue',
+    hospital: 'red',
+    parking: 'black',
+    dining: 'gold',
+    transport: 'orange'
+  };
+
+  const DEFAULT_UI_COLOR_HEX = '#F3E8FF';
+  const DEFAULT_MARKER_NAME = 'violet';
+  const LEGEND_ITEMS: Array<{ key: string; label: string }> = [
+    { key: 'gym', label: 'Fitness' },
+    { key: 'park', label: 'Parks' },
+    { key: 'mall', label: 'Malls' },
+    { key: 'school', label: 'Schools' },
+    { key: 'hospital', label: 'Healthcare' },
+    { key: 'parking', label: 'Parking' },
+    { key: 'dining', label: 'Dining' },
+    { key: 'transport', label: 'Transport' }
+  ];
+
   const fetchFacilities = async () => {
     if (!location.street) return;
     
     setLoadingFacilities(true);
     try {
-      // Map UI filter keys to backend types
       const filterMap: Record<string, string> = {
         gym: 'sports',
         park: 'parks',
@@ -121,14 +145,13 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         hospital: 'healthcare',
         parking: 'carparks',
         dining: 'hawkers',
-        transport: 'transit' // Add transport mapping
+        transport: 'transit'
       };
 
-      // Get selected types
       const selectedTypes = Object.entries(selectedOptions)
         .filter(([_, checked]) => checked)
         .map(([key, _]) => filterMap[key])
-        .filter((v, i, a) => a.indexOf(v) === i) // remove duplicates
+        .filter((v, i, a) => a.indexOf(v) === i)
         .join(',');
 
       if (!selectedTypes) {
@@ -141,12 +164,12 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         { params: { types: selectedTypes } }
       );
 
+
       const data = response.data as {
         facilities: Record<string, Array<{ name: string; latitude: number; longitude: number; distance: number }>>;
       };
-      const markers: Array<{ position: [number, number]; popup: string }> = [];
+  const markers: Array<{ position: [number, number]; popup: string; color?: string }> = [];
 
-      // Convert facilities to markers
       const categoryIcons: Record<string, string> = {
         schools: '🏫',
         sports: '⚽',
@@ -154,7 +177,18 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         healthcare: '🏥',
         parks: '🌳',
         carparks: '🅿️',
-        transport: '🚌' // Add transport icon
+        transport: '🚌'
+      };
+
+      // Map backend category -> marker color name (these should match available icon files in the color-markers repo)
+      const categoryColors: Record<string, string> = {
+        schools: 'blue',
+        sports: 'yellow',
+        hawkers: 'gold',
+        healthcare: 'red',
+        parks: 'green',
+        carparks: 'black',
+        transport: 'orange'
       };
 
       Object.entries(data.facilities).forEach(([category, items]: [string, any]) => {
@@ -162,13 +196,14 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
           items.forEach((facility: any) => {
             markers.push({
               position: [facility.latitude, facility.longitude],
-              popup: `${categoryIcons[category] || '📍'} <strong>${facility.name}</strong><br/>${category}<br/>${facility.distance}km away`
+              popup: `${categoryIcons[category] || '📍'} <strong>${facility.name}</strong><br/>${category}<br/>${facility.distance}km away`,
+              color: categoryColors[category] || 'blue'
             });
           });
         }
       });
 
-      setFacilityMarkers(markers);
+  setFacilityMarkers(markers);
     } catch (error) {
       console.error('Failed to fetch facilities:', error);
       setFacilityMarkers([]);
@@ -177,32 +212,29 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     }
   };
 
-  // Fetch facility counts on mount
   useEffect(() => {
     const fetchFacilityCounts = async () => {
       if (!location.street) return;
       
       try {
-        // Fetch all facilities to get counts
         const response = await api.get(
           `/details/street/${encodeURIComponent(location.street)}/facilities-locations`,
-          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks,transit' } } // Add transport
+          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks,transit' } }
         );
 
         const data = response.data as {
           facilities: Record<string, Array<any>>;
         };
 
-        // Map backend categories to UI keys
         const counts = {
           gym: data.facilities.sports?.length || 0,
           park: data.facilities.parks?.length || 0,
-          mall: data.facilities.sports?.length || 0, // mall uses sports
+          mall: data.facilities.sports?.length || 0,
           school: data.facilities.schools?.length || 0,
           hospital: data.facilities.healthcare?.length || 0,
           parking: data.facilities.carparks?.length || 0,
           dining: data.facilities.hawkers?.length || 0,
-          transport: data.facilities.transit?.length || 0 // Add transport count
+          transport: data.facilities.transit?.length || 0
         };
 
         setFacilityCounts(counts);
@@ -214,7 +246,6 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     fetchFacilityCounts();
   }, [location.street]);
 
-    // Helpers to compute centroid and zoom for polygon bounds
     const centroidOf = (coords: [number, number][]) => {
       const lats = coords.map(c => c[0]);
       const lngs = coords.map(c => c[1]);
@@ -272,6 +303,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
           const features = data.features || [];
           const match = features.find((f: any) => (f.properties?.pln_area_n || '').toString().trim().toUpperCase() === (location.area || '').toString().trim().toUpperCase());
           if (!match) return;
+
           // Use first polygon exterior ring
           const multi = match.geometry?.coordinates;
           if (!multi || !Array.isArray(multi) || multi.length === 0) return;
@@ -281,6 +313,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
           const center = centroidOf(coords);
           const zoom = computeZoomForBounds(coords, 0.85);
           setMapZoom(zoom);
+
           // Slight delay to let map mount if needed
           setMapCenter(center);
         } catch (err) {
@@ -293,15 +326,12 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
   // On mount / when location.street changes, load all facilities (default = all on)
   useEffect(() => {
-    // Call fetchFacilities to populate markers according to the current selectedOptions (now default all true)
     fetchFacilities();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.street]);
 
   // Keep center updated if the raw location coords change
   useEffect(() => {
     setMapCenter(getLocationCoordinates());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.latitude, location.longitude, location.lat, location.lng, location.street]);
 
   const handleApplyFilters = async () => {
@@ -310,7 +340,6 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   };
 
   const handleResetFilters = () => {
-    // Reset back to default: all facilities shown
     setSelectedOptions({
       gym: true,
       park: true,
@@ -324,26 +353,32 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     setFacilityMarkers([]);
   };
 
-  const FilterItem = ({ icon, label, checked, onChange, count, iconStyle, iconClassName }: FilterItemProps) => (
+  const FilterItem = ({ icon, label, checked, onChange, count, iconStyle, iconClassName, color }: FilterItemProps) => (
     <label className="flex items-center justify-between w-full p-4 rounded-xl hover:bg-purple-50 transition-colors cursor-pointer border border-purple-200 bg-white">
       <div className="flex items-center gap-4">
         <span
-          className={`flex-shrink-0 p-3 rounded-xl border-2 ${
-            checked ? 'border-purple-500 text-purple-600 bg-purple-50' : 'border-purple-300 text-purple-400 bg-white'
-          } ${iconClassName ?? ''}`}
+          className={`flex-shrink-0 p-3 rounded-xl border-2 ${iconClassName ?? ''}`}
           style={{
             width: '52px',
             height: '52px',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            ...(iconStyle || {})
+            ...(iconStyle || {}),
+
+            // apply color to border and icon. If color is missing, use default hex.
+            borderColor: color ?? DEFAULT_UI_COLOR_HEX,
+            color: color ?? DEFAULT_UI_COLOR_HEX,
+            backgroundColor: checked && typeof color === 'string' && color.startsWith('#') ? `${color}22` : (checked && !color ? `${DEFAULT_UI_COLOR_HEX}22` : undefined)
           }}>
           {isValidElement(icon)
             ? cloneElement(icon as React.ReactElement<any>, {
-                className: `${(icon as any)?.props?.className ?? ''} w-6 h-6`
+                className: `${(icon as any)?.props?.className ?? ''} w-6 h-6`,
+                style: { ...(icon as any)?.props?.style, color: color ?? DEFAULT_UI_COLOR_HEX }
               })
-            : icon}
+            : (
+              <span style={{ color: color }}>{icon}</span>
+            )}
         </span>
         <div>
           <span className="text-lg font-semibold text-gray-900">{label}</span>
@@ -420,6 +455,25 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         </div>
       </div>
 
+      {/* Legend below the map */}
+      <div className="flex-shrink-0 bg-white border-t border-purple-200 p-3">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-4 justify-center">
+          <div className="text-sm text-purple-700 font-semibold mr-4">Legend</div>
+          {LEGEND_ITEMS.map(item => {
+            const mapped = UI_KEY_COLORS[item.key];
+            const colorName = mapped ? mapped.toString().toLowerCase().replace(/[^a-z0-9-]/g, '') : DEFAULT_MARKER_NAME;
+            const iconUrl = `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${colorName}.png`;
+            const uiColorForIcon = mapped ? mapped : DEFAULT_UI_COLOR_HEX;
+            return (
+              <div key={item.key} className="flex items-center gap-2 text-sm text-gray-700">
+                <img src={iconUrl} alt="" aria-hidden style={{ width: 18, height: 30, display: 'inline-block' }} />
+                <span style={{ color: uiColorForIcon }}>{item.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Filter Modal */}
       {showFilterMenu && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-auto"
@@ -455,14 +509,14 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
             <div className="p-6 space-y-4 max-h-96 overflow-y-auto">
               {[
-                { key: 'gym' as const, label: 'Fitness Centers', icon: <FaDumbbell />, count: facilityCounts.gym },
-                { key: 'park' as const, label: 'Parks & Recreation', icon: <FaTree />, count: facilityCounts.park },
-                { key: 'mall' as const, label: 'Shopping Malls', icon: <FaShoppingBag />, count: facilityCounts.mall },
-                { key: 'school' as const, label: 'Schools', icon: <FaSchool />, count: facilityCounts.school },
-                { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: facilityCounts.hospital },
-                { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: facilityCounts.parking },
-                { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: facilityCounts.dining },
-                { key: 'transport' as const, label: 'Transport', icon: <FaBus />, count: facilityCounts.transport } // Added transport filter
+                  { key: 'gym' as const, label: 'Fitness Centers', icon: <FaDumbbell />, count: facilityCounts.gym },
+                  { key: 'park' as const, label: 'Parks & Recreation', icon: <FaTree />, count: facilityCounts.park },
+                  { key: 'mall' as const, label: 'Shopping Malls', icon: <FaShoppingBag />, count: facilityCounts.mall },
+                  { key: 'school' as const, label: 'Schools', icon: <FaSchool />, count: facilityCounts.school },
+                  { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: facilityCounts.hospital },
+                  { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: facilityCounts.parking },
+                  { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: facilityCounts.dining },
+                  { key: 'transport' as const, label: 'Transport', icon: <FaBus />, count: facilityCounts.transport } // Added transport filter
               ].map(f => (
                 <FilterItem
                   key={f.key}
@@ -470,6 +524,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
                   label={f.label}
                   checked={selectedOptions[f.key]}
                   onChange={() => toggleOption(f.key)}
+                  color={UI_KEY_COLORS[f.key] ?? DEFAULT_UI_COLOR_HEX}
                   count={f.count}
                 />
               ))}
