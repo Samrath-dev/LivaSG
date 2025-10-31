@@ -71,7 +71,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     hospital: number;
     parking: number;
     dining: number;
-    transit: number;
+    transport: number;
   }>({
     gym: 0,
     park: 0,
@@ -80,7 +80,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     hospital: 0,
     parking: 0,
     dining: 0,
-    transit: 0
+    transport: 0
   });
   const [selectedOptions, setSelectedOptions] = useState<{ 
     gym: boolean; 
@@ -90,7 +90,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     hospital: boolean;
     parking: boolean;
     dining: boolean;
-    transit: boolean;
+    transport: boolean;
   }>({
     // default: show all facilities when the map opens
     gym: true,
@@ -100,7 +100,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     hospital: true,
     parking: true,
     dining: true,
-    transit: true
+    transport: true
   });
 
   const toggleOption = (key: keyof typeof selectedOptions) => {
@@ -121,7 +121,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         hospital: 'healthcare',
         parking: 'carparks',
         dining: 'hawkers',
-        transit: 'transit' // Add transit mapping
+        transport: 'transit' // Add transport mapping
       };
 
       // Get selected types
@@ -154,7 +154,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         healthcare: '🏥',
         parks: '🌳',
         carparks: '🅿️',
-        transit: '🚌' // Add transit icon
+        transport: '🚌' // Add transport icon
       };
 
       Object.entries(data.facilities).forEach(([category, items]: [string, any]) => {
@@ -186,7 +186,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         // Fetch all facilities to get counts
         const response = await api.get(
           `/details/street/${encodeURIComponent(location.street)}/facilities-locations`,
-          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks,transit' } } // Add transit
+          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks,transit' } } // Add transport
         );
 
         const data = response.data as {
@@ -202,7 +202,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
           hospital: data.facilities.healthcare?.length || 0,
           parking: data.facilities.carparks?.length || 0,
           dining: data.facilities.hawkers?.length || 0,
-          transit: data.facilities.transit?.length || 0 // Add transit count
+          transport: data.facilities.transit?.length || 0 // Add transport count
         };
 
         setFacilityCounts(counts);
@@ -319,7 +319,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       hospital: true,
       parking: true,
       dining: true,
-      transit: true
+      transport: true
     });
     setFacilityMarkers([]);
   };
@@ -461,7 +461,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
                 { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: facilityCounts.hospital },
                 { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: facilityCounts.parking },
                 { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: facilityCounts.dining },
-                { key: 'transit' as const, label: 'Transit', icon: <FaBus />, count: facilityCounts.transit } // Added transit filter
+                { key: 'transport' as const, label: 'Transport', icon: <FaBus />, count: facilityCounts.transport } // Added transport filter
               ].map(f => (
                 <FilterItem
                   key={f.key}
