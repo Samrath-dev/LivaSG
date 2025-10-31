@@ -40,6 +40,64 @@ class SearchService:
         def is_postal_code(query):
             return bool(re.fullmatch(r"\d{6}", query.strip()))
 
+        def _norm_name(name: str) -> str:
+            if not name:
+                return ""
+            n = name.upper().strip()
+            n = n.replace('AVENUE', 'AVE')
+            n = n.replace('CENTRAL', 'CTRL')
+            n = n.replace('STREET', 'ST')
+            n = n.replace('ROAD', 'RD')
+            n = n.replace('DRIVE', 'DR')
+            n = n.replace('CRESCENT', 'CRES')
+            n = n.replace('NORTH', 'NTH')
+            n = n.replace('SOUTH', 'STH')
+            n = n.replace('EAST', 'E')
+            n = n.replace('WEST', 'W')
+            return ' '.join(n.split())
+
+        def _query_matches_street(query: str) -> bool:
+            """Check local street_locations for an exact or normalized match."""
+            try:
+                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+                street_db_path = os.path.join(base_dir, 'street_geocode.db')
+                conn = sqlite3.connect(street_db_path)
+                cur = conn.cursor()
+                try:
+                    # Exact match first
+                    row = cur.execute(
+                        "SELECT 1 FROM street_locations WHERE UPPER(street_name) = UPPER(?) LIMIT 1",
+                        (query,)
+                    ).fetchone()
+                    if row:
+                        return True
+
+                    # Fallback: normalized compare against stored street names (status='found')
+                    rows = cur.execute(
+                        "SELECT street_name FROM street_locations WHERE status = 'found'"
+                    ).fetchall()
+                    target = _norm_name(query)
+                    for (s_name,) in rows:
+                        if _norm_name(s_name) == target:
+                            return True
+                finally:
+                    conn.close()
+            except Exception:
+                # On any DB error, be conservative and return False
+                return False
+            return False
+
+        # Heuristic: if the caller asked for planning_area but the query looks like a street
+        # (contains street-type tokens or matches a stored street), switch to street view.
+        if filters.search_query and view_type != "street":
+            q = filters.search_query.strip()
+            if not is_postal_code(q):
+                # common street tokens
+                if re.search(r"\b(ROAD|RD|STREET|ST|AVENUE|AVE|DRIVE|DR|CRESCENT|CRES|LANE|LN|TERRACE|TCE|WAY|BOULEVARD|BLK)\b", q.upper()):
+                    view_type = "street"
+                elif _query_matches_street(q):
+                    view_type = "street"
+
         async def load_planning_areas_cached(year: int = 2019):
             """Load planning area names using a local sqlite cache; fetch from PopAPI if cache is empty."""
             import sqlite3

@@ -39,6 +39,42 @@ async def breakdown(area_id: str):
         if row:
             # area_id is a street — compute detailed street-specific breakdown
             return await street_breakdown(area_id)
+        else:
+            # If exact match failed, try a normalized match against stored street names
+            try:
+                conn = sqlite3.connect(street_db_path)
+                cur = conn.cursor()
+                all_db_streets = cur.execute(
+                    "SELECT street_name FROM street_locations WHERE status = 'found'"
+                ).fetchall()
+
+                def _norm_name(name: str) -> str:
+                    if not name:
+                        return ""
+                    n = name.upper().strip()
+                    n = n.replace('AVENUE', 'AVE')
+                    n = n.replace('CENTRAL', 'CTRL')
+                    n = n.replace('STREET', 'ST')
+                    n = n.replace('ROAD', 'RD')
+                    n = n.replace('DRIVE', 'DR')
+                    n = n.replace('CRESCENT', 'CRES')
+                    n = n.replace('NORTH', 'NTH')
+                    n = n.replace('SOUTH', 'STH')
+                    n = n.replace('EAST', 'E')
+                    n = n.replace('WEST', 'W')
+                    return ' '.join(n.split())
+
+                target_norm = _norm_name(area_id)
+                for (s_name,) in all_db_streets:
+                    if _norm_name(s_name) == target_norm:
+                        conn.close()
+                        return await street_breakdown(s_name)
+                conn.close()
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
     except Exception:
         # Any failure -> gracefully fall back to area-level
         pass
@@ -156,7 +192,7 @@ async def street_facilities_locations(
     Frontend can use this to add map markers based on user's filter selection.
     """
     import os, sqlite3, math
-    from ..repositories.memory_impl import MemoryAmenityRepo, MemoryAreaRepo
+    from ..repositories.memory_impl import MemoryAmenityRepo, MemoryAreaRepo, MemoryTransitRepo
     
     def haversine(lat1, lon1, lat2, lon2):
         R = 6371.0
@@ -195,12 +231,12 @@ async def street_facilities_locations(
             except Exception:
                 return {"error": f"Street or area '{street_name}' not found", "facilities": {}}
         
-        # Parse requested types
-        requested = types.lower().split(",") if types != "all" else ["schools", "sports", "hawkers", "healthcare", "parks", "carparks"]
-        
+        # Parse requested types (include transit)
+        requested = types.lower().split(",") if types != "all" else ["schools", "sports", "hawkers", "healthcare", "parks", "carparks", "transit"]
+
         # Initialize repo to get datasets
         await MemoryAmenityRepo.initialize()
-        
+
         result = {}
         
         # Schools
@@ -312,6 +348,44 @@ async def street_facilities_locations(
         if "carparks" in requested:
             # For now, return empty or implement if you have carpark lat/lon data
             result["carparks"] = []
+
+        # Transit nodes (MRT/LRT/bus stops)
+        if "transit" in requested:
+            try:
+                try:
+                    nodes = MemoryTransitRepo().all()
+                except Exception:
+                    # If not initialized, attempt async initialize then .all()
+                    try:
+                        import asyncio
+                        asyncio.get_event_loop().run_until_complete(MemoryTransitRepo.initialize())
+                    except Exception:
+                        pass
+                    try:
+                        nodes = MemoryTransitRepo().all()
+                    except Exception:
+                        nodes = []
+            except Exception:
+                nodes = []
+
+            nearby_transit = []
+            for node in nodes:
+                try:
+                    lat = float(node.latitude)
+                    lon = float(node.longitude)
+                    dist = haversine(street_lat, street_lon, lat, lon)
+                    if dist <= 1.0:
+                        nearby_transit.append({
+                            "name": getattr(node, "name", getattr(node, "id", "Transit")),
+                            "type": getattr(node, "type", ""),
+                            "latitude": lat,
+                            "longitude": lon,
+                            "distance": round(dist, 2)
+                        })
+                except Exception:
+                    continue
+
+            result["transit"] = nearby_transit
         
         return {
             "street": street_name,

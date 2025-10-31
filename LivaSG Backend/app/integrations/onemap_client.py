@@ -19,7 +19,7 @@ except Exception:
 
 AUTH_URL = "https://developers.onemap.sg/privateapi/auth/post/getToken"
 
-REFRESH_SKEW_SECONDS = 6 * 3600            # refresh ~6 hours before exp
+REFRESH_SKEW_SECONDS = 300 #6 * 3600            # refresh ~6 hours before exp
 REFRESH_JITTER_RANGE = (60, 300)           
 
 def _decode_exp(token: str) -> Optional[int]:
