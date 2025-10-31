@@ -49,6 +49,11 @@ const SpecificView = ({
   const [mapCenter, setMapCenter] = useState<[number, number]>([1.3521, 103.8198]);
   const [mapZoom, setMapZoom] = useState<number>(14);
   const [isSaved, setIsSaved] = useState(false);
+  const [notification, setNotification] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [notifVisible, setNotifVisible] = useState(false);
+  const notifTimeout = useRef<number | null>(null);
+  const hideTimeout = useRef<number | null>(null);
+  const isEnteringRef = useRef(false);
   const [selectedAreaLocation, setSelectedAreaLocation] = useState<LocationResult | null>(null);
   const [loadingAreaData, setLoadingAreaData] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -257,17 +262,19 @@ const SpecificView = ({
 
   // Ignore response body; we only need to know the save succeeded
   await response.json();
-  setIsSaved(true);
-      
-      // Also save to localStorage as backup
-      localStorage.setItem(`saved_${currentArea}`, 'true');
-      
-      console.log(`${currentArea} saved successfully`);
+    setIsSaved(true);
+
+    // Also save to localStorage as backup
+    localStorage.setItem(`saved_${currentArea}`, 'true');
+
+    console.log(`${currentArea} saved successfully`);
+    showNotification(`${currentArea} saved`, 'success');
     } catch (error) {
       console.error('Error saving location:', error);
       // Fallback to localStorage if API fails
       localStorage.setItem(`saved_${currentArea}`, 'true');
       setIsSaved(true);
+      showNotification(`${currentArea} saved (offline)`, 'success');
     }
   };
 
@@ -290,11 +297,13 @@ const SpecificView = ({
       localStorage.removeItem(`saved_${currentArea}`);
       
       console.log(`${currentArea} unsaved successfully`);
+  showNotification(`${currentArea} removed`, 'error');
     } catch (error) {
       console.error('Error unsaving location:', error);
       // Fallback to localStorage if API fails
       localStorage.removeItem(`saved_${currentArea}`);
       setIsSaved(false);
+  showNotification(`${currentArea} removed (offline)`, 'error');
     }
   };
 
@@ -352,6 +361,32 @@ const SpecificView = ({
     return [lat, lng] as [number, number];
   };
 
+  // Notification helper (slide-down like PreferenceView/SettingsView)
+  useEffect(() => {
+    return () => {
+      if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+      if (hideTimeout.current) window.clearTimeout(hideTimeout.current);
+    };
+  }, []);
+
+  const showNotification = (text: string, type: 'success' | 'error') => {
+    if (notifTimeout.current) window.clearTimeout(notifTimeout.current);
+    if (hideTimeout.current) window.clearTimeout(hideTimeout.current);
+
+    setNotification({ text, type });
+    isEnteringRef.current = true;
+    setNotifVisible(false);
+    requestAnimationFrame(() => {
+      isEnteringRef.current = false;
+      setNotifVisible(true);
+    });
+
+    notifTimeout.current = window.setTimeout(() => {
+      setNotifVisible(false);
+      hideTimeout.current = window.setTimeout(() => setNotification(null), 300);
+    }, 3000);
+  };
+
   const computeZoomForBounds = (coords: [number, number][], fraction = 0.8) => {
     if (!coords || coords.length === 0) return 14;
     const lats = coords.map(c => c[0]);
@@ -361,8 +396,7 @@ const SpecificView = ({
     const lonMin = Math.min(...lngs);
     const lonMax = Math.max(...lngs);
 
-    const lonDelta = Math.max(0.00001, lonMax - lonMin);
-    const latDelta = Math.max(0.00001, latMax - latMin);
+  const lonDelta = Math.max(0.00001, lonMax - lonMin);
 
     const TILE_SIZE = 256;
 
@@ -488,23 +522,44 @@ const SpecificView = ({
             <h1 className="text-lg font-bold">{currentArea}</h1>
           </div>
 
-          {/* Save Button - Top Right */}
-          <button
-            onClick={handleSaveClick}
-            disabled={saving || loadingAreaData}
-            className={`transition-colors ${
-              isSaved 
-                ? 'text-yellow-500 hover:text-yellow-600' 
-                : 'text-purple-400 hover:text-purple-600'
-            } ${saving || loadingAreaData ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <HiBookmark className="w-6 h-6" />
-          </button>
+          {/* Save Button - Top Right: show spinner while loading/saving */}
+          {(saving || loadingAreaData) ? (
+            <div className="w-8 h-8 flex items-center justify-center">
+              <div className="w-6 h-6 rounded-full border-2 border-gray-300 border-t-gray-600 animate-spin" />
+            </div>
+          ) : (
+            <button
+              onClick={handleSaveClick}
+              className={`transition-colors ${isSaved ? 'text-yellow-500 hover:text-yellow-600' : 'text-purple-400 hover:text-purple-600'}`}
+            >
+              <HiBookmark className="w-6 h-6" />
+            </button>
+          )}
         </div>
 
         <p className="text-purple-600 text-sm text-center">
           Zoomed view of {currentArea} planning area
         </p>
+
+        {/* Slide-down overlay notification: positioned below header */}
+        <div
+          aria-live="polite"
+          className={`fixed left-0 right-0 top-40 z-[9999] flex justify-center pointer-events-none transition-transform transition-opacity duration-300 ${
+            isEnteringRef.current ? '-translate-y-6' : 'translate-y-0'
+          } ${notifVisible ? 'opacity-100' : 'opacity-0'}`}
+        >
+          {notification && (
+            <div
+              className={`pointer-events-auto max-w-2xl mx-4 p-3 rounded-lg text-center shadow-md ${
+                notification.type === 'success'
+                  ? 'bg-green-50 text-green-800 border border-green-200'
+                  : 'bg-red-50 text-red-800 border border-red-200'
+              }`}
+            >
+              {notification.text}
+            </div>
+          )}
+        </div>
 
         {/* Action Buttons */}
         <div className="flex gap-3 mt-4">

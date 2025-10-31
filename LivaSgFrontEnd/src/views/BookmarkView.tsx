@@ -64,61 +64,6 @@ const BookmarkView = ({ onBack }: BookmarkViewProps) => {
     fetchSavedLocations();
   }, []);
 
-  // Mock data for demonstration - replace with actual API calls
-  useEffect(() => {
-    const mockLocations: LocationData[] = [
-      {
-        id: 1,
-        street: "Marine Parade Road",
-        area: "Marine Parade",
-        district: "D15",
-        priceRange: [1200000, 2500000],
-        avgPrice: 1500,
-        facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Parks'],
-        description: "Waterfront living with excellent amenities and schools.",
-        growth: 12.5,
-        amenities: ["East Coast Park", "Parkway Parade", "Marine Parade MRT"],
-        transitScore: 85,
-        schoolScore: 90,
-        amenitiesScore: 95,
-        postal_code: "440001"
-      },
-      {
-        id: 2,
-        street: "Orchard Road",
-        area: "Orchard",
-        district: "D9",
-        priceRange: [2000000, 5000000],
-        avgPrice: 2800,
-        facilities: ['Near MRT', 'Shopping Malls', 'Healthcare', 'Parks'],
-        description: "Prime district with luxury shopping and central location.",
-        growth: 8.2,
-        amenities: ["ION Orchard", "Takashimaya", "Orchard MRT"],
-        transitScore: 95,
-        schoolScore: 75,
-        amenitiesScore: 98,
-        postal_code: "238801"
-      },
-      {
-        id: 3,
-        street: "Tampines Street 42",
-        area: "Tampines",
-        district: "D18",
-        priceRange: [600000, 1200000],
-        avgPrice: 850,
-        facilities: ['Near MRT', 'Good Schools', 'Shopping Malls', 'Sports Facilities'],
-        description: "Family-friendly neighborhood with great facilities.",
-        growth: 15.3,
-        amenities: ["Tampines Mall", "Our Tampines Hub", "Tampines MRT"],
-        transitScore: 80,
-        schoolScore: 85,
-        amenitiesScore: 88,
-        postal_code: "520001"
-      }
-    ];
-    setLocations(mockLocations);
-  }, []);
-
   // Fetch saved locations from backend
   const fetchSavedLocations = async () => {
     try {
