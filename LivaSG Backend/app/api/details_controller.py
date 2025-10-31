@@ -21,7 +21,7 @@ async def breakdown(area_id: str):
     - If the area_id matches a street in our local DB, compute a street-level breakdown.
     - Otherwise, fall back to area-level breakdown from the engine.
     """
-    # Try street-level first
+    # Try street-level first by checking our local street index (with normalization fallback)
     try:
         import os, sqlite3
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
@@ -29,52 +29,46 @@ async def breakdown(area_id: str):
         conn = sqlite3.connect(street_db_path)
         cur = conn.cursor()
         try:
+            # Fast exact check
             row = cur.execute(
                 "SELECT 1 FROM street_locations WHERE UPPER(street_name) = UPPER(?) LIMIT 1",
                 (area_id,)
             ).fetchone()
+
+            if row:
+                # Direct match -> return street breakdown
+                conn.close()
+                return await street_breakdown(area_id)
+
+            # Otherwise try a normalized-name match (handles AVENUE/AVE etc.)
+            def _norm_name(name: str) -> str:
+                if not name:
+                    return ""
+                n = name.upper().strip()
+                n = n.replace('AVENUE', 'AVE')
+                n = n.replace('CENTRAL', 'CTRL')
+                n = n.replace('STREET', 'ST')
+                n = n.replace('ROAD', 'RD')
+                n = n.replace('DRIVE', 'DR')
+                n = n.replace('CRESCENT', 'CRES')
+                n = n.replace('NORTH', 'NTH')
+                n = n.replace('SOUTH', 'STH')
+                n = n.replace('EAST', 'E')
+                n = n.replace('WEST', 'W')
+                return ' '.join(n.split())
+
+            target_norm = _norm_name(area_id)
+            all_db_streets = cur.execute("SELECT street_name FROM street_locations").fetchall()
+            for (s_name,) in all_db_streets:
+                if _norm_name(s_name) == target_norm:
+                    conn.close()
+                    return await street_breakdown(s_name)
+
         finally:
-            conn.close()
-
-        if row:
-            # area_id is a street — compute detailed street-specific breakdown
-            return await street_breakdown(area_id)
-        else:
-            # If exact match failed, try a normalized match against stored street names
             try:
-                conn = sqlite3.connect(street_db_path)
-                cur = conn.cursor()
-                all_db_streets = cur.execute(
-                    "SELECT street_name FROM street_locations WHERE status = 'found'"
-                ).fetchall()
-
-                def _norm_name(name: str) -> str:
-                    if not name:
-                        return ""
-                    n = name.upper().strip()
-                    n = n.replace('AVENUE', 'AVE')
-                    n = n.replace('CENTRAL', 'CTRL')
-                    n = n.replace('STREET', 'ST')
-                    n = n.replace('ROAD', 'RD')
-                    n = n.replace('DRIVE', 'DR')
-                    n = n.replace('CRESCENT', 'CRES')
-                    n = n.replace('NORTH', 'NTH')
-                    n = n.replace('SOUTH', 'STH')
-                    n = n.replace('EAST', 'E')
-                    n = n.replace('WEST', 'W')
-                    return ' '.join(n.split())
-
-                target_norm = _norm_name(area_id)
-                for (s_name,) in all_db_streets:
-                    if _norm_name(s_name) == target_norm:
-                        conn.close()
-                        return await street_breakdown(s_name)
                 conn.close()
             except Exception:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+                pass
     except Exception:
         # Any failure -> gracefully fall back to area-level
         pass
@@ -215,10 +209,12 @@ async def street_facilities_locations(
         ).fetchone()
 
         street_lat = street_lon = None
+        planning_area_mode = False
+        planning_area_name = None
         if loc:
             street_lat, street_lon = float(loc[0]), float(loc[1])
         else:
-            # Fallback: treat input as planning area id and use centroid if available
+            # Fallback: treat input as planning area id and use planning_area.db instead
             try:
                 _, centroid = MemoryAreaRepo.getAreaGeometry(street_name)
                 if centroid is None:
@@ -226,6 +222,8 @@ async def street_facilities_locations(
                     _, centroid = MemoryAreaRepo.getAreaGeometry(street_name.title())
                 if centroid is not None:
                     street_lat, street_lon = float(centroid.latitude), float(centroid.longitude)
+                    planning_area_mode = True
+                    planning_area_name = street_name.title()
                 else:
                     return {"error": f"Street or area '{street_name}' not found", "facilities": {}}
             except Exception:
@@ -234,156 +232,563 @@ async def street_facilities_locations(
         # Parse requested types (include transit)
         requested = types.lower().split(",") if types != "all" else ["schools", "sports", "hawkers", "healthcare", "parks", "carparks", "transit"]
 
-        # Initialize repo to get datasets
-        await MemoryAmenityRepo.initialize()
-
+        # Try to load facility locations from DB tables in street_geocode.db or planning_cache.db
         result = {}
-        
+
+        def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,))
+                return cur.fetchone() is not None
+            except Exception:
+                return False
+
+        def _load_from_street_db(table_name: str):
+            """Return list of dicts with keys name, latitude, longitude (or empty list)."""
+            try:
+                if not _table_exists(conn, table_name):
+                    return []
+                rows = cur.execute(f"SELECT name, latitude, longitude FROM {table_name}").fetchall()
+                out = []
+                for r in rows:
+                    try:
+                        n, la, lo = r[0], r[1], r[2]
+                        if la is None or lo is None:
+                            continue
+                        out.append({"name": n or table_name, "latitude": float(la), "longitude": float(lo)})
+                    except Exception:
+                        continue
+                return out
+            except Exception:
+                return []
+
+    # Map backend categories to candidate DB table names (best-effort)
+        db_category_tables = {
+            'schools': ['schools_locations', 'onemap_schools', 'schools'],
+            'sports': ['sports_locations', 'sports'],
+            'hawkers': ['hawkers_locations', 'hawkers'],
+            'healthcare': ['clinics_locations', 'chas_clinics', 'clinics'],
+            'parks': ['parks_locations', 'parks'],
+            'carparks': ['carparks_locations', 'hdb_carparks', 'carparks'],
+            'transit': ['transit_nodes', 'transit']
+        }
+        import json
+        # Load planning-area polygon for containment checks when in planning_area_mode
+        polygon_geojson = None
+        if planning_area_mode and planning_area_name:
+            try:
+                planning_db_path = os.path.join(base_dir, 'planning_cache.db')
+                pconn = sqlite3.connect(planning_db_path)
+                pcur = pconn.cursor()
+                row = pcur.execute(
+                    'SELECT geojson FROM planning_area_polygons WHERE area_name = ? LIMIT 1',
+                    (planning_area_name,)
+                ).fetchone()
+                if row and row[0]:
+                    polygon_geojson = json.loads(row[0])
+                try:
+                    pconn.close()
+                except Exception:
+                    pass
+            except Exception:
+                polygon_geojson = None
+
+        def point_in_polygon(lon, lat, polygon):
+            # Ray casting algorithm for point-in-polygon. polygon is list of [lon, lat] points
+            num = len(polygon)
+            j = num - 1
+            inside = False
+            for i in range(num):
+                lon_i, lat_i = polygon[i][0], polygon[i][1]
+                lon_j, lat_j = polygon[j][0], polygon[j][1]
+                if ((lat_i > lat) != (lat_j > lat)) and (lon < (lon_j - lon_i) * (lat - lat_i) / (lat_j - lat_i + 1e-12) + lon_i):
+                    inside = not inside
+                j = i
+            return inside
+
+        def point_in_geojson(geojson, lat, lon):
+            if not geojson:
+                return False
+            gtype = geojson.get('type')
+            if gtype == 'MultiPolygon':
+                for polygon_group in geojson.get('coordinates', []):
+                    for ring in polygon_group:
+                        if point_in_polygon(lon, lat, ring):
+                            return True
+            elif gtype == 'Polygon':
+                for ring in geojson.get('coordinates', []):
+                    if point_in_polygon(lon, lat, ring):
+                        return True
+            return False
+
+        # If we resolved a planning area (fallback), prefer actual facility locations from planning_cache.db
+        # when polygon geometry is available; otherwise fall back to the pre-computed counts -> synthetic markers.
+        if planning_area_mode and planning_area_name:
+            try:
+                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+                planning_db_path = os.path.join(base_dir, 'planning_cache.db')
+                pconn = sqlite3.connect(planning_db_path)
+                pcur = pconn.cursor()
+
+                # Try to load actual facility location tables from the planning DB and filter by polygon
+                found_real = False
+                for cat in requested:
+                    cat_key = 'greenSpaces' if cat == 'parks' else cat
+                    result[cat] = []
+                    for tbl in db_category_tables.get(cat_key, []):
+                        try:
+                            # Check table exists in planning DB
+                            pcur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tbl,))
+                            if not pcur.fetchone():
+                                continue
+                            rows = pcur.execute(f"SELECT name, latitude, longitude, COALESCE(type, '') FROM {tbl}").fetchall()
+                            for r in rows:
+                                try:
+                                    name = r[0] or tbl
+                                    latf = float(r[1])
+                                    lonf = float(r[2])
+                                    # If polygon exists, prefer containment
+                                    if polygon_geojson and point_in_geojson(polygon_geojson, latf, lonf):
+                                        dist = haversine(street_lat, street_lon, latf, lonf)
+                                        found_real = True
+                                        result[cat].append({
+                                            'name': name,
+                                            'latitude': latf,
+                                            'longitude': lonf,
+                                            'distance': round(dist, 2)
+                                        })
+                                    else:
+                                        # If polygon not present, include if within radius
+                                        dist = haversine(street_lat, street_lon, latf, lonf)
+                                        if dist <= 1.0:
+                                            found_real = True
+                                            result[cat].append({
+                                                'name': name,
+                                                'latitude': latf,
+                                                'longitude': lonf,
+                                                'distance': round(dist, 2)
+                                            })
+                                except Exception:
+                                    continue
+                            # If we collected any rows for this table, stop searching other tables for this category
+                            if result[cat]:
+                                break
+                        except Exception:
+                            continue
+
+                # If we found any real facility points, return them. Otherwise fall back to synthetic counts.
+                if found_real:
+                    try:
+                        pconn.close()
+                    except Exception:
+                        pass
+                    return {
+                        'street': street_name,
+                        'street_latitude': street_lat,
+                        'street_longitude': street_lon,
+                        'facilities': result
+                    }
+
+                # No real rows found -> use counts -> synthetic markers as before
+                row = pcur.execute(
+                    'SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks, transit FROM planning_area_facilities WHERE area_name = ?',
+                    (planning_area_name,)
+                ).fetchone()
+                if row:
+                    counts = dict(zip(['schools','sports','hawkers','healthcare','parks','carparks','transit'], row))
+                else:
+                    counts = {k: 0 for k in ['schools','sports','hawkers','healthcare','parks','carparks','transit']}
+
+                for cat in requested:
+                    cat_key = 'greenSpaces' if cat == 'parks' else cat
+                    n = counts.get(cat_key, 0)
+                    items = []
+                    for i in range(n):
+                        items.append({
+                            'name': f"{cat.title()} {i+1}",
+                            'latitude': street_lat,
+                            'longitude': street_lon,
+                            'distance': 0.0
+                        })
+                    result[cat] = items
+
+                try:
+                    pconn.close()
+                except Exception:
+                    pass
+
+                return {
+                    'street': street_name,
+                    'street_latitude': street_lat,
+                    'street_longitude': street_lon,
+                    'facilities': result
+                }
+            except Exception:
+                # If anything fails, continue with DB/memory approach below
+                try:
+                    pconn.close()
+                except Exception:
+                    pass
+
         # Schools
         if "schools" in requested:
-            schools_data = MemoryAmenityRepo._schools_data or []
+            # Prefer DB tables if available
             nearby_schools = []
-            for school in schools_data:
-                try:
-                    lat = float(school.get("LATITUDE") or school.get("latitude", 0))
-                    lon = float(school.get("LONGITUDE") or school.get("longitude", 0))
-                    dist = haversine(street_lat, street_lon, lat, lon)
-                    if dist <= 1.0:  # within 1km
-                        nearby_schools.append({
-                            "name": school.get("SEARCHVAL", "School"),
-                            "latitude": lat,
-                            "longitude": lon,
-                            "distance": round(dist, 2)
-                        })
-                except (ValueError, TypeError):
-                    continue
-            result["schools"] = nearby_schools
-        
-        # Sports facilities
-        if "sports" in requested:
-            sports_data = MemoryAmenityRepo._sports_data or []
-            nearby_sports = []
-            for sport in sports_data:
-                try:
-                    lat = float(sport.get("latitude", 0))
-                    lon = float(sport.get("longitude", 0))
-                    dist = haversine(street_lat, street_lon, lat, lon)
-                    if dist <= 1.0:
-                        nearby_sports.append({
-                            "name": sport.get("name", "Sports Facility"),
-                            "latitude": lat,
-                            "longitude": lon,
-                            "distance": round(dist, 2)
-                        })
-                except (ValueError, TypeError):
-                    continue
-            result["sports"] = nearby_sports
-        
-        # Hawker centres
-        if "hawkers" in requested:
-            hawkers_data = MemoryAmenityRepo._hawkers_data or []
-            nearby_hawkers = []
-            for hawker in hawkers_data:
-                try:
-                    lat = float(hawker.get("latitude", 0))
-                    lon = float(hawker.get("longitude", 0))
-                    dist = haversine(street_lat, street_lon, lat, lon)
-                    if dist <= 1.0:
-                        nearby_hawkers.append({
-                            "name": hawker.get("name", "Hawker Centre"),
-                            "latitude": lat,
-                            "longitude": lon,
-                            "distance": round(dist, 2)
-                        })
-                except (ValueError, TypeError):
-                    continue
-            result["hawkers"] = nearby_hawkers
-        
-        # Healthcare (with 0.5km radius and dedupe)
-        if "healthcare" in requested:
-            clinics_data = MemoryAmenityRepo._clinics_data or []
-            nearby_healthcare = []
-            seen_grid = set()
-            for clinic in clinics_data:
-                try:
-                    lat = float(clinic.get("latitude", 0))
-                    lon = float(clinic.get("longitude", 0))
-                    dist = haversine(street_lat, street_lon, lat, lon)
-                    if dist <= 0.5:  # 0.5km for healthcare
-                        # Dedupe by ~100m grid
-                        grid_key = (round(lat * 1000), round(lon * 1000))
-                        if grid_key not in seen_grid:
-                            seen_grid.add(grid_key)
-                            nearby_healthcare.append({
-                                "name": clinic.get("name", "Clinic"),
+            for tbl in db_category_tables.get('schools', []):
+                rows = _load_from_street_db(tbl)
+                if rows:
+                    for r in rows:
+                                try:
+                                    latf = float(r['latitude'])
+                                    lonf = float(r['longitude'])
+                                    included = False
+                                    # If we have a planning-area polygon, prefer polygon containment
+                                    if polygon_geojson and point_in_geojson(polygon_geojson, latf, lonf):
+                                        dist = haversine(street_lat, street_lon, latf, lonf)
+                                        nearby_schools.append({
+                                            'name': r.get('name', 'School'),
+                                            'latitude': latf,
+                                            'longitude': lonf,
+                                            'distance': round(dist, 2)
+                                        })
+                                        included = True
+                                    else:
+                                        dist = haversine(street_lat, street_lon, latf, lonf)
+                                        if dist <= 1.0:
+                                            nearby_schools.append({
+                                                'name': r.get('name', 'School'),
+                                                'latitude': latf,
+                                                'longitude': lonf,
+                                                'distance': round(dist, 2)
+                                            })
+                                            included = True
+                                except Exception:
+                                    continue
+                    break
+
+            # Fallback to MemoryAmenityRepo if DB tables not present
+            if not nearby_schools:
+                schools_data = MemoryAmenityRepo._schools_data or []
+                for school in schools_data:
+                    try:
+                        lat = float(school.get("LATITUDE") or school.get("latitude", 0))
+                        lon = float(school.get("LONGITUDE") or school.get("longitude", 0))
+                        dist = haversine(street_lat, street_lon, lat, lon)
+                        if dist <= 1.0:
+                            nearby_schools.append({
+                                "name": school.get("SEARCHVAL", "School"),
                                 "latitude": lat,
                                 "longitude": lon,
                                 "distance": round(dist, 2)
                             })
-                except (ValueError, TypeError):
-                    continue
+                    except (ValueError, TypeError):
+                        continue
+
+            result["schools"] = nearby_schools
+        
+        # Sports facilities
+        if "sports" in requested:
+            nearby_sports = []
+            for tbl in db_category_tables.get('sports', []):
+                rows = _load_from_street_db(tbl)
+                if rows:
+                    for r in rows:
+                        try:
+                            latf = float(r['latitude'])
+                            lonf = float(r['longitude'])
+                            if polygon_geojson and point_in_geojson(polygon_geojson, latf, lonf):
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                nearby_sports.append({
+                                    'name': r.get('name', 'Sports Facility'),
+                                    'latitude': latf,
+                                    'longitude': lonf,
+                                    'distance': round(dist, 2)
+                                })
+                            else:
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                if dist <= 1.0:
+                                    nearby_sports.append({
+                                        'name': r.get('name', 'Sports Facility'),
+                                        'latitude': latf,
+                                        'longitude': lonf,
+                                        'distance': round(dist, 2)
+                                    })
+                        except Exception:
+                            continue
+                    break
+            if not nearby_sports:
+                sports_data = MemoryAmenityRepo._sports_data or []
+                for sport in sports_data:
+                    try:
+                        lat = float(sport.get("latitude", 0))
+                        lon = float(sport.get("longitude", 0))
+                        dist = haversine(street_lat, street_lon, lat, lon)
+                        if dist <= 1.0:
+                            nearby_sports.append({
+                                "name": sport.get("name", "Sports Facility"),
+                                "latitude": lat,
+                                "longitude": lon,
+                                "distance": round(dist, 2)
+                            })
+                    except (ValueError, TypeError):
+                        continue
+            result["sports"] = nearby_sports
+        
+        # Hawker centres
+        if "hawkers" in requested:
+            nearby_hawkers = []
+            for tbl in db_category_tables.get('hawkers', []):
+                rows = _load_from_street_db(tbl)
+                if rows:
+                    for r in rows:
+                        try:
+                            latf = float(r['latitude'])
+                            lonf = float(r['longitude'])
+                            if polygon_geojson and point_in_geojson(polygon_geojson, latf, lonf):
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                nearby_hawkers.append({
+                                    'name': r.get('name', 'Hawker Centre'),
+                                    'latitude': latf,
+                                    'longitude': lonf,
+                                    'distance': round(dist, 2)
+                                })
+                            else:
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                if dist <= 1.0:
+                                    nearby_hawkers.append({
+                                        'name': r.get('name', 'Hawker Centre'),
+                                        'latitude': latf,
+                                        'longitude': lonf,
+                                        'distance': round(dist, 2)
+                                    })
+                        except Exception:
+                            continue
+                    break
+            if not nearby_hawkers:
+                hawkers_data = MemoryAmenityRepo._hawkers_data or []
+                for hawker in hawkers_data:
+                    try:
+                        lat = float(hawker.get("latitude", 0))
+                        lon = float(hawker.get("longitude", 0))
+                        dist = haversine(street_lat, street_lon, lat, lon)
+                        if dist <= 1.0:
+                            nearby_hawkers.append({
+                                "name": hawker.get("name", "Hawker Centre"),
+                                "latitude": lat,
+                                "longitude": lon,
+                                "distance": round(dist, 2)
+                            })
+                    except (ValueError, TypeError):
+                        continue
+            result["hawkers"] = nearby_hawkers
+        
+        # Healthcare (with 0.5km radius and dedupe)
+        if "healthcare" in requested:
+            nearby_healthcare = []
+            seen_grid = set()
+            for tbl in db_category_tables.get('healthcare', []):
+                rows = _load_from_street_db(tbl)
+                if rows:
+                    for r in rows:
+                        try:
+                            latf = float(r['latitude'])
+                            lonf = float(r['longitude'])
+                            # Prefer polygon containment for healthcare too
+                            if polygon_geojson and point_in_geojson(polygon_geojson, latf, lonf):
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                grid_key = (round(latf * 1000), round(lonf * 1000))
+                                if grid_key not in seen_grid:
+                                    seen_grid.add(grid_key)
+                                    nearby_healthcare.append({
+                                        'name': r.get('name', 'Clinic'),
+                                        'latitude': latf,
+                                        'longitude': lonf,
+                                        'distance': round(dist, 2)
+                                    })
+                            else:
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                if dist <= 0.5:
+                                    grid_key = (round(latf * 1000), round(lonf * 1000))
+                                    if grid_key not in seen_grid:
+                                        seen_grid.add(grid_key)
+                                        nearby_healthcare.append({
+                                            'name': r.get('name', 'Clinic'),
+                                            'latitude': latf,
+                                            'longitude': lonf,
+                                            'distance': round(dist, 2)
+                                        })
+                        except Exception:
+                            continue
+                    break
+            if not nearby_healthcare:
+                clinics_data = MemoryAmenityRepo._clinics_data or []
+                for clinic in clinics_data:
+                    try:
+                        lat = float(clinic.get("latitude", 0))
+                        lon = float(clinic.get("longitude", 0))
+                        dist = haversine(street_lat, street_lon, lat, lon)
+                        if dist <= 0.5:  # 0.5km for healthcare
+                            grid_key = (round(lat * 1000), round(lon * 1000))
+                            if grid_key not in seen_grid:
+                                seen_grid.add(grid_key)
+                                nearby_healthcare.append({
+                                    "name": clinic.get("name", "Clinic"),
+                                    "latitude": lat,
+                                    "longitude": lon,
+                                    "distance": round(dist, 2)
+                                })
+                    except (ValueError, TypeError):
+                        continue
             result["healthcare"] = nearby_healthcare
         
         # Parks
         if "parks" in requested:
-            parks_data = MemoryAmenityRepo._parks_data or []
             nearby_parks = []
-            for park in parks_data:
-                try:
-                    lat = float(park.get("latitude", 0))
-                    lon = float(park.get("longitude", 0))
-                    dist = haversine(street_lat, street_lon, lat, lon)
-                    if dist <= 1.0:
-                        nearby_parks.append({
-                            "name": park.get("name", "Park"),
-                            "latitude": lat,
-                            "longitude": lon,
-                            "distance": round(dist, 2)
-                        })
-                except (ValueError, TypeError):
-                    continue
+            for tbl in db_category_tables.get('parks', []):
+                rows = _load_from_street_db(tbl)
+                if rows:
+                    for r in rows:
+                        try:
+                            latf = float(r['latitude'])
+                            lonf = float(r['longitude'])
+                            if polygon_geojson and point_in_geojson(polygon_geojson, latf, lonf):
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                nearby_parks.append({
+                                    'name': r.get('name', 'Park'),
+                                    'latitude': latf,
+                                    'longitude': lonf,
+                                    'distance': round(dist, 2)
+                                })
+                            else:
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                if dist <= 1.0:
+                                    nearby_parks.append({
+                                        'name': r.get('name', 'Park'),
+                                        'latitude': latf,
+                                        'longitude': lonf,
+                                        'distance': round(dist, 2)
+                                    })
+                        except Exception:
+                            continue
+                    break
+            if not nearby_parks:
+                parks_data = MemoryAmenityRepo._parks_data or []
+                for park in parks_data:
+                    try:
+                        lat = float(park.get("latitude", 0))
+                        lon = float(park.get("longitude", 0))
+                        dist = haversine(street_lat, street_lon, lat, lon)
+                        if dist <= 1.0:
+                            nearby_parks.append({
+                                "name": park.get("name", "Park"),
+                                "latitude": lat,
+                                "longitude": lon,
+                                "distance": round(dist, 2)
+                            })
+                    except (ValueError, TypeError):
+                        continue
             result["parks"] = nearby_parks
         
         # Carparks (placeholder - you may need to load actual carpark dataset)
         if "carparks" in requested:
-            # For now, return empty or implement if you have carpark lat/lon data
-            result["carparks"] = []
+            nearby_carparks = []
+            for tbl in db_category_tables.get('carparks', []):
+                rows = _load_from_street_db(tbl)
+                if rows:
+                    for r in rows:
+                        try:
+                            latf = float(r['latitude'])
+                            lonf = float(r['longitude'])
+                            if polygon_geojson and point_in_geojson(polygon_geojson, latf, lonf):
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                nearby_carparks.append({
+                                    'name': r.get('name', 'Carpark'),
+                                    'latitude': latf,
+                                    'longitude': lonf,
+                                    'distance': round(dist, 2)
+                                })
+                            else:
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                if dist <= 1.0:
+                                    nearby_carparks.append({
+                                        'name': r.get('name', 'Carpark'),
+                                        'latitude': latf,
+                                        'longitude': lonf,
+                                        'distance': round(dist, 2)
+                                    })
+                        except Exception:
+                            continue
+                    break
+            # Fallback: empty (or try MemoryCarparkRepo if needed)
+            result["carparks"] = nearby_carparks
 
         # Transit nodes (MRT/LRT/bus stops)
         if "transit" in requested:
-            try:
+            nearby_transit = []
+            # Try DB tables first
+            for tbl in db_category_tables.get('transit', []):
+                rows = _load_from_street_db(tbl)
+                if rows:
+                    for r in rows:
+                        try:
+                            latf = float(r['latitude'])
+                            lonf = float(r['longitude'])
+                            if polygon_geojson and point_in_geojson(polygon_geojson, latf, lonf):
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                nearby_transit.append({
+                                    'name': r.get('name', r.get('id', 'Transit')),
+                                    'type': r.get('type', ''),
+                                    'latitude': latf,
+                                    'longitude': lonf,
+                                    'distance': round(dist, 2)
+                                })
+                            else:
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                if dist <= 1.0:
+                                    nearby_transit.append({
+                                        'name': r.get('name', r.get('id', 'Transit')),
+                                        'type': r.get('type', ''),
+                                        'latitude': latf,
+                                        'longitude': lonf,
+                                        'distance': round(dist, 2)
+                                    })
+                        except Exception:
+                            continue
+                    break
+
+            # Fallback to MemoryTransitRepo
+            if not nearby_transit:
                 try:
-                    nodes = MemoryTransitRepo().all()
-                except Exception:
-                    # If not initialized, attempt async initialize then .all()
-                    try:
-                        import asyncio
-                        asyncio.get_event_loop().run_until_complete(MemoryTransitRepo.initialize())
-                    except Exception:
-                        pass
                     try:
                         nodes = MemoryTransitRepo().all()
                     except Exception:
-                        nodes = []
-            except Exception:
-                nodes = []
-
-            nearby_transit = []
-            for node in nodes:
-                try:
-                    lat = float(node.latitude)
-                    lon = float(node.longitude)
-                    dist = haversine(street_lat, street_lon, lat, lon)
-                    if dist <= 1.0:
-                        nearby_transit.append({
-                            "name": getattr(node, "name", getattr(node, "id", "Transit")),
-                            "type": getattr(node, "type", ""),
-                            "latitude": lat,
-                            "longitude": lon,
-                            "distance": round(dist, 2)
-                        })
+                        try:
+                            import asyncio
+                            asyncio.get_event_loop().run_until_complete(MemoryTransitRepo.initialize())
+                        except Exception:
+                            pass
+                        try:
+                            nodes = MemoryTransitRepo().all()
+                        except Exception:
+                            nodes = []
                 except Exception:
-                    continue
+                    nodes = []
+
+                for node in nodes:
+                    try:
+                        lat = float(node.latitude)
+                        lon = float(node.longitude)
+                        dist = haversine(street_lat, street_lon, lat, lon)
+                        if dist <= 1.0:
+                            nearby_transit.append({
+                                "name": getattr(node, "name", getattr(node, "id", "Transit")),
+                                "type": getattr(node, "type", ""),
+                                "latitude": lat,
+                                "longitude": lon,
+                                "distance": round(dist, 2)
+                            })
+                    except Exception:
+                        continue
 
             result["transit"] = nearby_transit
         
