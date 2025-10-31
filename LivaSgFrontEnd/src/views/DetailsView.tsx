@@ -413,7 +413,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
             center={mapCenter}
             zoom={mapZoom}
             markers={facilityMarkers}
-            zoomOnly={true}
+            interactive={true}
+            zoomOnly={false}
             className="w-full h-full"
           />
         </div>
