@@ -1,4 +1,4 @@
-import { HiTrendingUp, HiChartBar } from 'react-icons/hi';
+import { HiTrendingUp, HiChartBar, HiFilter } from 'react-icons/hi';
 import React, { useRef, useState, useEffect } from 'react';
 import api from '../api/https';
 import {
@@ -32,6 +32,9 @@ interface Props {
   onClose: () => void;
 }
 
+// Time range options
+type TimeRange = '3m' | '6m' | '1y' | '2y' | 'all';
+
 export default function CompareLocations({ locations, onClose }: Props) {
   const labels = ['Affordability', 'Accessibility', 'Amenities', 'Environment', 'Community'];
 
@@ -56,7 +59,64 @@ export default function CompareLocations({ locations, onClose }: Props) {
     setPriceTrendError(null);
     setLoadingPriceTrends(true);
   };
+
+  // Time range filter state
+  const [timeRange, setTimeRange] = useState<TimeRange>('1y');
+  const [showTimeFilter, setShowTimeFilter] = useState(false);
+
+  // Dynamic chart dimensions based on screen size
+  const [chartDimensions, setChartDimensions] = useState({ width: 800, height: 400 });
   
+  useEffect(() => {
+    const updateDimensions = () => {
+      const isMobile = window.innerWidth < 768;
+      const containerWidth = Math.min(window.innerWidth * 0.8, 800);
+      
+      if (isMobile) {
+        setChartDimensions({
+          width: containerWidth,
+          height: 350
+        });
+      } else {
+        setChartDimensions({
+          width: containerWidth,
+          height: 300
+        });
+      }
+    };
+
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, []);
+
+  // Filter months based on selected time range
+  const filterMonthsByTimeRange = (months: string[]): string[] => {
+    if (timeRange === 'all') return months;
+    
+    const now = new Date();
+    let cutoffDate = new Date();
+    
+    switch (timeRange) {
+      case '3m':
+        cutoffDate.setMonth(now.getMonth() - 3);
+        break;
+      case '6m':
+        cutoffDate.setMonth(now.getMonth() - 6);
+        break;
+      case '1y':
+        cutoffDate.setFullYear(now.getFullYear() - 1);
+        break;
+      case '2y':
+        cutoffDate.setFullYear(now.getFullYear() - 2);
+        break;
+    }
+    
+    return months.filter(month => {
+      const monthDate = new Date(month);
+      return monthDate >= cutoffDate;
+    });
+  };
 
   // total unique months across all fetched priceTrends (used for header badge)
   const totalMonths = React.useMemo(() => {
@@ -314,10 +374,16 @@ export default function CompareLocations({ locations, onClose }: Props) {
     // gather unique months across all series and sort
     const monthSet = new Set<string>();
     series.forEach(s => s.forEach(p => monthSet.add(p.month)));
-    const months = Array.from(monthSet).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-    if (months.length === 0) {
+    const allMonths = Array.from(monthSet).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    
+    // Apply time range filter
+    const filteredMonths = filterMonthsByTimeRange(allMonths);
+    
+    if (filteredMonths.length === 0) {
       return (
-        <div className="flex items-center justify-center h-48 text-gray-500">No price trend data available for selected locations.</div>
+        <div className="flex items-center justify-center h-48 text-gray-500">
+          No price trend data available for the selected time range.
+        </div>
       );
     }
 
@@ -328,27 +394,29 @@ export default function CompareLocations({ locations, onClose }: Props) {
       return map;
     });
 
-    // compute global min/max
+    // compute global min/max using filtered months
     let allValues: number[] = [];
-    lookups.forEach(map => months.forEach(m => { if (map[m] !== undefined) allValues.push(map[m]); }));
+    lookups.forEach(map => filteredMonths.forEach(m => { if (map[m] !== undefined) allValues.push(map[m]); }));
     if (allValues.length === 0) allValues = [0, 1];
     const minV = Math.min(...allValues);
     const maxV = Math.max(...allValues);
 
-    // Layout padding: separate left/right/top/bottom so labels are not clipped
-    const leftPad = 72;
-    const rightPad = 48;
-    const topPad = 48;
-    const bottomPad = 60; // room for rotated x labels
-    const chartWidth = 800;
-    const chartHeight = 400; // plot height
+    // Dynamic padding based on screen size
+    const isMobile = window.innerWidth < 768;
+    const leftPad = isMobile ? 60 : 72;
+    const rightPad = isMobile ? 24 : 48;
+    const topPad = isMobile ? 40 : 48;
+    const bottomPad = isMobile ? 50 : 60;
+    
+    const { width: chartWidth, height: chartHeight } = chartDimensions;
     const totalHeight = chartHeight + bottomPad;
-    const getX = (idx: number) => leftPad + (idx * (chartWidth - leftPad - rightPad) / Math.max(1, months.length - 1));
+    
+    const getX = (idx: number) => leftPad + (idx * (chartWidth - leftPad - rightPad) / Math.max(1, filteredMonths.length - 1));
     const getY = (val: number) => chartHeight - bottomPad - ((val - minV) / Math.max(1e-6, (maxV - minV))) * (chartHeight - topPad - bottomPad);
 
-    // build paths
+    // build paths using filtered months
     const paths = lookups.map((map, i) => {
-      const path = months.map((m, idx) => {
+      const path = filteredMonths.map((m, idx) => {
         const v = map[m] !== undefined ? map[m] : null;
         const x = getX(idx);
         const y = v !== null ? getY(v) : getY(minV);
@@ -364,36 +432,83 @@ export default function CompareLocations({ locations, onClose }: Props) {
     };
 
     const formatPrice = (price: number) => {
-      // round and format with thousands separator, keep dollar sign
       const n = Math.round(Number(price) || 0);
       return `$${n.toLocaleString(undefined)}`;
     };
 
-  // determine which month indices should show labels: quarter starts (Jan/Apr/Jul/Oct)
-  // Always include first and last index for context.
-  const quarterIndices = months.reduce((acc: number[], m, idx) => {
-    const d = new Date(m);
-    const mo = isNaN(d.getTime()) ? -1 : d.getMonth();
-    if (mo >= 0 && mo % 3 === 0) acc.push(idx);
-    return acc;
-  }, []);
-  const labelIndicesSet = new Set<number>([0, months.length - 1, ...quarterIndices]);
+    // Smart label selection - fewer labels on mobile
+    const quarterIndices = filteredMonths.reduce((acc: number[], m, idx) => {
+      const d = new Date(m);
+      const mo = isNaN(d.getTime()) ? -1 : d.getMonth();
+      if (mo >= 0 && mo % 3 === 0) acc.push(idx);
+      return acc;
+    }, []);
+    
+    // On mobile, show fewer labels (only first, last, and some quarters)
+    const labelIndicesSet = isMobile 
+      ? new Set<number>([0, filteredMonths.length - 1, ...quarterIndices.filter((_, i) => i % 2 === 0)])
+      : new Set<number>([0, filteredMonths.length - 1, ...quarterIndices]);
 
     return (
       <div className="bg-white rounded-2xl">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             {locs.map((loc, i) => (
               <div key={loc.id} className="flex items-center gap-2 text-sm">
                 <span className="w-3 h-3 rounded-sm" style={{ background: paletteBorder[i % paletteBorder.length] }} />
-                <span className="text-gray-700">{loc.street}</span>
+                <span className="text-gray-700 truncate max-w-[120px]">{loc.street}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Chart Stats */}
-        <div className="flex justify-between items-center mb-4 text-sm">
+        {/* Time Range Filter */}
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowTimeFilter(!showTimeFilter)}
+              className="flex items-center gap-2 px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors"
+            >
+              <HiFilter className="w-4 h-4" />
+              <span>Time Range</span>
+            </button>
+            
+            {showTimeFilter && (
+              <div className="flex gap-1 bg-white border border-purple-200 rounded-lg p-1 shadow-lg">
+                {(['3m', '6m', '1y', '2y', 'all'] as TimeRange[]).map((range) => (
+                  <button
+                    key={range}
+                    onClick={() => {
+                      setTimeRange(range);
+                      setShowTimeFilter(false);
+                    }}
+                    className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                      timeRange === range
+                        ? 'bg-purple-600 text-white'
+                        : 'text-purple-600 hover:bg-purple-50'
+                    }`}
+                  >
+                    {range === '3m' ? '3M' : 
+                     range === '6m' ? '6M' : 
+                     range === '1y' ? '1Y' : 
+                     range === '2y' ? '2Y' : 'All'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Display current time range */}
+          <div className="text-sm text-purple-600 font-medium">
+            Showing: {timeRange === '3m' ? '3 Months' : 
+                     timeRange === '6m' ? '6 Months' : 
+                     timeRange === '1y' ? '1 Year' : 
+                     timeRange === '2y' ? '2 Years' : 'All Time'}
+          </div>
+        </div>
+
+        {/* Chart Stats - Stack on mobile */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-4 text-sm">
           <div className="text-green-600 font-semibold">
             +{metrics.totalGrowthPercent.toFixed(1)}% total growth
           </div>
@@ -409,17 +524,17 @@ export default function CompareLocations({ locations, onClose }: Props) {
           <svg
             ref={svgRef}
             viewBox={`0 0 ${chartWidth} ${totalHeight}`}
-            className="w-full h-[400px]"
-            preserveAspectRatio="none"
+            className="w-full"
+            style={{ height: isMobile ? '350px' : '300px' }}
+            preserveAspectRatio="xMidYMid meet"
             onMouseMove={(e) => {
               if (!svgRef.current || !chartContainerRef.current) return;
               const svgRect = svgRef.current.getBoundingClientRect();
               const clientX = (e as React.MouseEvent).clientX;
               const relX = clientX - svgRect.left;
-              const approx = (relX / svgRect.width) * (months.length - 1);
-              const idx = Math.max(0, Math.min(months.length - 1, Math.round(approx)));
+              const approx = (relX / svgRect.width) * (filteredMonths.length - 1);
+              const idx = Math.max(0, Math.min(filteredMonths.length - 1, Math.round(approx)));
               setHoverIdx(idx);
-              // position tooltip near top of chart at the hovered x (relative to container)
               const leftPx = (getX(idx) / chartWidth) * svgRect.width;
               setTooltipPos({ left: leftPx, top: 8 });
             }}
@@ -430,8 +545,8 @@ export default function CompareLocations({ locations, onClose }: Props) {
               if (!touch) return;
               const svgRect = svgRef.current.getBoundingClientRect();
               const relX = touch.clientX - svgRect.left;
-              const approx = (relX / svgRect.width) * (months.length - 1);
-              const idx = Math.max(0, Math.min(months.length - 1, Math.round(approx)));
+              const approx = (relX / svgRect.width) * (filteredMonths.length - 1);
+              const idx = Math.max(0, Math.min(filteredMonths.length - 1, Math.round(approx)));
               setHoverIdx(idx);
               const leftPx = (getX(idx) / chartWidth) * svgRect.width;
               setTooltipPos({ left: leftPx, top: 8 });
@@ -442,7 +557,6 @@ export default function CompareLocations({ locations, onClose }: Props) {
             {(() => {
               const lines: React.ReactNode[] = [];
               const step = 100000;
-              // find first tick >= minV that is aligned to step
               const startTick = Math.ceil(minV / step) * step;
               const endTick = Math.floor(maxV / step) * step;
               if (startTick <= endTick) {
@@ -461,13 +575,13 @@ export default function CompareLocations({ locations, onClose }: Props) {
               <path key={i} d={p.path} fill="none" stroke={p.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
             ))}
 
-            {/* data markers */}
+            {/* data markers - smaller on mobile */}
             {lookups.map((map, si) => (
-              months.map((m, mi) => {
+              filteredMonths.map((m, mi) => {
                 const v = map[m];
                 if (v === undefined) return null;
                 return (
-                  <circle key={`${si}-${mi}`} cx={getX(mi)} cy={getY(v)} r={3} fill={paletteBorder[si % paletteBorder.length]} />
+                  <circle key={`${si}-${mi}`} cx={getX(mi)} cy={getY(v)} r={isMobile ? 2 : 3} fill={paletteBorder[si % paletteBorder.length]} />
                 );
               })
             ))}
@@ -485,11 +599,11 @@ export default function CompareLocations({ locations, onClose }: Props) {
                   strokeDasharray="4 4"
                 />
                 {lookups.map((map, si) => {
-                  const m = months[hoverIdx];
+                  const m = filteredMonths[hoverIdx];
                   const v = map[m];
                   if (v === undefined) return null;
                   return (
-                    <circle key={`h-${si}`} cx={getX(hoverIdx)} cy={getY(v)} r={6} fill="#fff" stroke={paletteBorder[si % paletteBorder.length]} strokeWidth={2} />
+                    <circle key={`h-${si}`} cx={getX(hoverIdx)} cy={getY(v)} r={isMobile ? 4 : 6} fill="#fff" stroke={paletteBorder[si % paletteBorder.length]} strokeWidth={2} />
                   );
                 })}
               </g>
@@ -499,53 +613,40 @@ export default function CompareLocations({ locations, onClose }: Props) {
             <line x1={leftPad} y1={topPad} x2={leftPad} y2={chartHeight - bottomPad} stroke="#6b7280" strokeWidth="1" />
             <line x1={leftPad} y1={chartHeight - bottomPad} x2={chartWidth - rightPad} y2={chartHeight - bottomPad} stroke="#6b7280" strokeWidth="1" />
 
-            {/* left-side labels: top / middle / bottom values (formatted) */}
+            {/* left-side labels */}
             <text
-              x={leftPad - 12}
+              x={leftPad - 8}
               y={topPad}
               textAnchor="end"
               dominantBaseline="middle"
-              style={{ fontSize: '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
+              style={{ fontSize: isMobile ? '10px' : '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
             >
               {formatPrice(maxV)}
             </text>
             <text
-              x={leftPad - 12}
+              x={leftPad - 8}
               y={(chartHeight / 2)}
               textAnchor="end"
               dominantBaseline="middle"
-              style={{ fontSize: '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
+              style={{ fontSize: isMobile ? '10px' : '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
             >
               {formatPrice((maxV + minV) / 2)}
             </text>
             <text
-              x={leftPad - 12}
+              x={leftPad - 8}
               y={chartHeight - bottomPad}
               textAnchor="end"
               dominantBaseline="middle"
-              style={{ fontSize: '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
+              style={{ fontSize: isMobile ? '10px' : '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
             >
               {formatPrice(minV)}
             </text>
 
-            {/* soft vertical lines marking start of year (January) */}
-            {months.map((m, idx) => {
-              const d = new Date(m);
-              if (isNaN(d.getTime())) return null;
-              if (d.getMonth() === 0) {
-                return (
-                  <line key={`yr-${idx}`} x1={getX(idx)} x2={getX(idx)} y1={topPad} y2={chartHeight - bottomPad} stroke="#e5e7eb" strokeWidth={1} />
-                );
-              }
-              return null;
-            })}
-
-            {/* month labels: only quarter starts (Jan/Apr/Jul/Oct) plus first & last */}
-            {months.map((m, idx) => {
+            {/* month labels with responsive styling */}
+            {filteredMonths.map((m, idx) => {
               if (!labelIndicesSet.has(idx)) return null;
               const x = getX(idx);
-              const y = chartHeight - bottomPad + 28;
-              // rotate labels slightly for readability (less steep)
+              const y = chartHeight - bottomPad + (isMobile ? 24 : 28);
               return (
                 <text
                   key={`lbl-${m}-${idx}`}
@@ -553,7 +654,11 @@ export default function CompareLocations({ locations, onClose }: Props) {
                   y={y}
                   transform={`rotate(-45 ${x} ${y})`}
                   textAnchor="end"
-                  style={{ fontSize: '12px', fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', fill: '#6b7280' }}
+                  style={{ 
+                    fontSize: isMobile ? '10px' : '12px', 
+                    fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial', 
+                    fill: '#6b7280' 
+                  }}
                 >
                   {formatDateLabel(m)}
                 </text>
@@ -561,21 +666,21 @@ export default function CompareLocations({ locations, onClose }: Props) {
             })}
           </svg>
 
-          {/* Tooltip (HTML) positioned over the svg */}
+          {/* Tooltip */}
           {tooltipPos && hoverIdx !== null && (
             <div
               style={{ left: tooltipPos.left, top: tooltipPos.top }}
-              className="absolute z-50 pointer-events-none w-max bg-white border border-gray-200 rounded-md shadow-lg p-2 text-xs"
+              className="absolute z-50 pointer-events-none w-max bg-white border border-gray-200 rounded-md shadow-lg p-2 text-xs max-w-[200px]"
             >
-              <div className="font-semibold text-gray-800 mb-1">{formatDateLabel(months[hoverIdx])}</div>
+              <div className="font-semibold text-gray-800 mb-1">{formatDateLabel(filteredMonths[hoverIdx])}</div>
               <div className="space-y-1">
                 {locs.map((loc, i) => {
-                  const val = lookups[i][months[hoverIdx]];
+                  const val = lookups[i][filteredMonths[hoverIdx]];
                   return (
                     <div key={`t-${loc.id}`} className="flex items-center gap-2">
-                      <span style={{ width: 10, height: 10, background: paletteBorder[i % paletteBorder.length] }} className="inline-block rounded-sm" />
-                      <span className="text-gray-700">{loc.street}:</span>
-                      <span className="font-semibold text-gray-900">{val !== undefined ? formatPrice(val) : '—'}</span>
+                      <span style={{ width: 8, height: 8, background: paletteBorder[i % paletteBorder.length] }} className="inline-block rounded-sm" />
+                      <span className="text-gray-700 truncate">{loc.street}:</span>
+                      <span className="font-semibold text-gray-900 whitespace-nowrap">{val !== undefined ? formatPrice(val) : '—'}</span>
                     </div>
                   );
                 })}
@@ -584,7 +689,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
           )}
         </div>
 
-        {/* Data summary: recent growth and current median shown side-by-side */}
+        {/* Data summary */}
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className={`flex flex-col items-center justify-center p-4 rounded-lg ${metrics.recentGrowthPercent < 0 ? 'bg-red-50' : metrics.recentGrowthPercent > 0 ? 'bg-green-50' : 'bg-gray-50'}`}>
             <div className="text-sm text-gray-600">Recent Growth</div>
@@ -600,7 +705,6 @@ export default function CompareLocations({ locations, onClose }: Props) {
             </div>
           </div>
         </div>
-
       </div>
     );
   };
@@ -813,19 +917,27 @@ export default function CompareLocations({ locations, onClose }: Props) {
             </div>
           </div>
 
-          {/* Price History - Updated to handle new data format */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 mt-4 w-full">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
-                  <HiTrendingUp className="w-5 h-5 text-purple-500" />
-                  Price Trend
-                </h2>
-                <div className="text-sm text-purple-600 font-medium bg-purple-100 px-3 py-1 rounded-full">
-                  {totalMonths === 1 ? '1 month' : `${totalMonths} months`}
-                </div>
+          {/* Price History with Time Range Filter */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 mt-4 w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
+                <HiTrendingUp className="w-5 h-5 text-purple-500" />
+                Price Trend
+              </h2>
+              <div className="text-sm text-purple-600 font-medium bg-purple-100 px-3 py-1 rounded-full">
+                {filterMonthsByTimeRange(
+                  Array.from(
+                    new Set(
+                      Object.values(priceTrends).flatMap(arr => 
+                        arr.map(p => p.month)
+                      )
+                    )
+                  )
+                ).length} months
               </div>
-              {renderPriceComparisonChart()}
             </div>
+            {renderPriceComparisonChart()}
+          </div>
         </div>
       </div>
     </div>
