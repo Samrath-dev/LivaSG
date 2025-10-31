@@ -17,6 +17,26 @@ def get_shortlist_service():
     from ..main import di_shortlist_service
     return di_shortlist_service
 
+@router.get("/export/api", response_model=ExportData)
+def export_data(
+    save_to_disk: bool = Query(False, description="Save export to server disk"), #don't think need to save to disk
+    settings_service: SettingsService = Depends(get_settings_service),
+    shortlist_service: ShortlistService = Depends(get_shortlist_service)
+):
+    try:
+        saved_locations = shortlist_service.get_saved_locations()
+        export_data = settings_service.export_data(saved_locations)
+        if save_to_disk:
+            settings_service.export_json(saved_locations, save_to_disk=True)
+        return export_data
+    except Exception as e:
+        print(f"Export error: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to export data: {str(e)}"
+        )
+        
 @router.get("/export/json")
 def export_json(
     save_to_disk: bool = Query(True, description="Save export to server disk"),
@@ -35,25 +55,6 @@ def export_json(
             detail=f"Failed to export data: {str(e)}"
         )
 
-@router.get("/export", response_model=ExportData)
-def export_data(
-    save_to_disk: bool = Query(True, description="Save export to server disk"),
-    settings_service: SettingsService = Depends(get_settings_service),
-    shortlist_service: ShortlistService = Depends(get_shortlist_service)
-):
-    try:
-        saved_locations = shortlist_service.get_saved_locations()
-        export_data = settings_service.export_data(saved_locations)
-        if save_to_disk:
-            settings_service.export_json(saved_locations, save_to_disk=True)
-        return export_data
-    except Exception as e:
-        print(f"Export error: {str(e)}")
-        print(traceback.format_exc())
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to export data: {str(e)}"
-        )
 
 @router.get("/export/csv")
 def export_csv(
@@ -107,4 +108,5 @@ def import_data(
         raise HTTPException(
             status_code=500, 
             detail=f"Import failed: {str(e)}"
+
         )
