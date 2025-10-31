@@ -243,26 +243,34 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
                 {/* Color Gradient Legend */}
                 <div className="mb-3">
                   <div className="flex justify-between text-xs text-purple-600 mb-1">
-                    <span>Highest Rating</span>
-                    <span>Lowest Rating</span>
+                    <span>Higher Rating</span>
+                    <span>Lower Rating</span>
                   </div>
                   <div className="h-4 rounded-lg bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 w-full"></div>
                   <div className="flex justify-between text-xs text-purple-600 mt-1">
-                    <span>Green</span>
-                    <span>Red</span>
+                    <span>Better</span>
+                    <span>Worse</span>
                   </div>
                 </div>
 
-                {/* Rating Explanation */}
+                {/* Relative Rating Explanation */}
                 <div className="mt-3 pt-3 border-t border-purple-100">
                   <div className="flex items-start gap-2">
                     <HiInformationCircle className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
                     <div>
-                      <p className="text-xs text-purple-600 font-medium mb-1">About Neighbourhood Rating</p>
+                      <p className="text-xs text-purple-600 font-medium mb-1">Relative Rating Scale</p>
                       <p className="text-xs text-purple-500">
-                        A weighted score determined by Affordability, Accessibility, Amenities, Environment and Community after weighing user preferences.
+                        Colors show relative performance compared to other areas. Green areas perform better, red areas perform worse relative to neighboring regions.
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                {/* No Data Indicator */}
+                <div className="mt-3 pt-3 border-t border-purple-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded border border-gray-300 bg-gray-300"></div>
+                    <span className="text-xs text-purple-600">Gray areas = No data available</span>
                   </div>
                 </div>
 
