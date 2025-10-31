@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { FaDumbbell, FaTree, FaShoppingBag, FaSchool, FaHospital, FaParking, FaUtensils, FaBus } from 'react-icons/fa';
 import React, { isValidElement, cloneElement } from 'react';
 import type { ReactNode } from 'react';
-import OneMapEmbedded from '../components/OneMapEmbedded';
+import OneMapInteractive from '../components/OneMapInteractive';
 import api from '../api/https';
 
 interface DetailsViewProps {
@@ -58,6 +58,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   const [mapZoom, setMapZoom] = useState<number>(13);
 
   const [showFilterMenu, setShowFilterMenu] = useState(false);
+  // Developer-only flag: toggle dimming of surrounding planning-area polygons in code (not exposed to users)
+  const DIM_SURROUNDING_AREAS = true;
   const [facilityMarkers, setFacilityMarkers] = useState<Array<{
     position: [number, number];
     popup: string;
@@ -140,7 +142,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       const filterMap: Record<string, string> = {
         gym: 'sports',
         park: 'parks',
-        mall: 'sports',
+        // malls are a separate backend category; do not map malls to sports
+        mall: 'malls',
         school: 'schools',
         hospital: 'healthcare',
         parking: 'carparks',
@@ -173,6 +176,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       const categoryIcons: Record<string, string> = {
         schools: '🏫',
         sports: '⚽',
+        malls: '🛍️',
         hawkers: '🍽️',
         healthcare: '🏥',
         parks: '🌳',
@@ -184,6 +188,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       const categoryColors: Record<string, string> = {
         schools: 'blue',
         sports: 'yellow',
+        malls: 'violet',
         hawkers: 'gold',
         healthcare: 'red',
         parks: 'green',
@@ -229,7 +234,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         const counts = {
           gym: data.facilities.sports?.length || 0,
           park: data.facilities.parks?.length || 0,
-          mall: data.facilities.sports?.length || 0,
+          // malls should use the 'malls' backend category when available
+          mall: data.facilities.malls?.length || 0,
           school: data.facilities.schools?.length || 0,
           hospital: data.facilities.healthcare?.length || 0,
           parking: data.facilities.carparks?.length || 0,
@@ -323,6 +329,41 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
       fitToPlanningArea();
     }, [location.area]);
+
+    // Polygon styling: dim surrounding areas unless toggled off
+    const getPolygonStyle = (areaName?: string) => {
+      const normalize = (s: string | undefined) => (s || '').toString().trim().toUpperCase();
+      // If overlay is disabled (developer flag), return a neutral transparent style
+      if (!DIM_SURROUNDING_AREAS) {
+        return {
+          fillColor: '#ffffff',
+          fillOpacity: 0,
+          color: '#00000000',
+          weight: 1,
+          opacity: 0
+        };
+      }
+
+      if (normalize(areaName) === normalize(location.area)) {
+        // Current selected area - keep it clear with a highlighted border
+        return {
+          fillColor: '#ffff',
+          fillOpacity: 0.0,
+          color: '#030303ff',
+          weight: 3,
+          opacity: 1
+        };
+      }
+
+      // Surrounding areas - greyed out
+      return {
+        fillColor: '#9CA3AF', // Gray-400
+        fillOpacity: 0.5,
+        color: '#6B7280', // Gray-500
+        weight: 1,
+        opacity: 0.6
+      };
+    };
 
   // On mount / when location.street changes, load all facilities (default = all on)
   useEffect(() => {
@@ -444,12 +485,15 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       {/* Content: full-bleed map in purple background */}
       <div className="flex-1 relative z-0">
         <div className="w-full h-full">
-          <OneMapEmbedded
+          <OneMapInteractive
             center={mapCenter}
             zoom={mapZoom}
             markers={facilityMarkers}
-            interactive={true}
-            zoomOnly={false}
+            dragging={true}
+            scrollWheelZoom={true}
+            touchZoom={true}
+            showPlanningAreas={true}
+            getPolygonStyle={getPolygonStyle}
             className="w-full h-full"
           />
         </div>

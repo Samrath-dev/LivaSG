@@ -442,12 +442,32 @@ const OneMapInteractive = ({
     // Add new markers
     markers.forEach(markerData => {
       if (mapRef.current) {
-        const marker = L.marker(markerData.position);
-        
+        // Support colorized markers by using the leaflet-color-markers icon set when a color is provided.
+        let marker: L.Marker;
+        if (markerData.color) {
+          // sanitize color name for URL (lowercase, remove non-alphanum and hyphen)
+          const colorName = markerData.color.toString().toLowerCase().replace(/[^a-z0-9-]/g, '');
+          const iconUrl = `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${colorName}.png`;
+          const iconRetina = `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${colorName}.png`;
+          const markerIcon = L.icon({
+            iconUrl,
+            iconRetinaUrl: iconRetina,
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+          });
+
+          marker = L.marker(markerData.position, { icon: markerIcon });
+        } else {
+          marker = L.marker(markerData.position);
+        }
+
         if (markerData.popup) {
           marker.bindPopup(markerData.popup);
         }
-        
+
         marker.addTo(mapRef.current);
         markersRef.current.push(marker);
       }
