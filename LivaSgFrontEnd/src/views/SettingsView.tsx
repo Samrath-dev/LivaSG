@@ -36,19 +36,29 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
     setLoading(false);
   };
 
-  // Upload selected file (CSV or JSON) directly to backend import endpoint
+  // Upload selected JSON file to backend import endpoint (backend expects JSON body)
   const processImportedFile = async (file: File) => {
-    const form = new FormData();
-    form.append('file', file, file.name);
-
     startLoader();
     try {
+      const text = await file.text();
+
+      // The import endpoint expects a JSON payload like { data: "<string>", import_type: "json" }
+      const payload = {
+        data: text,
+        import_type: 'json'
+      };
+
       const res = await fetch('http://localhost:8000/settings/import', {
         method: 'POST',
-        body: form,
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
       });
+
       stopLoaderImmediate();
-      if (!res.ok) throw new Error(`status ${res.status}`);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`status ${res.status} ${txt}`);
+      }
 
       const data = await res.json().catch(() => null);
       const detail = data && typeof data === 'object' ? data : null;
@@ -57,13 +67,22 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
     } catch (err) {
       stopLoaderImmediate();
       console.error('Import failed', err);
-      alert('Failed to import data');
+      alert('Failed to import data. Make sure you selected a valid .json file.');
     }
   };
 
   const onFileChange: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Only accept .json files
+    const name = (file.name || '').toLowerCase();
+    if (!name.endsWith('.json')) {
+      alert('Please select a .json file for import.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     await processImportedFile(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -79,9 +98,9 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
   };
 
   const EXPORT_ENDPOINTS: Record<string, string> = {
-    json: 'http://localhost:8000/settings/export',
+    json: 'http://localhost:8000/settings/export/json',
     csv: 'http://localhost:8000/settings/export/csv',
-    pdf: 'http://localhost:8000/settings/export/pdf',
+    pdf: 'http://localhost:8000/settings/export/api',
   };
 
   const downloadBlob = (blob: Blob, filename: string) => {
@@ -186,7 +205,7 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json,.csv,application/json,text/csv,application/*,text/*"
+        accept=".json,application/json"
         onChange={onFileChange}
         className="hidden"
       />
