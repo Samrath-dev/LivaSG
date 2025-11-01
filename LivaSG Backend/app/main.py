@@ -1,28 +1,49 @@
 # app/main.py
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# --- Existing Routers (module imports only) ---
-from app.api import map_controller, details_controller, search_controller
-from app.api import onemap_controller  # keep after DI objects created if you prefer
+# --- Transit debugger ---
+from app.api import transit_debug
 
-# --- Existing Memory Repositories ---
+# ---- Load env ----
+load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+
+# ---- Routers ----
+from app.api import map_controller, details_controller, search_controller, onemap_controller
+from app.api import weights_controller
+from app.api import ranks_controller
+from app.api import shortlist_controller, settings_controller
+
+# ---- Repositories ----
 from app.repositories.memory_impl import (
     MemoryPriceRepo, MemoryAmenityRepo, MemoryWeightsRepo,
     MemoryScoreRepo, MemoryTransitRepo, MemoryCarparkRepo,
     MemoryAreaRepo, MemoryCommunityRepo
 )
 
-# --- Existing Services ---
+from app.repositories.sqlite_rank_repo import SQLiteRankRepo
+from app.repositories.sqlite_saved_location_repo import SQLiteSavedLocationRepo  # Add this import
+
+# ---- Services ----
 from app.services.trend_service import TrendService
 from app.services.rating_engine import RatingEngine
 from app.services.search_service import SearchService
+from app.services.shortlist_service import ShortlistService
+from app.services.settings_service import SettingsService
 
-# --- NEW: OneMap Integrations (hardcoded token path) ---
+# ---- Integrations ----
 from app.integrations.onemap_client import OneMapClientHardcoded
 from app.repositories.api_planning_repo import OneMapPlanningAreaRepo
 
-# --- Create DI singletons (memory repos) ---
+# DI
+# repos
 di_price     = MemoryPriceRepo()
 di_amenity   = MemoryAmenityRepo()
 di_weights   = MemoryWeightsRepo()
@@ -30,13 +51,15 @@ di_scores    = MemoryScoreRepo()
 di_community = MemoryCommunityRepo()
 di_transit   = MemoryTransitRepo()
 di_carpark   = MemoryCarparkRepo()
-di_area      = MemoryAreaRepo()   # still used by RatingEngine for now
+di_area      = MemoryAreaRepo()
+di_ranks     = SQLiteRankRepo()
+di_saved_location_repo = SQLiteSavedLocationRepo()  # Replace the memory implementation
 
-# --- Create DI for OneMap planning areas ---
+# planning areas / onemap
 di_onemap_client = OneMapClientHardcoded()
 di_planning_repo = OneMapPlanningAreaRepo(di_onemap_client)
 
-# --- Services ---
+# services
 di_trend  = TrendService(di_price)
 di_engine = RatingEngine(
     di_price,
@@ -45,14 +68,23 @@ di_engine = RatingEngine(
     di_community,
     di_transit,
     di_carpark,
-    di_area
+    di_area,
+    ranks=di_ranks,
 )
 di_search = SearchService(di_engine, di_onemap_client)
 
-# --- FastAPI app ---
-app = FastAPI(title="LivaSG API")
+di_shortlist_service = ShortlistService(di_saved_location_repo)  # Use SQLite repo
+di_settings_service = SettingsService(di_ranks, di_weights)
 
-# CORS for local React dev
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: warm any async caches you want ready
+    await MemoryTransitRepo.initialize()
+    yield
+
+# app
+app = FastAPI(title="LivaSG API", lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -60,32 +92,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- Dependency overrides (avoid circular imports) ----
-# onemap_controller uses a DI hook for the planning repo
+# ========= Dependency overrides =========
+# onemap planning areas + client
 app.dependency_overrides[onemap_controller.get_planning_repo] = lambda: di_planning_repo
+app.dependency_overrides[onemap_controller.get_onemap_client] = lambda: di_onemap_client
 
-# map_controller now exposes DI hooks; wire them here
+# map
 app.dependency_overrides[map_controller.get_engine] = lambda: di_engine
 app.dependency_overrides[map_controller.get_weights_service] = lambda: di_weights
 app.dependency_overrides[map_controller.get_planning_repo] = lambda: di_planning_repo
 
-# ---- Mount routers ----
-# map_controller already has prefix="/map" and tags=["map"] inside the file
+# details (trend)
+app.dependency_overrides[details_controller.get_trend_service] = lambda: di_trend
+
+# weights
+app.dependency_overrides[weights_controller.get_weights_repo] = lambda: di_weights
+
+# ranks (now handles both ranks and preferences)
+app.dependency_overrides[ranks_controller.get_rank_service] = lambda: di_ranks
+
+# transit debug
+app.dependency_overrides[transit_debug.get_transit_repo] = lambda: di_transit
+
+# shortlist and settings
+app.dependency_overrides[shortlist_controller.get_shortlist_service] = lambda: di_shortlist_service
+app.dependency_overrides[settings_controller.get_settings_service] = lambda: di_settings_service 
+app.dependency_overrides[settings_controller.get_shortlist_service] = lambda: di_shortlist_service
+
+# ========= Routers =========
 app.include_router(map_controller.router)
-
-# keep these with explicit prefixes only if their controllers DO NOT already define prefixes
-app.include_router(details_controller.router, prefix="/details", tags=["details"])
+app.include_router(details_controller.router)
 app.include_router(search_controller.router, prefix="/search", tags=["search"])
-
-# onemap_controller already has prefix="/onemap" and tags=["onemap"] inside the file
 app.include_router(onemap_controller.router)
+app.include_router(weights_controller.router)
+app.include_router(ranks_controller.router)
+app.include_router(transit_debug.router)
+app.include_router(shortlist_controller.router)
+app.include_router(settings_controller.router)
 
-# Health
+# ========= Health / debug =========
 @app.get("/")
 def health():
     return {"ok": True}
 
-# --- Dev-only: simple PopAPI debug probe ---
 @app.get("/test-onemap")
 async def test_onemap():
     import httpx

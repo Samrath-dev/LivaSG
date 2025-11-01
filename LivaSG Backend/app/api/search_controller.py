@@ -15,16 +15,33 @@ def search_areas(filters: SearchFilters, weightsId: str = "default"):
     return di_search.rank(areas, w)
 
 @router.post("/filter", response_model=List[LocationResult])
-async def filter_locations(filters: SearchFilters):
+async def filter_locations(
+    filters: SearchFilters,
+    view_type: str = Query("street", description="View type: 'street' (prioritize street names) or 'planning_area' (prioritize planning areas)")
+):
+    """
+    Filter locations based on search query, facilities, and price range.
+    Corresponds to the filtering functionality in SearchView.tsx.
+    
+    Args:
+        filters: Search filters including query, facilities, price range
+        view_type: Controls result prioritization:
+            - "street": Prioritize street-level results (default)
+            - "planning_area": Prioritize planning area results
+    """
+    # Let unexpected exceptions propagate to FastAPI so they are logged with full tracebacks.
+    from ..main import di_search
+    return await di_search.filter_locations(filters, view_type=view_type)
+    
+@router.post("/filter-polygon", response_model=List[LocationResult])
+async def filter_polygon_locations(filters: SearchFilters):
     """
     Filter locations based on search query, facilities, and price range.
     Corresponds to the filtering functionality in SearchView.tsx.
     """
-    try:
-        from ..main import di_search
-        return await di_search.filter_locations(filters)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error filtering locations: {str(e)}")
+    # Let unexpected exceptions propagate to FastAPI so they are logged with full tracebacks.
+    from ..main import di_search
+    return await di_search.filter_locations(filters)
 
 @router.post("/search-and-rank", response_model=List[Dict[str, Any]])
 def search_and_rank_locations(filters: SearchFilters, weightsId: str = "default"):
@@ -47,7 +64,7 @@ def get_available_facilities():
     return [
         'Near MRT',
         'Good Schools',
-        'Shopping Malls',
+        'Community Centres',
         'Parks',
         'Hawker Centres',
         'Healthcare',
