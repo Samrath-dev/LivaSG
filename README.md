@@ -126,8 +126,9 @@ npm run dev
 ## Table of Contents
 
 - [Overview](#overview)
-- [Project Structure](#project-structure)
-- [Installation and setup](#Installation)
+- [Supports](#currently-supports-the-following)
+- [Project Structure](#project-structure-backend)
+- [Installation and setup](#installation-and-setup)
 - [Run the Backend](#Run)
 
 ## Overview
@@ -138,45 +139,147 @@ The backend is a FastAPI service responsible for:
 • Serving data to the React frontend via REST endpoints
 • Providing modular architecture using Domain, Repositories, Services, and Controllers (API)
 
-It currently supports:
-• /map – Choropleth & score visualization
-• /details – Price trends & category breakdown
-• /search – Ranked search results
-• /onemap – Real Singapore planning areas via OneMap API
+## Currently supports the following:
 
-## Project Structure
+- GET / -> Health check (returns {"ok": true})
+- GET /test-onemap -> Quick OneMap connectivity test (returns truncated raw response)
+
+- Map
+
+  - GET /map/choropleth -> Return neighbourhood scores (choropleth) for planning areas; accepts query param `weightsId`
+
+- Details
+
+  - GET /details/{area_id}/breakdown -> Category breakdown for an area or a street
+  - GET /details/{area_id}/facilities -> Facilities summary for an area
+  - GET /details/street/{street_name}/facilities-locations -> Facility locations (markers) near a street (query param `types`)
+
+- OneMap / Planning areas
+
+  - GET /onemap/planning-areas?year=2019 -> GeoJSON for planning areas
+  - GET /onemap/planning-area-names?year=2019 -> List of planning area names
+  - GET /onemap/planning-area-at?latitude=&longitude=&year=2019 -> Resolve planning area at a lat/lon (501 if not implemented in repo)
+  - POST /onemap/renew-token -> Force OneMap token refresh (optional email/password in body)
+
+- Search (mounted under /search)
+
+  - POST /search -> Area-ranking search (body: SearchFilters)
+  - POST /search/filter -> Filter locations (body: SearchFilters, query `view_type`)
+  - POST /search/filter-polygon -> Filter locations using polygon
+  - POST /search/search-and-rank -> Combined search + ranking (returns locations with scores)
+  - GET /search/facilities -> List of available facility filters
+  - GET /search/onemap?query=&page= -> Search OneMap via backend proxy
+
+- Weights & Ranks
+
+  - GET /weights -> Get active weights profile
+  - POST /weights -> Create & activate a weights profile (body: weights)
+  - GET /ranks -> Get current rank preferences
+  - POST /ranks -> Set rank preferences
+  - POST /ranks/reset -> Reset ranks to defaults
+
+- Shortlist
+
+  - GET /shortlist/saved-locations -> Retrieve saved/bookmarked locations
+  - POST /shortlist/saved-locations -> Save a location (body: postal_code, address, area)
+  - DELETE /shortlist/saved-locations/{postal_code} -> Remove saved location
+
+- Settings / Export & Import
+
+  - GET /settings/export/api -> Export structured data (JSON) via API
+  - GET /settings/export/json -> Export JSON (optionally save to disk)
+  - GET /settings/export/csv -> Export CSV (optionally save to disk)
+  - POST /settings/import -> Import settings/exported data (body: ImportRequest)
+
+- Debug / Transit
+  - GET /debug/transit/count -> Count of transit nodes
+  - GET /debug/transit/area/{area_id} -> Transit nodes for an area
+  - GET /debug/transit/nearest?lat=&lon=&k= -> Nearest transit nodes to a lat/lon
+
+## Project Structure (Backend)
 
 ```
-LIVASG BACKEND/
-└── app/
-├── api/  
-│ ├── details_controller.py
-│ ├── map_controller.py
-│ ├── onemap_controller.py
-│ └── search_controller.py
-│
-├── domain/  
-│ ├── enums.py
-│ └── models.py
-│
-├── integrations/  
-│ └── onemap_client.py
-│
-├── repositories/  
-│ ├── api_planning_repo.py
-│ ├── interfaces.py
-│ └── memory_impl.py
-│
-├── services/  
-│ ├── rating_engine.py
-│ ├── search_service.py
-│ └── trend_service.py
-│
-└── main.py  
-│
-├── planning_cache.db  
-├── onemap_locations.json  
-└── requirements.txt
+LivaSG Backend/
+├── .cache/
+├── app/
+│  ├── __init__.py
+│  ├── main.py
+│  ├── api/
+│  │  ├── __init__.py
+│  │  ├── details_controller.py
+│  │  ├── map_controller.py
+│  │  ├── onemap_controller.py
+│  │  ├── ranks_controller.py
+│  │  ├── search_controller.py
+│  │  ├── settings_controller.py
+│  │  ├── shortlist_controller.py
+│  │  ├── transit_debug.py
+│  │  └── weights_controller.py
+│  ├── cache/
+│  │  ├── __init__.py
+│  │  ├── disk_cache.py
+│  │  └── paths.py
+│  ├── domain/
+│  │  ├── __init__.py
+│  │  ├── enums.py
+│  │  └── models.py
+│  ├── integrations/
+│  │  ├── __init__.py
+│  │  └── onemap_client.py
+│  ├── repositories/
+│  │  ├── __init__.py
+│  │  ├── api_planning_repo.py
+│  │  ├── interfaces.py
+│  │  ├── memory_impl.py
+│  │  ├── sqlite_rank_repo.py
+│  │  └── sqlite_saved_location_repo.py
+│  └── services/
+│     ├── __init__.py
+│     ├── rating_engine.py
+│     ├── search_service.py
+│     ├── settings_service.py
+│     ├── shortlist_service.py
+│     └── trend_service.py
+├── data/
+│  ├── bus_stops.csv
+│  └── resale_2017_onwards.csv
+├── exports/
+├── scripts/
+│  ├── add_transit_column.py
+│  ├── check_not_found.py
+│  ├── check_schema.py
+│  ├── delete_planning_area.py
+│  ├── extract_streets.py
+│  ├── find_offending_serangoon.py
+│  ├── generate_street_facilities.py
+│  ├── geocode_streets.py
+│  ├── get_token.py
+│  ├── import_hdb_streets.py
+│  ├── inspect_planning_cache.py
+│  ├── list_planning_area_facilities.py
+│  ├── list_transit_streets.py
+│  ├── migrate_add_planning_area.py
+│  ├── populate_area_facilities.py
+│  ├── populate_missing_facilities.py
+│  ├── populate_planning_locations.py
+│  ├── populate_street_community.py
+│  ├── query_planning_cache.py
+│  ├── query_serangoon.py
+│  ├── query_street_facilities.py
+│  ├── restore_planning_polygon.py
+│  ├── retry_geocoding.py
+│  ├── scrape_postal_codes.py
+│  ├── test_breakdown_async.py
+│  ├── test_details_fix.py
+│  ├── test_facility_filtering.py
+│  ├── test_facility_lookup.py
+│  ├── test_nearby_mrt.py
+│  ├── test_normalization.py
+│  └── test_transit_integration.py
+├── .env
+├── planning_cache.db
+├── street_geocode.db
+└── user_cache.db
 ```
 
 ## Installation and setup
@@ -195,7 +298,15 @@ pip install -r requirements.txt
 ## Run the Backend
 uvicorn app.main:app --reload
 
+## Create a .env file
+ONEMAP_EMAIL= # your email
+ONEMAP_PASSWORD= # your password
+PORT=8000
+RESALE_CSV_PATH=./resale-flat-prices-based-on-registration-date-from-jan-2017-onwards.csv
+BUS_STOPS_CSV_PATH=./bus_stops.csv
+ONEMAP_TOKEN= # your token (if have existing)
 ```
+
 ## Authors
 
 ### Contributors names
