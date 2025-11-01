@@ -1,6 +1,9 @@
 from typing import List, Optional
 from ..domain.models import PriceRecord, FacilitiesSummary, WeightsProfile, NeighbourhoodScore, CommunityCentre, AreaCentroid
 from ..domain.models import Transit, Carpark
+from abc import ABC, abstractmethod
+from ..domain.models import RankProfile, SavedLocation
+from typing import Protocol
 
 class IPriceRepo:
     def series(self, area_id: str, months: int) -> List[PriceRecord]: ...
@@ -48,3 +51,34 @@ from typing import Any, Dict, List
 class IPlanningAreaRepo:
     async def geojson(self, year: int = 2020) -> Dict[str, Any]: ...
     async def names(self, year: int = 2020) -> List[str]: ...
+
+class IRankRepo(ABC):
+    @abstractmethod
+    def get_active(self) -> RankProfile | None: ...
+    @abstractmethod
+    def set(self, r: RankProfile) -> None: ...
+    @abstractmethod
+    def clear(self) -> None: ...
+
+
+class ISavedLocationRepo(ABC):
+    @abstractmethod
+    def get_saved_locations(self)->List[SavedLocation]: ...
+    @abstractmethod
+    def saved_location(self, location: SavedLocation)->None: ...
+    @abstractmethod
+    def delete_location(self,postal_code:str)-> None: ...
+    @abstractmethod
+    def get_location(self, postal_code:str)->Optional[SavedLocation]: ...
+
+# new 
+from typing import List
+from ..domain.models import PricePoint
+
+class IPriceRepo(Protocol):
+    def series(self, area_id: str, months: int) -> List["PriceRecord"]:
+        ...
+
+
+    def trend_points(self, area_id: str, *, since_year: int = 2017) -> List[PricePoint]:
+        ...
