@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { HiFilter, HiChevronLeft, HiX, HiHome, HiSearch, HiCog } from 'react-icons/hi';
-import { FaSubway, FaSchool, FaShoppingBag, FaTree, FaUtensils, FaHospital, FaDumbbell } from 'react-icons/fa';
+import { FaSubway, FaSchool, FaBuilding, FaTree, FaUtensils, FaHospital, FaDumbbell } from 'react-icons/fa';
 import SpecificView from './SpecificView';
 
 interface SearchViewProps {
@@ -63,7 +63,7 @@ const SearchView = ({ searchQuery, onBack, onViewDetails, onSearchQueryChange, o
   const facilitiesList = [
     { key: 'mrt', label: 'Near MRT', icon: <FaSubway />, count: 15 },
     { key: 'schools', label: 'Good Schools', icon: <FaSchool />, count: 12 },
-    { key: 'malls', label: 'Shopping Malls', icon: <FaShoppingBag />, count: 8 },
+    { key: 'community', label: 'Community Centres', icon: <FaBuilding />, count: 125 },
     { key: 'parks', label: 'Parks', icon: <FaTree />, count: 10 },
     { key: 'hawker', label: 'Hawker Centres', icon: <FaUtensils />, count: 20 },
     { key: 'healthcare', label: 'Healthcare', icon: <FaHospital />, count: 6 },

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FaDumbbell, FaTree, FaShoppingBag, FaSchool, FaHospital, FaParking, FaUtensils, FaBus } from 'react-icons/fa';
+import { FaDumbbell, FaTree, FaBuilding, FaSchool, FaHospital, FaParking, FaUtensils, FaBus } from 'react-icons/fa';
 import React, { isValidElement, cloneElement } from 'react';
 import type { ReactNode } from 'react';
 import OneMapInteractive from '../components/OneMapInteractive';
@@ -69,41 +69,41 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   const [facilityCounts, setFacilityCounts] = useState<{
     gym: number;
     park: number;
-    mall: number;
     school: number;
     hospital: number;
     parking: number;
     dining: number;
     transport: number;
+    community: number;
   }>({
     gym: 0,
     park: 0,
-    mall: 0,
     school: 0,
     hospital: 0,
     parking: 0,
     dining: 0,
-    transport: 0
+    transport: 0,
+    community: 0
   });
   const [selectedOptions, setSelectedOptions] = useState<{ 
     gym: boolean; 
     park: boolean;
-    mall: boolean;
     school: boolean;
     hospital: boolean;
     parking: boolean;
     dining: boolean;
     transport: boolean;
+    community: boolean;
   }>({
     // default: show all facilities when the map opens
     gym: true,
     park: true,
-    mall: true,
     school: true,
     hospital: true,
     parking: true,
     dining: true,
-    transport: true
+    transport: true,
+    community: true
   });
 
   const toggleOption = (key: keyof typeof selectedOptions) => {
@@ -113,12 +113,12 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   const UI_KEY_COLORS: Record<string, string> = {
     gym: 'yellow',
     park: 'green',
-    mall: 'violet',
     school: 'blue',
     hospital: 'red',
     parking: 'black',
     dining: 'gold',
-    transport: 'orange'
+    transport: 'orange',
+    community: 'violet'
   };
 
   const DEFAULT_UI_COLOR_HEX = '#F3E8FF';
@@ -126,12 +126,12 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
   const LEGEND_ITEMS: Array<{ key: string; label: string }> = [
     { key: 'gym', label: 'Fitness' },
     { key: 'park', label: 'Parks' },
-    { key: 'mall', label: 'Malls' },
     { key: 'school', label: 'Schools' },
     { key: 'hospital', label: 'Healthcare' },
     { key: 'parking', label: 'Parking' },
     { key: 'dining', label: 'Dining' },
-    { key: 'transport', label: 'Transport' }
+    { key: 'transport', label: 'Transport' },
+    { key: 'community', label: 'Community' }
   ];
 
   const fetchFacilities = async () => {
@@ -142,13 +142,12 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       const filterMap: Record<string, string> = {
         gym: 'sports',
         park: 'parks',
-        // malls are a separate backend category; do not map malls to sports
-        mall: 'malls',
         school: 'schools',
         hospital: 'healthcare',
         parking: 'carparks',
         dining: 'hawkers',
-        transport: 'transit'
+        transport: 'transit',
+        community: 'community'
       };
 
       const selectedTypes = Object.entries(selectedOptions)
@@ -176,24 +175,24 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       const categoryIcons: Record<string, string> = {
         schools: '🏫',
         sports: '⚽',
-        malls: '🛍️',
         hawkers: '🍽️',
         healthcare: '🏥',
         parks: '🌳',
         carparks: '🅿️',
-        transport: '🚌'
+        transport: '🚌',
+        community: '🏢'
       };
 
       // Map backend category -> marker color name (these should match available icon files in the color-markers repo)
       const categoryColors: Record<string, string> = {
         schools: 'blue',
         sports: 'yellow',
-        malls: 'violet',
         hawkers: 'gold',
         healthcare: 'red',
         parks: 'green',
         carparks: 'black',
-        transport: 'orange'
+        transport: 'orange',
+        community: 'violet'
       };
 
       Object.entries(data.facilities).forEach(([category, items]: [string, any]) => {
@@ -224,7 +223,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
       try {
         const response = await api.get(
           `/details/street/${encodeURIComponent(location.street)}/facilities-locations`,
-          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks,transit' } }
+          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks,transit,community' } }
         );
 
         const data = response.data as {
@@ -234,13 +233,12 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         const counts = {
           gym: data.facilities.sports?.length || 0,
           park: data.facilities.parks?.length || 0,
-          // malls should use the 'malls' backend category when available
-          mall: data.facilities.malls?.length || 0,
           school: data.facilities.schools?.length || 0,
           hospital: data.facilities.healthcare?.length || 0,
           parking: data.facilities.carparks?.length || 0,
           dining: data.facilities.hawkers?.length || 0,
-          transport: data.facilities.transit?.length || 0
+          transport: data.facilities.transit?.length || 0,
+          community: data.facilities.community?.length || 0
         };
 
         setFacilityCounts(counts);
@@ -384,12 +382,12 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     setSelectedOptions({
       gym: true,
       park: true,
-      mall: true,
       school: true,
       hospital: true,
       parking: true,
       dining: true,
-      transport: true
+      transport: true,
+      community: true
     });
     setFacilityMarkers([]);
   };
@@ -555,12 +553,12 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
               {[
                   { key: 'gym' as const, label: 'Fitness Centers', icon: <FaDumbbell />, count: facilityCounts.gym },
                   { key: 'park' as const, label: 'Parks & Recreation', icon: <FaTree />, count: facilityCounts.park },
-                  { key: 'mall' as const, label: 'Shopping Malls', icon: <FaShoppingBag />, count: facilityCounts.mall },
                   { key: 'school' as const, label: 'Schools', icon: <FaSchool />, count: facilityCounts.school },
                   { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: facilityCounts.hospital },
                   { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: facilityCounts.parking },
                   { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: facilityCounts.dining },
-                  { key: 'transport' as const, label: 'Transport', icon: <FaBus />, count: facilityCounts.transport } // Added transport filter
+                  { key: 'transport' as const, label: 'Transport', icon: <FaBus />, count: facilityCounts.transport }, // Added transport filter
+                  { key: 'community' as const, label: 'Community Centres', icon: <FaBuilding />, count: facilityCounts.community }
               ].map(f => (
                 <FilterItem
                   key={f.key}
