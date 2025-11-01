@@ -1,10 +1,9 @@
-import { HiChevronLeft, HiTrendingUp, HiStar, HiMap, HiHome } from 'react-icons/hi';
-import { useState } from 'react';
-import { FaDumbbell, FaTree, FaShoppingBag, FaSchool, FaHospital, FaParking, FaUtensils } from 'react-icons/fa';
+import { useState, useEffect } from 'react';
+import { FaDumbbell, FaTree, FaBuilding, FaSchool, FaHospital, FaParking, FaUtensils, FaBus } from 'react-icons/fa';
 import React, { isValidElement, cloneElement } from 'react';
 import type { ReactNode } from 'react';
-import OneMapEmbedded from '../components/OneMapEmbedded';
-import priceGraphDummy from '../assets/priceGraphDummy.png';
+import OneMapInteractive from '../components/OneMapInteractive';
+import api from '../api/https';
 
 interface DetailsViewProps {
   location: {
@@ -34,6 +33,7 @@ type FilterItemProps = {
   count?: number;
   iconStyle?: React.CSSProperties;
   iconClassName?: string;
+  color?: string;
 };
 
 const DetailsView = ({ location, onBack }: DetailsViewProps) => {
@@ -44,10 +44,8 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     return `$${(price / 1000).toFixed(0)}K`;
   };
 
-  // Get coordinates from location, with fallback to Singapore center
   const getLocationCoordinates = (): [number, number] => {
     if (location.latitude !== undefined && location.longitude !== undefined) {
-      console.log("Using latitude/longitude" + location.latitude + ", " + location.longitude);
       return [location.latitude, location.longitude];
     }
     if (location.lat !== undefined && location.lng !== undefined) {
@@ -56,51 +54,372 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     return [1.3521, 103.8198];
   };
 
-  const mapCenter = getLocationCoordinates();
+  const [mapCenter, setMapCenter] = useState<[number, number]>(getLocationCoordinates());
+  const [mapZoom, setMapZoom] = useState<number>(13);
 
   const [showFilterMenu, setShowFilterMenu] = useState(false);
+  // Developer-only flag: toggle dimming of surrounding planning-area polygons in code (not exposed to users)
+  const DIM_SURROUNDING_AREAS = true;
+  const [facilityMarkers, setFacilityMarkers] = useState<Array<{
+    position: [number, number];
+    popup: string;
+    color?: string;
+  }>>([]);
+  const [loadingFacilities, setLoadingFacilities] = useState(false);
+  const [facilityCounts, setFacilityCounts] = useState<{
+    gym: number;
+    park: number;
+    school: number;
+    hospital: number;
+    parking: number;
+    dining: number;
+    transport: number;
+    community: number;
+  }>({
+    gym: 0,
+    park: 0,
+    school: 0,
+    hospital: 0,
+    parking: 0,
+    dining: 0,
+    transport: 0,
+    community: 0
+  });
   const [selectedOptions, setSelectedOptions] = useState<{ 
     gym: boolean; 
     park: boolean;
-    mall: boolean;
     school: boolean;
     hospital: boolean;
     parking: boolean;
     dining: boolean;
+    transport: boolean;
+    community: boolean;
   }>({
-    gym: false,
-    park: false,
-    mall: false,
-    school: false,
-    hospital: false,
-    parking: false,
-    dining: false
+    // default: show all facilities when the map opens
+    gym: true,
+    park: true,
+    school: true,
+    hospital: true,
+    parking: true,
+    dining: true,
+    transport: true,
+    community: true
   });
 
   const toggleOption = (key: keyof typeof selectedOptions) => {
     setSelectedOptions(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const FilterItem = ({ icon, label, checked, onChange, count, iconStyle, iconClassName }: FilterItemProps) => (
+  const UI_KEY_COLORS: Record<string, string> = {
+    gym: 'yellow',
+    park: 'green',
+    school: 'blue',
+    hospital: 'red',
+    parking: 'black',
+    dining: 'gold',
+    transport: 'orange',
+    community: 'violet'
+  };
+
+  const DEFAULT_UI_COLOR_HEX = '#F3E8FF';
+  const DEFAULT_MARKER_NAME = 'violet';
+  const LEGEND_ITEMS: Array<{ key: string; label: string }> = [
+    { key: 'gym', label: 'Fitness' },
+    { key: 'park', label: 'Parks' },
+    { key: 'school', label: 'Schools' },
+    { key: 'hospital', label: 'Healthcare' },
+    { key: 'parking', label: 'Parking' },
+    { key: 'dining', label: 'Dining' },
+    { key: 'transport', label: 'Transport' },
+    { key: 'community', label: 'Community' }
+  ];
+
+  const fetchFacilities = async () => {
+    if (!location.street) return;
+    
+    setLoadingFacilities(true);
+    try {
+      const filterMap: Record<string, string> = {
+        gym: 'sports',
+        park: 'parks',
+        school: 'schools',
+        hospital: 'healthcare',
+        parking: 'carparks',
+        dining: 'hawkers',
+        transport: 'transit',
+        community: 'community'
+      };
+
+      const selectedTypes = Object.entries(selectedOptions)
+        .filter(([_, checked]) => checked)
+        .map(([key, _]) => filterMap[key])
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .join(',');
+
+      if (!selectedTypes) {
+        setFacilityMarkers([]);
+        return;
+      }
+
+      const response = await api.get(
+        `/details/street/${encodeURIComponent(location.street)}/facilities-locations`,
+        { params: { types: selectedTypes } }
+      );
+
+
+      const data = response.data as {
+        facilities: Record<string, Array<{ name: string; latitude: number; longitude: number; distance: number }>>;
+      };
+  const markers: Array<{ position: [number, number]; popup: string; color?: string }> = [];
+
+      const categoryIcons: Record<string, string> = {
+        schools: '🏫',
+        sports: '⚽',
+        hawkers: '🍽️',
+        healthcare: '🏥',
+        parks: '🌳',
+        carparks: '🅿️',
+        transport: '🚌',
+        transit: '🚌',
+        community: '🏢'
+      };
+
+      // Map backend category -> marker color name (these should match available icon files in the color-markers repo)
+      const categoryColors: Record<string, string> = {
+        schools: 'blue',
+        sports: 'yellow',
+        hawkers: 'gold',
+        healthcare: 'red',
+        parks: 'green',
+        carparks: 'black',
+        transport: 'orange',
+        transit: 'orange',
+        community: 'violet'
+      };
+
+      Object.entries(data.facilities).forEach(([category, items]: [string, any]) => {
+        if (Array.isArray(items)) {
+          items.forEach((facility: any) => {
+            markers.push({
+              position: [facility.latitude, facility.longitude],
+              popup: `${categoryIcons[category] || '📍'} <strong>${facility.name}</strong><br/>${category}<br/>${facility.distance}km away`,
+              color: categoryColors[category] || 'blue'
+            });
+          });
+        }
+      });
+
+  setFacilityMarkers(markers);
+    } catch (error) {
+      console.error('Failed to fetch facilities:', error);
+      setFacilityMarkers([]);
+    } finally {
+      setLoadingFacilities(false);
+    }
+  };
+
+  useEffect(() => {
+    const fetchFacilityCounts = async () => {
+      if (!location.street) return;
+      
+      try {
+        const response = await api.get(
+          `/details/street/${encodeURIComponent(location.street)}/facilities-locations`,
+          { params: { types: 'schools,sports,hawkers,healthcare,parks,carparks,transit,community' } }
+        );
+
+        const data = response.data as {
+          facilities: Record<string, Array<any>>;
+        };
+
+        const counts = {
+          gym: data.facilities.sports?.length || 0,
+          park: data.facilities.parks?.length || 0,
+          school: data.facilities.schools?.length || 0,
+          hospital: data.facilities.healthcare?.length || 0,
+          parking: data.facilities.carparks?.length || 0,
+          dining: data.facilities.hawkers?.length || 0,
+          transport: data.facilities.transit?.length || 0,
+          community: data.facilities.community?.length || 0
+        };
+
+        setFacilityCounts(counts);
+      } catch (error) {
+        console.error('Failed to fetch facility counts:', error);
+      }
+    };
+
+    fetchFacilityCounts();
+  }, [location.street]);
+
+    const centroidOf = (coords: [number, number][]) => {
+      const lats = coords.map(c => c[0]);
+      const lngs = coords.map(c => c[1]);
+      const lat = (Math.min(...lats) + Math.max(...lats)) / 2;
+      const lng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+      return [lat, lng] as [number, number];
+    };
+
+    const computeZoomForBounds = (coords: [number, number][], fraction = 0.8) => {
+      if (!coords || coords.length === 0) return 13;
+      const lats = coords.map(c => c[0]);
+      const lngs = coords.map(c => c[1]);
+      const latMin = Math.min(...lats);
+      const latMax = Math.max(...lats);
+      const lonMin = Math.min(...lngs);
+      const lonMax = Math.max(...lngs);
+
+      const lonDelta = Math.max(0.00001, lonMax - lonMin);
+
+      const TILE_SIZE = 256;
+      const viewportW = Math.max(320, window.innerWidth || 1024);
+      const viewportH = Math.max(200, (window.innerHeight || 768) - 160); // leave room for header
+
+      const padding = 32;
+      const frac = Math.max(0.5, Math.min(0.95, fraction));
+      const availableW = Math.max(240, viewportW - padding * 2);
+      const availableH = Math.max(200, viewportH - padding * 2);
+
+      const zoomLon = Math.log2((360 * (availableW * frac)) / (TILE_SIZE * lonDelta));
+
+      const latToMerc = (lat: number) => {
+        const rad = (lat * Math.PI) / 180;
+        return Math.log(Math.tan(Math.PI / 4 + rad / 2));
+      };
+      const mercMin = latToMerc(latMin);
+      const mercMax = latToMerc(latMax);
+      const mercDelta = Math.max(1e-8, Math.abs(mercMax - mercMin));
+
+      const worldMercatorHeight = 2 * Math.PI;
+      const zoomLat = Math.log2((worldMercatorHeight * (availableH * frac)) / (TILE_SIZE * mercDelta));
+
+      const rawZoom = Math.min(zoomLon, zoomLat);
+      const zoom = Math.max(2, Math.min(18, Math.round(rawZoom)));
+      return zoom;
+    };
+
+    // Fetch planning-area geometry and fit map to polygon if available
+    useEffect(() => {
+      const fitToPlanningArea = async () => {
+        if (!location.area) return;
+        try {
+          const resp = await fetch('http://localhost:8000/onemap/planning-areas?year=2019');
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const features = data.features || [];
+          const match = features.find((f: any) => (f.properties?.pln_area_n || '').toString().trim().toUpperCase() === (location.area || '').toString().trim().toUpperCase());
+          if (!match) return;
+
+          // Use first polygon exterior ring
+          const multi = match.geometry?.coordinates;
+          if (!multi || !Array.isArray(multi) || multi.length === 0) return;
+          const exterior = multi[0] && multi[0][0] ? multi[0][0] : null;
+          if (!exterior || exterior.length === 0) return;
+          const coords: [number, number][] = exterior.map((c: number[]) => [c[1], c[0]]);
+          const center = centroidOf(coords);
+          const zoom = computeZoomForBounds(coords, 0.85);
+          setMapZoom(zoom);
+
+          // Slight delay to let map mount if needed
+          setMapCenter(center);
+        } catch (err) {
+          // ignore
+        }
+      };
+
+      fitToPlanningArea();
+    }, [location.area]);
+
+    // Polygon styling: dim surrounding areas unless toggled off
+    const getPolygonStyle = (areaName?: string) => {
+      const normalize = (s: string | undefined) => (s || '').toString().trim().toUpperCase();
+      // If overlay is disabled (developer flag), return a neutral transparent style
+      if (!DIM_SURROUNDING_AREAS) {
+        return {
+          fillColor: '#ffffff',
+          fillOpacity: 0,
+          color: '#00000000',
+          weight: 1,
+          opacity: 0
+        };
+      }
+
+      if (normalize(areaName) === normalize(location.area)) {
+        // Current selected area - keep it clear with a highlighted border
+        return {
+          fillColor: '#ffff',
+          fillOpacity: 0.0,
+          color: '#030303ff',
+          weight: 3,
+          opacity: 1
+        };
+      }
+
+      // Surrounding areas - greyed out
+      return {
+        fillColor: '#9CA3AF', // Gray-400
+        fillOpacity: 0.5,
+        color: '#6B7280', // Gray-500
+        weight: 1,
+        opacity: 0.6
+      };
+    };
+
+  // On mount / when location.street changes, load all facilities (default = all on)
+  useEffect(() => {
+    fetchFacilities();
+  }, [location.street]);
+
+  // Keep center updated if the raw location coords change
+  useEffect(() => {
+    setMapCenter(getLocationCoordinates());
+  }, [location.latitude, location.longitude, location.lat, location.lng, location.street]);
+
+  const handleApplyFilters = async () => {
+    await fetchFacilities();
+    setShowFilterMenu(false);
+  };
+
+  const handleResetFilters = () => {
+    setSelectedOptions({
+      gym: true,
+      park: true,
+      school: true,
+      hospital: true,
+      parking: true,
+      dining: true,
+      transport: true,
+      community: true
+    });
+    setFacilityMarkers([]);
+  };
+
+  const FilterItem = ({ icon, label, checked, onChange, count, iconStyle, iconClassName, color }: FilterItemProps) => (
     <label className="flex items-center justify-between w-full p-4 rounded-xl hover:bg-purple-50 transition-colors cursor-pointer border border-purple-200 bg-white">
       <div className="flex items-center gap-4">
         <span
-          className={`flex-shrink-0 p-3 rounded-xl border-2 ${
-            checked ? 'border-purple-500 text-purple-600 bg-purple-50' : 'border-purple-300 text-purple-400 bg-white'
-          } ${iconClassName ?? ''}`}
+          className={`flex-shrink-0 p-3 rounded-xl border-2 ${iconClassName ?? ''}`}
           style={{
             width: '52px',
             height: '52px',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            ...(iconStyle || {})
+            ...(iconStyle || {}),
+
+            // apply color to border and icon. If color is missing, use default hex.
+            borderColor: color ?? DEFAULT_UI_COLOR_HEX,
+            color: color ?? DEFAULT_UI_COLOR_HEX,
+            backgroundColor: checked && typeof color === 'string' && color.startsWith('#') ? `${color}22` : (checked && !color ? `${DEFAULT_UI_COLOR_HEX}22` : undefined)
           }}>
           {isValidElement(icon)
             ? cloneElement(icon as React.ReactElement<any>, {
-                className: `${(icon as any)?.props?.className ?? ''} w-6 h-6`
+                className: `${(icon as any)?.props?.className ?? ''} w-6 h-6`,
+                style: { ...(icon as any)?.props?.style, color: color ?? DEFAULT_UI_COLOR_HEX }
               })
-            : icon}
+            : (
+              <span style={{ color: color }}>{icon}</span>
+            )}
         </span>
         <div>
           <span className="text-lg font-semibold text-gray-900">{label}</span>
@@ -134,227 +453,68 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
     </label>
   );
 
-  const getAmenityIcon = (amenity: string) => {
-    const lowerAmenity = amenity.toLowerCase();
-    if (lowerAmenity.includes('mall') || lowerAmenity.includes('shopping')) return <FaShoppingBag className="w-5 h-5" />;
-    if (lowerAmenity.includes('school') || lowerAmenity.includes('education')) return <FaSchool className="w-5 h-5" />;
-    if (lowerAmenity.includes('hospital') || lowerAmenity.includes('medical')) return <FaHospital className="w-5 h-5" />;
-    if (lowerAmenity.includes('park') || lowerAmenity.includes('garden')) return <FaTree className="w-5 h-5" />;
-    if (lowerAmenity.includes('gym') || lowerAmenity.includes('fitness')) return <FaDumbbell className="w-5 h-5" />;
-    if (lowerAmenity.includes('parking')) return <FaParking className="w-5 h-5" />;
-    if (lowerAmenity.includes('food') || lowerAmenity.includes('dining')) return <FaUtensils className="w-5 h-5" />;
-    return <HiStar className="w-5 h-5" />;
-  };
-
-  // Color schemes for different sections
-  const sectionColors = {
-    priceInfo: {
-      gradient: 'from-blue-500 to-cyan-500',
-      icon: 'text-blue-300',
-      textLight: 'text-blue-200',
-      accent: 'text-cyan-300'
-    },
-    keyFeatures: {
-      gradient: 'from-green-500 to-emerald-500',
-      badge: 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200',
-      icon: 'text-green-500'
-    },
-    nearbyAmenities: {
-      gradient: 'from-orange-500 to-amber-500',
-      iconBg: 'from-orange-500 to-amber-500',
-      icon: 'text-orange-500',
-      border: 'border-orange-100',
-      hover: 'hover:bg-orange-50'
-    },
-    marketInsights: {
-      gradient: 'from-indigo-500 to-purple-500',
-      icon: 'text-indigo-300',
-      textLight: 'text-indigo-200'
-    }
-  };
-
   return (
     <div className="h-full flex flex-col bg-purple-50">
       {/* Header - Simplified back button */}
-      <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
-        {/* Title and Back Button */}
-        <div className="flex items-center justify-between w-full mb-4">
-          {/* Back Button - Only arrow */}
-          <button
-            onClick={onBack}
-            className="text-purple-700 hover:text-purple-900 transition-colors"
-          >
-            <HiChevronLeft className="w-6 h-6" />
-          </button>
-          
-          {/* Title */}
-          <div className="flex items-center text-purple-700">
-            <HiHome className="w-5 h-5 mr-2" />
-            <h1 className="text-lg font-bold">Location Details</h1>
+  <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4 relative z-40">
+        <div className="relative w-full mb-4">
+          {/* Title (Location Address) - absolutely centered so it's visually centered regardless of button widths */}
+          <div className="absolute left-1/2 -top-1/2 transform -translate-x-1/2 text-center">
+            <h1 className="text-2xl font-bold text-purple-900">{location.street}</h1>
+            <p className="text-purple-600 mt-2 flex items-center gap-2 justify-center">
+              <span className="bg-purple-100 text-purple-800 text-sm font-semibold px-3 py-1 rounded-full border border-purple-200">
+                {location.area}
+              </span>
+              <span className="text-purple-400">•</span>
+              <span className="font-medium text-purple-700">{location.district}</span>
+            </p>
           </div>
-          
-          {/* Spacer for balance */}
-          <div className="w-6"></div>
-        </div>
 
-        {/* Location Address */}
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-purple-900">{location.street}</h1>
-          <p className="text-purple-600 mt-2 flex items-center gap-2 justify-center">
-            <span className="bg-purple-100 text-purple-800 text-sm font-semibold px-3 py-1 rounded-full border border-purple-200">
-              {location.area}
-            </span>
-            <span className="text-purple-400">•</span>
-            <span className="font-medium text-purple-700">{location.district}</span>
-          </p>
+          {/* Right control — keeps functionality (Filter Facilities) */}
+          <div className="flex items-center justify-end">
+            <button
+              onClick={() => setShowFilterMenu(true)}
+              className="inline-flex items-center px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-semibold border-2 border-purple-300 hover:border-purple-500 hover:bg-purple-50 transition-all"
+            >
+              Filter Facilities
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-auto">
-        <div className="w-full max-w-full mx-auto px-4 sm:px-6 lg:px-8 space-y-6 py-6">
-          {/* Price History and Facilities Map shown first */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-            {/* Price History */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 flex flex-col max-h-[50vh] md:max-h-[420px] overflow-auto">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
-                  <HiTrendingUp className="w-5 h-5 text-purple-500" />
-                  Price History
-                </h2>
-                <div className="text-sm text-purple-600 font-medium bg-purple-100 px-3 py-1 rounded-full">
-                  Last 5 years
-                </div>
-              </div>
-              <img
-                src={priceGraphDummy}
-                alt={`Price history for ${location.street}`}
-                className="w-full rounded-xl object-contain border border-purple-100 max-h-full"
-                loading="lazy"
-              />
-            </div>
+      {/* Content: full-bleed map in purple background */}
+      <div className="flex-1 relative z-0">
+        <div className="w-full h-full">
+          <OneMapInteractive
+            center={mapCenter}
+            zoom={mapZoom}
+            markers={facilityMarkers}
+            dragging={true}
+            scrollWheelZoom={true}
+            touchZoom={true}
+            showPlanningAreas={true}
+            getPolygonStyle={getPolygonStyle}
+            className="w-full h-full"
+          />
+        </div>
+      </div>
 
-            {/* Facilities Map */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200 flex flex-col max-h-[50vh] md:max-h-[420px] overflow-auto">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg text-purple-900 flex items-center gap-2">
-                  <HiMap className="w-5 h-5 text-purple-500" />
-                  Facilities Map
-                </h2>
-                {/* Filter Facility Button - White with purple outline */}
-                <button
-                  onClick={() => setShowFilterMenu(true)}
-                  className="inline-flex items-center px-4 py-2 bg-white text-purple-700 rounded-xl text-sm font-semibold border-2 border-purple-300 hover:border-purple-500 hover:bg-purple-50 transition-all"
-                >
-                  Filter Facilities
-                </button>
+      {/* Legend below the map */}
+      <div className="flex-shrink-0 bg-white border-t border-purple-200 p-3">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center gap-4 justify-center">
+          <div className="text-sm text-purple-700 font-semibold mr-4">Legend</div>
+          {LEGEND_ITEMS.map(item => {
+            const mapped = UI_KEY_COLORS[item.key];
+            const colorName = mapped ? mapped.toString().toLowerCase().replace(/[^a-z0-9-]/g, '') : DEFAULT_MARKER_NAME;
+            const iconUrl = `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${colorName}.png`;
+            const uiColorForIcon = mapped ? mapped : DEFAULT_UI_COLOR_HEX;
+            return (
+              <div key={item.key} className="flex items-center gap-2 text-sm text-gray-700">
+                <img src={iconUrl} alt="" aria-hidden style={{ width: 18, height: 30, display: 'inline-block' }} />
+                <span style={{ color: uiColorForIcon }}>{item.label}</span>
               </div>
-              <div className="w-full rounded-xl border border-purple-100 overflow-hidden z-50" style={{ height: '400px' }}>
-                <OneMapEmbedded
-                  center={mapCenter}
-                  zoom={16}
-                  markers={[
-                    { 
-                      position: mapCenter, 
-                      popup: `<strong>${location.street}</strong><br/>${location.area}<br/>${location.district}` 
-                    }
-                  ]}
-                  interactive={false}
-                  className="w-full h-full"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Price Information - Blue Theme */}
-          <div className={`bg-gradient-to-r ${sectionColors.priceInfo.gradient} rounded-2xl p-6 text-white shadow-lg`}>
-            <h2 className="font-bold text-lg mb-6 flex items-center gap-2">
-              <HiHome className={`w-5 h-5 ${sectionColors.priceInfo.icon}`} />
-              Price Information
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="text-center">
-                <div className={`text-sm mb-2 ${sectionColors.priceInfo.textLight}`}>Price Range</div>
-                <div className="font-bold text-2xl">
-                  {formatPrice(location.priceRange[0])} - {formatPrice(location.priceRange[1])}
-                </div>
-              </div>
-              <div className="text-center">
-                <div className={`text-sm mb-2 ${sectionColors.priceInfo.textLight}`}>Average PSF</div>
-                <div className="font-bold text-2xl">
-                  ${location.avgPrice.toLocaleString()} psf
-                </div>
-              </div>
-              <div className="text-center">
-                <div className={`text-sm mb-2 ${sectionColors.priceInfo.textLight}`}>Annual Growth</div>
-                <div className="flex items-center justify-center font-bold text-2xl text-yellow-300">
-                  <HiTrendingUp className="w-5 h-5 mr-2" />
-                  +{location.growth}%
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Description & Features Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Description */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200">
-              <h2 className="font-bold text-lg mb-4 text-purple-900 flex items-center gap-2">
-                <HiStar className="w-5 h-5 text-purple-500" />
-                About this Location
-              </h2>
-              <p className="text-purple-700 leading-relaxed">{location.description}</p>
-            </div>
-
-            {/* Key Features - Green Theme */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200">
-              <h2 className="font-bold text-lg mb-4 text-purple-900 flex items-center gap-2">
-                <HiStar className={`w-5 h-5 ${sectionColors.keyFeatures.icon}`} />
-                Key Features
-              </h2>
-              <div className="flex flex-wrap gap-3">
-                {location.facilities.map(facility => (
-                  <span
-                    key={facility}
-                    className={`inline-flex items-center px-4 py-2 text-sm font-semibold rounded-xl border transition-colors ${sectionColors.keyFeatures.badge}`}
-                  >
-                    {facility}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Nearby Amenities - Orange Theme */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-purple-200">
-            <h2 className="font-bold text-lg mb-4 text-purple-900 flex items-center gap-2">
-              <HiStar className={`w-5 h-5 ${sectionColors.nearbyAmenities.icon}`} />
-              Nearby Amenities
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {location.amenities.map((amenity, index) => (
-                <div key={index} className={`flex items-center gap-4 p-4 rounded-xl transition-colors ${sectionColors.nearbyAmenities.border} ${sectionColors.nearbyAmenities.hover}`}>
-                  <div className={`flex-shrink-0 w-12 h-12 bg-gradient-to-r ${sectionColors.nearbyAmenities.iconBg} rounded-xl flex items-center justify-center text-white shadow-sm`}>
-                    {getAmenityIcon(amenity)}
-                  </div>
-                  <span className="text-purple-800 font-medium">{amenity}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Market Insights - Indigo Theme */}
-          <div className={`bg-gradient-to-r ${sectionColors.marketInsights.gradient} rounded-2xl p-6 text-white shadow-lg`}>
-            <h2 className="font-bold text-lg mb-3 flex items-center gap-2">
-              <HiTrendingUp className={`w-5 h-5 ${sectionColors.marketInsights.icon}`} />
-              Market Insights
-            </h2>
-            <p className={`leading-relaxed ${sectionColors.marketInsights.textLight}`}>
-              Properties in {location.street} have shown consistent growth of {location.growth}% annually, 
-              making it a promising investment opportunity in the {location.area} area. This location 
-              combines excellent amenities with strong potential for long-term value appreciation.
-            </p>
-          </div>
+            );
+          })}
         </div>
       </div>
 
@@ -393,13 +553,14 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
             <div className="p-6 space-y-4 max-h-96 overflow-y-auto">
               {[
-                { key: 'gym' as const, label: 'Fitness Centers', icon: <FaDumbbell />, count: 12 },
-                { key: 'park' as const, label: 'Parks & Recreation', icon: <FaTree />, count: 8 },
-                { key: 'mall' as const, label: 'Shopping Malls', icon: <FaShoppingBag />, count: 5 },
-                { key: 'school' as const, label: 'Schools', icon: <FaSchool />, count: 15 },
-                { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: 3 },
-                { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: 20 },
-                { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: 25 }
+                  { key: 'gym' as const, label: 'Fitness Centers', icon: <FaDumbbell />, count: facilityCounts.gym },
+                  { key: 'park' as const, label: 'Parks & Recreation', icon: <FaTree />, count: facilityCounts.park },
+                  { key: 'school' as const, label: 'Schools', icon: <FaSchool />, count: facilityCounts.school },
+                  { key: 'hospital' as const, label: 'Healthcare', icon: <FaHospital />, count: facilityCounts.hospital },
+                  { key: 'parking' as const, label: 'Parking Lots', icon: <FaParking />, count: facilityCounts.parking },
+                  { key: 'dining' as const, label: 'Dining Options', icon: <FaUtensils />, count: facilityCounts.dining },
+                  { key: 'transport' as const, label: 'Transport', icon: <FaBus />, count: facilityCounts.transport }, // Added transport filter
+                  { key: 'community' as const, label: 'Community Centres', icon: <FaBuilding />, count: facilityCounts.community }
               ].map(f => (
                 <FilterItem
                   key={f.key}
@@ -407,6 +568,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
                   label={f.label}
                   checked={selectedOptions[f.key]}
                   onChange={() => toggleOption(f.key)}
+                  color={UI_KEY_COLORS[f.key] ?? DEFAULT_UI_COLOR_HEX}
                   count={f.count}
                 />
               ))}
@@ -414,24 +576,17 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
 
             <div className="flex gap-3 p-6 border-t border-purple-200 bg-purple-50 rounded-b-2xl">
               <button
-                onClick={() => setSelectedOptions({
-                  gym: false,
-                  park: false,
-                  mall: false,
-                  school: false,
-                  hospital: false,
-                  parking: false,
-                  dining: false
-                })}
+                onClick={handleResetFilters}
                 className="flex-1 px-4 py-3 text-purple-700 bg-white border border-purple-300 rounded-xl font-semibold hover:bg-purple-100 transition-colors"
               >
                 Reset All
               </button>
               <button
-                onClick={() => setShowFilterMenu(false)}
-                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg"
+                onClick={handleApplyFilters}
+                disabled={loadingFacilities}
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl font-semibold hover:from-purple-600 hover:to-purple-700 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Apply Filters
+                {loadingFacilities ? 'Loading...' : 'Apply Filters'}
               </button>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import { HiSearch, HiX, HiMap, HiCog, HiInformationCircle, HiChevronUp, HiChevronDown } from 'react-icons/hi';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import OneMapInteractive from '../components/OneMapInteractive';
-import SpecificView from './SpecificView'; // Import the SpecificView
+import SpecificView from './SpecificView';
 
 interface MapViewProps {
   onSearchClick: () => void;
@@ -18,6 +18,79 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
   const [specificViewOpen, setSpecificViewOpen] = useState(false);
   const [specificViewArea, setSpecificViewArea] = useState<string | null>(null);
   const [specificViewCoords, setSpecificViewCoords] = useState<[number, number][] | null>(null);
+  const [mapCenter, setMapCenter] = useState<[number, number]>([1.3521, 103.8198]);
+  const [mapZoom, setMapZoom] = useState<number>(12);
+
+  // Animation refs (keeping for back navigation)
+  const animRef = useRef<number | null>(null);
+  const defaultInitializedRef = useRef<boolean>(false);
+  const defaultCenterRef = useRef<[number, number]>(mapCenter);
+  const defaultZoomRef = useRef<number>(mapZoom);
+
+  useEffect(() => {
+    return () => {
+      if (animRef.current) {
+        window.cancelAnimationFrame(animRef.current);
+        animRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!defaultInitializedRef.current) {
+      defaultCenterRef.current = mapCenter;
+      defaultZoomRef.current = mapZoom;
+      defaultInitializedRef.current = true;
+    }
+  }, []);
+
+  const easeInOutQuad = (t: number) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
+
+  const animateTo = (targetCenter: [number, number], targetZoom: number, duration = 1200): Promise<void> => {
+    return new Promise((resolve) => {
+      if (animRef.current) {
+        window.cancelAnimationFrame(animRef.current);
+        animRef.current = null;
+      }
+
+      const animStartTime = performance.now();
+      const animFromCenter = [...mapCenter];
+      const animFromZoom = mapZoom;
+
+      const animate = (currentTime: number) => {
+        const elapsed = currentTime - animStartTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = easeInOutQuad(progress);
+
+        const newLat = animFromCenter[0] + (targetCenter[0] - animFromCenter[0]) * eased;
+        const newLng = animFromCenter[1] + (targetCenter[1] - animFromCenter[1]) * eased;
+        const newZoom = animFromZoom + (targetZoom - animFromZoom) * eased;
+
+        setMapCenter([Number(newLat.toFixed(6)), Number(newLng.toFixed(6))]);
+        setMapZoom(Number(newZoom.toFixed(4)));
+
+        if (progress < 1) {
+          animRef.current = window.requestAnimationFrame(animate);
+        } else {
+          // Animation complete
+          animRef.current = null;
+          resolve();
+        }
+      };
+
+      animRef.current = window.requestAnimationFrame(animate);
+    });
+  };
+
+  const handleAreaClick = async (areaName: string, coordinates: [number, number][]) => {
+    setSelectedArea(areaName);
+    setShowAreaInfo(false);
+    
+    // Directly open SpecificView without zooming animation
+    setSpecificViewCoords(coordinates);
+    setSpecificViewArea(areaName);
+    setSpecificViewOpen(true);
+  };
 
   const clearSearch = () => {
     onSearchQueryChange('');
@@ -25,14 +98,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
 
   const handleInputFocus = () => {
     onSearchClick();
-  };
-
-  const handleAreaClick = (areaName: string, coordinates: [number, number][]) => {
-    setSelectedArea(areaName);
-    setShowAreaInfo(true);
-    // Store coordinates for SpecificView
-    setSpecificViewCoords(coordinates);
-    console.log(`Selected area: ${areaName}`, coordinates);
   };
 
   const clearSelectedArea = () => {
@@ -52,31 +117,31 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
     setIsLegendOpen(!isLegendOpen);
   };
 
-  // Handler for opening SpecificView
-  const handleViewDetails = () => {
-    if (selectedArea && specificViewCoords) {
-      setSpecificViewArea(selectedArea);
-      setSpecificViewOpen(true);
-    }
-  };
-
   // Handler for closing SpecificView
-  const handleBackFromSpecific = () => {
+  const handleBackFromSpecific = async () => {
+    if (animRef.current) {
+      window.cancelAnimationFrame(animRef.current);
+      animRef.current = null;
+    }
+
+    // Zoom back to default view with animation
+    await animateTo(defaultCenterRef.current, defaultZoomRef.current, 800);
+    
+    // Close SpecificView
     setSpecificViewOpen(false);
     setSpecificViewArea(null);
+    setSpecificViewCoords(null);
+    setSelectedArea(null);
+    setShowAreaInfo(false);
   };
 
   // Handlers for SpecificView buttons
   const handleSpecificRating = (areaName: string, coordinates: [number, number][]) => {
     console.log('Opening rating for:', areaName);
-    // You can add your rating logic here
-    // For example: setRatingOpen(true);
   };
 
   const handleSpecificDetails = (areaName: string, coordinates: [number, number][]) => {
     console.log('Opening details for:', areaName);
-    // You can add your details logic here
-    // For example: setDetailsOpen(true);
   };
 
   // If SpecificView is open, render it instead of the main map
@@ -98,7 +163,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
       <div className="flex-shrink-0 border-b border-purple-200 bg-white p-4">
         {/* Title and Spacers */}
         <div className="flex items-center justify-between w-full mb-3">
-          {/* Spacer for balance */}
           <div className="w-6"></div>
           
           <div className="flex items-center text-purple-700">
@@ -106,7 +170,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
             <h1 className="text-lg font-bold">Explore</h1>
           </div>
           
-          {/* Spacer for balance */}
           <div className="w-6"></div>
         </div>
 
@@ -151,11 +214,11 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
       </div>
 
       {/* Map Content */}
-      <div className="flex-1 bg-purple-50 relative">
-        <div className="w-full h-full">
+      <div className="flex-1 bg-[#6da7e3] relative">
+        <div className="w-full h-full" style={{ backgroundColor: '#6da7e3' }}>
           <OneMapInteractive 
-            center={[1.3521, 103.8198]}
-            zoom={11}
+            center={mapCenter}
+            zoom={mapZoom}
             showPlanningAreas={true}
             planningAreasYear={2019}
             onAreaClick={handleAreaClick}
@@ -170,46 +233,6 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
             </div>
           )}
 
-          {/* Selected Area Indicator */}
-          {selectedArea && (
-            <div className="absolute top-4 left-4 bg-white border border-purple-200 rounded-xl shadow-lg z-[1000] max-w-sm">
-              <div className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-bold text-purple-900 text-lg">{selectedArea}</h3>
-                  <button
-                    onClick={clearSelectedArea}
-                    className="text-purple-400 hover:text-purple-600 transition-colors"
-                  >
-                    <HiX className="w-5 h-5" />
-                  </button>
-                </div>
-                <p className="text-sm text-purple-600 mb-3">Planning Area</p>
-                
-                {/* Area Statistics */}
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="bg-green-50 p-2 rounded-lg">
-                    <div className="text-green-500">Avg Price</div>
-                    <div className="font-semibold text-green-900">$850k</div>
-                  </div>
-                  <div className="bg-blue-50 p-2 rounded-lg">
-                    <div className="text-blue-500">Amenities</div>
-                    <div className="font-semibold text-blue-900">45</div>
-                  </div>
-                </div>
-
-                {/* Updated Action Button - Now opens SpecificView */}
-                <div className="mt-3">
-                  <button 
-                    onClick={handleViewDetails}
-                    className="w-full bg-purple-600 text-white py-2 px-3 rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors"
-                  >
-                    View Details
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Legend Toggle Button */}
           <div className="absolute bottom-4 right-4 flex flex-col items-end gap-2 z-[1000]">
             {/* Map Legend - Only shown when isLegendOpen is true */}
@@ -220,26 +243,34 @@ const MapView = ({ onSearchClick, searchQuery, onSearchQueryChange, onSettingsCl
                 {/* Color Gradient Legend */}
                 <div className="mb-3">
                   <div className="flex justify-between text-xs text-purple-600 mb-1">
-                    <span>Highest Rating</span>
-                    <span>Lowest Rating</span>
+                    <span>Higher Rating</span>
+                    <span>Lower Rating</span>
                   </div>
                   <div className="h-4 rounded-lg bg-gradient-to-r from-green-500 via-yellow-500 to-red-500 w-full"></div>
                   <div className="flex justify-between text-xs text-purple-600 mt-1">
-                    <span>Green</span>
-                    <span>Red</span>
+                    <span>Better</span>
+                    <span>Worse</span>
                   </div>
                 </div>
 
-                {/* Rating Explanation */}
+                {/* Relative Rating Explanation */}
                 <div className="mt-3 pt-3 border-t border-purple-100">
                   <div className="flex items-start gap-2">
                     <HiInformationCircle className="w-4 h-4 text-purple-400 mt-0.5 flex-shrink-0" />
                     <div>
-                      <p className="text-xs text-purple-600 font-medium mb-1">About Neighbourhood Rating</p>
+                      <p className="text-xs text-purple-600 font-medium mb-1">Relative Rating Scale</p>
                       <p className="text-xs text-purple-500">
-                        A weighted score determined by Affordability, Accessibility, Amenities, Environment and Community after weighing user preferences.
+                        Colors show relative performance compared to other areas. Green areas perform better, red areas perform worse relative to neighboring regions.
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                {/* No Data Indicator */}
+                <div className="mt-3 pt-3 border-t border-purple-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded border border-gray-300 bg-gray-300"></div>
+                    <span className="text-xs text-purple-600">Gray areas = No data available</span>
                   </div>
                 </div>
 
