@@ -60,8 +60,7 @@ export default function CompareLocations({ locations, onClose }: Props) {
     setLoadingPriceTrends(true);
   };
 
-  // Time range filter state - CHANGED DEFAULT FROM '1y' TO '6m'
-  const [timeRange, setTimeRange] = useState<TimeRange>('6m');
+  const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [showTimeFilter, setShowTimeFilter] = useState(false);
 
   // Dynamic chart dimensions - INCREASED SIZES
