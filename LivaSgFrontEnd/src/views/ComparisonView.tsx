@@ -56,7 +56,7 @@ const ComparisonView = ({ onBack }: ComparisonViewProps) => {
         })) as LocationResult[];
 
         if (cancelled) return;
-        setSuggestedLocations(mapped.slice(0, 3));
+        setSuggestedLocations(mapped.slice(0, 10));
       } catch (err) {
         console.warn('fetchSuggestions error', err);
       }
