@@ -272,13 +272,13 @@ class SearchService:
                 # If cache utils are not available, return empty datasets
                 self._facility_datasets = {
                     'schools': [], 'sports': [], 'hawkers': [],
-                    'healthcare': [], 'greenSpaces': [], 'carparks': [], 'transit': []
+                    'healthcare': [], 'greenSpaces': [], 'carparks': [], 'transit': [], 'community': []
                 }
                 return self._facility_datasets
 
             datasets = {
                 'schools': [], 'sports': [], 'hawkers': [],
-                'healthcare': [], 'greenSpaces': [], 'carparks': [], 'transit': []
+                'healthcare': [], 'greenSpaces': [], 'carparks': [], 'transit': [], 'community': []
             }
 
             # Schools (from OneMap search cached pages)
@@ -385,6 +385,24 @@ class SearchService:
             except Exception:
                 datasets['transit'] = []
 
+            # Community centres
+            try:
+                from app.repositories.memory_impl import MemoryCommunityRepo
+                repo = MemoryCommunityRepo()
+                centres = getattr(repo, '_centres', []) or []
+                community = []
+                for cc in centres:
+                    try:
+                        lat = float(cc.latitude) if cc.latitude is not None else None
+                        lon = float(cc.longitude) if cc.longitude is not None else None
+                        if lat and lon:
+                            community.append({'latitude': lat, 'longitude': lon})
+                    except (ValueError, TypeError, AttributeError):
+                        continue
+                datasets['community'] = community
+            except Exception:
+                datasets['community'] = []
+
             self._facility_datasets = datasets
             return datasets
 
@@ -394,7 +412,7 @@ class SearchService:
             - Use a smaller radius for healthcare (0.5 km) to avoid inflated counts.
             - Deduplicate very close healthcare points (~100m) to avoid multiple clinics in the same building inflating counts.
             """
-            out = {k: 0 for k in ['schools', 'sports', 'hawkers', 'healthcare', 'greenSpaces', 'carparks', 'transit']}
+            out = {k: 0 for k in ['schools', 'sports', 'hawkers', 'healthcare', 'greenSpaces', 'carparks', 'transit', 'community']}
             # category-specific radius override
             category_radius = {'healthcare': 0.5}
             # approx degrees per ~100m (lat ~ 0.0009, lon depends on latitude)
@@ -589,6 +607,7 @@ class SearchService:
                                         greenSpaces INTEGER,
                                         carparks INTEGER,
                                         transit INTEGER,
+                                        community INTEGER,
                                         radius_km REAL DEFAULT 1.0,
                                         calculated_at TEXT DEFAULT (datetime('now'))
                                     )
@@ -607,8 +626,8 @@ class SearchService:
                                 cursor.execute(
                                     """
                                     INSERT OR REPLACE INTO street_facilities (
-                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, radius_km, calculated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, community, radius_km, calculated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
                                     """,
                                     (
                                         street_name_for_facilities,
@@ -618,7 +637,8 @@ class SearchService:
                                         counts.get('healthcare', 0),
                                         counts.get('greenSpaces', 0),
                                         counts.get('carparks', 0),
-                                        counts.get('transit', 0)
+                                        counts.get('transit', 0),
+                                        counts.get('community', 0)
                                     )
                                 )
                                 # Compute and upsert local street-level score
@@ -659,6 +679,7 @@ class SearchService:
                                         greenSpaces INTEGER,
                                         carparks INTEGER,
                                         transit INTEGER,
+                                        community INTEGER,
                                         radius_km REAL DEFAULT 1.0,
                                         calculated_at TEXT DEFAULT (datetime('now'))
                                     )
@@ -694,8 +715,8 @@ class SearchService:
                                 cursor.execute(
                                     """
                                     INSERT OR REPLACE INTO street_facilities (
-                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, radius_km, calculated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                        street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, community, radius_km, calculated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
                                     """,
                                     (
                                         road_name,
@@ -705,7 +726,8 @@ class SearchService:
                                         counts.get('healthcare', 0),
                                         counts.get('greenSpaces', 0),
                                         counts.get('carparks', 0),
-                                        counts.get('transit', 0)
+                                        counts.get('transit', 0),
+                                        counts.get('community', 0)
                                     )
                                 )
                                 # Also upsert local street-level score
@@ -937,6 +959,7 @@ class SearchService:
                                         greenSpaces INTEGER,
                                         carparks INTEGER,
                                         transit INTEGER,
+                                        community INTEGER,
                                         radius_km REAL DEFAULT 1.0,
                                         calculated_at TEXT DEFAULT (datetime('now'))
                                     )
@@ -984,8 +1007,8 @@ class SearchService:
                                         cursor.execute(
                                             """
                                             INSERT OR REPLACE INTO street_facilities (
-                                                street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, radius_km, calculated_at
-                                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                                street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, community, radius_km, calculated_at
+                                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
                                             """,
                                             (
                                                 street_name,
@@ -995,7 +1018,8 @@ class SearchService:
                                                 counts.get('healthcare', 0),
                                                 counts.get('greenSpaces', 0),
                                                 counts.get('carparks', 0),
-                                                counts.get('transit', 0)
+                                                counts.get('transit', 0),
+                                                counts.get('community', 0)
                                             )
                                         )
                                         # Upsert local street-level score
@@ -1061,6 +1085,7 @@ class SearchService:
                                         greenSpaces INTEGER,
                                         carparks INTEGER,
                                         transit INTEGER,
+                                        community INTEGER,
                                         radius_km REAL DEFAULT 1.0,
                                         calculated_at TEXT DEFAULT (datetime('now'))
                                     )
@@ -1117,8 +1142,8 @@ class SearchService:
                                         cursor.execute(
                                             """
                                             INSERT OR REPLACE INTO street_facilities (
-                                                street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, radius_km, calculated_at
-                                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
+                                                street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, community, radius_km, calculated_at
+                                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0, datetime('now'))
                                             """,
                                             (
                                                 road_name,
@@ -1128,7 +1153,8 @@ class SearchService:
                                                 counts.get('healthcare', 0),
                                                 counts.get('greenSpaces', 0),
                                                 counts.get('carparks', 0),
-                                                counts.get('transit', 0)
+                                                counts.get('transit', 0),
+                                                counts.get('community', 0)
                                             )
                                         )
                                         # Upsert local street-level score
@@ -1214,7 +1240,8 @@ class SearchService:
                     'healthcare': 'healthcare',
                     'parks': 'greenSpaces', 'green spaces': 'greenSpaces',
                     'carparks': 'carparks', 'parking': 'carparks',
-                    'transit': 'transit', 'near mrt': 'transit', 'mrt': 'transit'
+                    'transit': 'transit', 'near mrt': 'transit', 'mrt': 'transit',
+                    'community centres': 'community', 'community': 'community'
                 }
 
                 # Normalize requested columns
@@ -1233,7 +1260,7 @@ class SearchService:
                         cond = ' OR '.join(f"paf.{c} > 0" for c in sorted(requested_cols))
                         sql = f"""
                             SELECT pa.area_name, pa.centroid_lat, pa.centroid_lon,
-                                   paf.schools, paf.sports, paf.hawkers, paf.healthcare, paf.greenSpaces, paf.carparks, paf.transit
+                                   paf.schools, paf.sports, paf.hawkers, paf.healthcare, paf.greenSpaces, paf.carparks, paf.transit, paf.community
                             FROM planning_area_polygons pa
                             JOIN planning_area_facilities paf ON pa.area_name = paf.area_name
                             WHERE pa.year = ? AND ({cond})
@@ -1252,6 +1279,7 @@ class SearchService:
                             greenSpaces = int(r[7]) if r[7] is not None else 0
                             carparks = int(r[8]) if r[8] is not None else 0
                             transit = int(r[9]) if r[9] is not None else 0
+                            community = int(r[10]) if r[10] is not None else 0
 
                             facility_list = []
                             if schools > 0:
@@ -1268,6 +1296,8 @@ class SearchService:
                                 facility_list.append(f"{carparks} Carparks")
                             if transit > 0:
                                 facility_list.append(f"{transit} Transit Stations")
+                            if community > 0:
+                                facility_list.append(f"{community} Community Centres")
 
                             results.append(LocationResult(
                                 id=idx,
@@ -1361,9 +1391,9 @@ class SearchService:
                         conn_pa = sqlite3.connect(planning_db_path)
                         cursor_pa = conn_pa.cursor()
                         placeholders = ','.join('?' * len(area_names))
-                        query = f"SELECT area_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit FROM planning_area_facilities WHERE area_name IN ({placeholders})"
+                        query = f"SELECT area_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, community FROM planning_area_facilities WHERE area_name IN ({placeholders})"
                         rows = cursor_pa.execute(query, tuple(area_names)).fetchall()
-                        for area_name, schools, sports, hawkers, healthcare, parks, carparks, transit in rows:
+                        for area_name, schools, sports, hawkers, healthcare, parks, carparks, transit, community in rows:
                             facility_map[area_name] = {
                                 'schools': schools,
                                 'sports': sports,
@@ -1371,7 +1401,8 @@ class SearchService:
                                 'healthcare': healthcare,
                                 'greenSpaces': parks,
                                 'carparks': carparks,
-                                'transit': transit
+                                'transit': transit,
+                                'community': community
                             }
                         conn_pa.close()
                     except Exception:
@@ -1388,12 +1419,13 @@ class SearchService:
                         cursor = conn.cursor()
                         placeholders = ','.join('?' * len(street_names))
                         facility_query = f"""
-                            SELECT street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit
+                            SELECT street_name, schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, 
+                                   COALESCE(community, 0) as community
                             FROM street_facilities
                             WHERE street_name IN ({placeholders})
                         """
                         facility_rows = cursor.execute(facility_query, tuple(street_names)).fetchall()
-                        for street_name, schools, sports, hawkers, healthcare, parks, carparks, transit in facility_rows:
+                        for street_name, schools, sports, hawkers, healthcare, parks, carparks, transit, community in facility_rows:
                             facility_map[street_name] = {
                                 'schools': schools,
                                 'sports': sports,
@@ -1401,7 +1433,8 @@ class SearchService:
                                 'healthcare': healthcare,
                                 'greenSpaces': parks,
                                 'carparks': carparks,
-                                'transit': transit
+                                'transit': transit,
+                                'community': community
                             }
                         conn.close()
                     except Exception:
@@ -1429,6 +1462,8 @@ class SearchService:
                             facility_list.append(f"{fac['carparks']} Carparks")
                         if fac.get('transit', 0) > 0:
                             facility_list.append(f"{fac['transit']} Transit Stations")
+                        if fac.get('community', 0) > 0:
+                            facility_list.append(f"{fac['community']} Community Centres")
                         location.facilities = facility_list
             except Exception as e:
                 print(f"Error loading facility data: {e}")
@@ -1461,7 +1496,9 @@ class SearchService:
                         'parking': 'carparks',
                         'transit': 'transit',
                         'near mrt': 'transit',
-                        'mrt': 'transit'
+                        'mrt': 'transit',
+                        'community centres': 'community',
+                        'community': 'community'
                     }
                     
                     # Check if location meets facility requirements
@@ -1478,7 +1515,7 @@ class SearchService:
                                     conn_pa_filter = sqlite3.connect(planning_db_path)
                                     cursor_pa_filter = conn_pa_filter.cursor()
                                     # Select relevant columns
-                                    fac_cols = ['schools','sports','hawkers','healthcare','greenSpaces','carparks','transit']
+                                    fac_cols = ['schools','sports','hawkers','healthcare','greenSpaces','carparks','transit','community']
                                     sel = ','.join(fac_cols)
                                     row = cursor_pa_filter.execute(f"SELECT {sel} FROM planning_area_facilities WHERE area_name = ?", (location.street,)).fetchone()
                                     if row:
@@ -1491,7 +1528,8 @@ class SearchService:
                                             'healthcare': 'healthcare',
                                             'parks': 'greenSpaces', 'green spaces': 'greenSpaces',
                                             'carparks': 'carparks', 'parking': 'carparks',
-                                            'transit': 'transit', 'near mrt': 'transit', 'mrt': 'transit'
+                                            'transit': 'transit', 'near mrt': 'transit', 'mrt': 'transit',
+                                            'community centres': 'community', 'community': 'community'
                                         }
                                         for filter_facility in filters.facilities:
                                             filter_key = filter_facility.lower()
@@ -1519,13 +1557,13 @@ class SearchService:
                             cursor_filter = conn_filter.cursor()
                             
                             fac_row = cursor_filter.execute("""
-                                SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks, transit
+                                SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, COALESCE(community, 0) as community
                                 FROM street_facilities
                                 WHERE street_name = ?
                             """, (location.street,)).fetchone()
 
                             if fac_row:
-                                schools, sports, hawkers, healthcare, parks, carparks, transit = fac_row
+                                schools, sports, hawkers, healthcare, parks, carparks, transit, community = fac_row
                                 facility_counts = {
                                     'schools': schools,
                                     'sports': sports,
@@ -1533,7 +1571,8 @@ class SearchService:
                                     'healthcare': healthcare,
                                     'greenSpaces': parks,
                                     'carparks': carparks,
-                                    'transit': transit
+                                    'transit': transit,
+                                    'community': community
                                 }
 
                                 # Check if any requested facility type has count > 0

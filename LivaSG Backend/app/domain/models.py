@@ -10,6 +10,8 @@ class FacilitiesSummary(BaseModel):
     healthcare: int = 0
     greenSpaces: int = 0
     carparks: int = 0
+    community: int = 0
+    transit: int = 0
 
 class PriceRecord(BaseModel):
     areaId: str

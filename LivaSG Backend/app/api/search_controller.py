@@ -64,7 +64,7 @@ def get_available_facilities():
     return [
         'Near MRT',
         'Good Schools',
-        'Shopping Malls',
+        'Community Centres',
         'Parks',
         'Hawker Centres',
         'Healthcare',

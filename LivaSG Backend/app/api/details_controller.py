@@ -229,8 +229,8 @@ async def street_facilities_locations(
             except Exception:
                 return {"error": f"Street or area '{street_name}' not found", "facilities": {}}
         
-        # Parse requested types (include transit)
-        requested = types.lower().split(",") if types != "all" else ["schools", "sports", "hawkers", "healthcare", "parks", "carparks", "transit"]
+        # Parse requested types (include transit and community)
+        requested = types.lower().split(",") if types != "all" else ["schools", "sports", "hawkers", "healthcare", "parks", "carparks", "transit", "community"]
 
         # Try to load facility locations from DB tables in street_geocode.db or planning_cache.db
         result = {}
@@ -270,7 +270,8 @@ async def street_facilities_locations(
             'healthcare': ['clinics_locations', 'chas_clinics', 'clinics'],
             'parks': ['parks_locations', 'parks'],
             'carparks': ['carparks_locations', 'hdb_carparks', 'carparks'],
-            'transit': ['transit_nodes', 'transit']
+            'transit': ['transit_nodes', 'transit'],
+            'community': ['community_centres_locations', 'community_centres']
         }
         import json
         # Load planning-area polygon for containment checks when in planning_area_mode
@@ -333,9 +334,10 @@ async def street_facilities_locations(
                 # Try to load actual facility location tables from the planning DB and filter by polygon
                 found_real = False
                 for cat in requested:
-                    cat_key = 'greenSpaces' if cat == 'parks' else cat
+                    # Use 'parks' for table lookup (db_category_tables key), cat for result dict
+                    table_key = cat  # always use 'parks' for table lookup
                     result[cat] = []
-                    for tbl in db_category_tables.get(cat_key, []):
+                    for tbl in db_category_tables.get(table_key, []):
                         try:
                             # Check table exists in planning DB
                             pcur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tbl,))
@@ -391,17 +393,19 @@ async def street_facilities_locations(
 
                 # No real rows found -> use counts -> synthetic markers as before
                 row = pcur.execute(
-                    'SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks, transit FROM planning_area_facilities WHERE area_name = ?',
+                    'SELECT schools, sports, hawkers, healthcare, greenSpaces, carparks, transit, community FROM planning_area_facilities WHERE area_name = ?',
                     (planning_area_name,)
                 ).fetchone()
                 if row:
-                    counts = dict(zip(['schools','sports','hawkers','healthcare','parks','carparks','transit'], row))
+                    # DB column is 'greenSpaces', so use that as the dict key
+                    counts = dict(zip(['schools','sports','hawkers','healthcare','greenSpaces','carparks','transit','community'], row))
                 else:
-                    counts = {k: 0 for k in ['schools','sports','hawkers','healthcare','parks','carparks','transit']}
+                    counts = {k: 0 for k in ['schools','sports','hawkers','healthcare','greenSpaces','carparks','transit','community']}
 
                 for cat in requested:
-                    cat_key = 'greenSpaces' if cat == 'parks' else cat
-                    n = counts.get(cat_key, 0)
+                    # Map 'parks' request to 'greenSpaces' DB column
+                    count_key = 'greenSpaces' if cat == 'parks' else cat
+                    n = counts.get(count_key, 0)
                     items = []
                     for i in range(n):
                         items.append({
@@ -791,6 +795,76 @@ async def street_facilities_locations(
                         continue
 
             result["transit"] = nearby_transit
+        
+        # Community centres
+        if "community" in requested:
+            nearby_community = []
+            # Try DB tables first (if available in street DB)
+            for tbl in db_category_tables.get('community', []):
+                rows = _load_from_street_db(tbl)
+                if rows:
+                    for r in rows:
+                        try:
+                            latf = float(r['latitude'])
+                            lonf = float(r['longitude'])
+                            if polygon_geojson and point_in_geojson(polygon_geojson, latf, lonf):
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                nearby_community.append({
+                                    'name': r.get('name', 'Community Centre'),
+                                    'latitude': latf,
+                                    'longitude': lonf,
+                                    'distance': round(dist, 2)
+                                })
+                            else:
+                                dist = haversine(street_lat, street_lon, latf, lonf)
+                                if dist <= 1.0:
+                                    nearby_community.append({
+                                        'name': r.get('name', 'Community Centre'),
+                                        'latitude': latf,
+                                        'longitude': lonf,
+                                        'distance': round(dist, 2)
+                                    })
+                        except Exception:
+                            continue
+                    break
+
+            # Fallback to in-memory community centres dataset
+            if not nearby_community:
+                try:
+                    from ..repositories.memory_impl import MemoryCommunityRepo
+                    repo = MemoryCommunityRepo()
+                    for cc in getattr(repo, '_centres', []) or []:
+                        try:
+                            if cc.latitude is None or cc.longitude is None:
+                                continue
+                            lat = float(cc.latitude)
+                            lon = float(cc.longitude)
+                            # Prefer polygon containment when available, else 1km radius
+                            if polygon_geojson:
+                                if not point_in_geojson(polygon_geojson, lat, lon):
+                                    continue
+                                dist = haversine(street_lat, street_lon, lat, lon)
+                                nearby_community.append({
+                                    'name': cc.name or 'Community Centre',
+                                    'latitude': lat,
+                                    'longitude': lon,
+                                    'distance': round(dist, 2)
+                                })
+                            else:
+                                dist = haversine(street_lat, street_lon, lat, lon)
+                                if dist <= 1.0:
+                                    nearby_community.append({
+                                        'name': cc.name or 'Community Centre',
+                                        'latitude': lat,
+                                        'longitude': lon,
+                                        'distance': round(dist, 2)
+                                    })
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+
+            result["community"] = nearby_community
         
         return {
             "street": street_name,

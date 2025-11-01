@@ -271,6 +271,7 @@ class MemoryAmenityRepo(IAmenityRepo):
     _hawkers_data = None
     _clinics_data = None
     _parks_data = None
+    _community_data = None
 
     @classmethod
     async def initialize(cls):
@@ -284,6 +285,22 @@ class MemoryAmenityRepo(IAmenityRepo):
             cls._clinics_data = cls.getChasClinics()
         if cls._parks_data is None:
             cls._parks_data = cls.getParks()
+        if cls._community_data is None:
+            try:
+                from .memory_impl import MemoryCommunityRepo as _MCR
+                repo = _MCR()
+                items = []
+                for cc in getattr(repo, "_centres", []) or []:
+                    try:
+                        lat = float(cc.latitude) if cc.latitude is not None else None
+                        lon = float(cc.longitude) if cc.longitude is not None else None
+                        if lat and lon:
+                            items.append({"latitude": lat, "longitude": lon, "name": cc.name})
+                    except Exception:
+                        continue
+                cls._community_data = items
+            except Exception:
+                cls._community_data = []
 
     def _snapshot_id(self) -> str:
         s = len(self._schools_data or [])
@@ -291,7 +308,8 @@ class MemoryAmenityRepo(IAmenityRepo):
         h = len(self._hawkers_data or [])
         c = len(self._clinics_data or [])
         p = len(self._parks_data or [])
-        return f"s{s}-sp{sp}-h{h}-c{c}-p{p}"
+        cm = len(self._community_data or [])
+        return f"s{s}-sp{sp}-h{h}-c{c}-p{p}-cm{cm}"
 
     async def facilities_summary(self, area_id: str) -> FacilitiesSummary:
         await MemoryAmenityRepo.initialize()
@@ -316,6 +334,7 @@ class MemoryAmenityRepo(IAmenityRepo):
             healthcare=len(self.filterInside(areaPolygon, self._clinics_data)),
             greenSpaces=len(self.filterInside(areaPolygon, self._parks_data)),
             carparks=len(cp_repo.list_near_area(area_id)),
+            community=len(self.filterInside(areaPolygon, self._community_data)),
         )
 
         _cache_put(cache_key, {
@@ -327,6 +346,7 @@ class MemoryAmenityRepo(IAmenityRepo):
                 "healthcare": summary.healthcare,
                 "greenSpaces": summary.greenSpaces,
                 "carparks": summary.carparks,
+                "community": summary.community,
             }
         })
         return summary
