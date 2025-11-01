@@ -25,11 +25,12 @@ A react-based web application for exploring Singapore property with interactive 
 
 ### Views
 
-- **MapView**: Main exploration view with interactive Singapore map
+- **LaunchView**: Launch page to set preference before continuing with application
+- **MapView**: Main exploration view with interactive Singapore map and coloured polygons
 - **SearchView**: Advanced search with filters and location results
 - **SpecificView**: Zoomed-in view of individual areas with action buttons
-- **DetailsView**: Detailed information including price trends and facilities
-- **CompareLocations**: Area rating comparison with visual score breakdowns using radar chart
+- **DetailsView**: Detailed information for facilities in the location
+- **AnalysisView**: Area rating comparison with visual score breakdowns using radar chart and price trend line
 - **CompareView**: Compare between numerous locations, to see price and score diferences
 - **PreferenceView**: Rank your preferences for the order of the 5 categories
 - **BookmarkView**: Saved locations, for future viewing
@@ -50,12 +51,12 @@ src/
 ├── utils
 | └── mapUtils.ts
 ├── views/
+| ├── AnalysisView.tsx
 | ├── BookmarkView.tsx
-| ├── CompareLocations.tsx
 | ├── ComparisonView.tsx
 | ├── DetailsView.tsx
+| ├── LaunchView.tsx
 │ ├── MapView.tsx
-| ├── PolygonDetailsView.tsx
 | ├── PreferenceView.tsx
 │ ├── SearchView.tsx
 │ ├── SettingsView.tsx
@@ -90,16 +91,15 @@ npm run dev
 ### Exploring Properties
 
 1. **Start with Explore Page**: Open the application to view Singapore map
-2. **Click Areas**: Select any polygon (planning area) to see basic information, further click "View properties" to view more details
-3. **View Details**: Click "Details" for comprehensive area analysis
-4. **View Ratings**: Click "Ratings" for breakdown of categories scores
+2. **Click Areas**: Select any polygon (planning area) to see basic information, further click "Analysis" or "Facilities" to view more details
+3. **View Facilities**: Click "Facilities" for comprehensive analysis of amenities in that location
+4. **View Analysis**: Click "Analysis" for breakdown of categories scores and price trend line
 5. **Compare**: Use comparison tools to evaluate multiple areas
 
 ### Advanced Search
 
 1. **Access Search Function**: Use search bar at explore page
 2. **Apply Filters**:
-   - Set budget range with sliders
    - Select preferred amenities
 3. **Review Results**: Click on search results for detailed views
 
