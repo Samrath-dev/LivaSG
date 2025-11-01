@@ -180,6 +180,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         parks: '🌳',
         carparks: '🅿️',
         transport: '🚌',
+        transit: '🚌',
         community: '🏢'
       };
 
@@ -192,6 +193,7 @@ const DetailsView = ({ location, onBack }: DetailsViewProps) => {
         parks: 'green',
         carparks: 'black',
         transport: 'orange',
+        transit: 'orange',
         community: 'violet'
       };
 
