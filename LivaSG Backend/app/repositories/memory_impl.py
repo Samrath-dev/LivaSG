@@ -14,6 +14,15 @@ from statistics import median
 from typing import DefaultDict, Dict, List, Optional, Tuple
 import sqlite3
 
+from hashlib import blake2b
+CAP_DATE = date(2025, 11, 1)
+
+def _det_jitter(base_val: float, key: str, max_pct: float = 0.018) -> float:
+    """Deterministic ±max_pct jitter based on a stable key."""
+    h = blake2b(key.encode("utf-8"), digest_size=8).digest()
+    u = (int.from_bytes(h, "big") / (2**64 - 1)) * 2.0 - 1.0  # [-1, +1]
+    return base_val * (1.0 + max_pct * u)
+
 try:
    
     from ..cache.paths import PROJECT_ROOT
@@ -247,22 +256,40 @@ class MemoryPriceRepo(IPriceRepo):
                 for (d, med, vol) in tail
             ]
 
-        # Fallback (keeps app working if mapping/town mismatch)
-        base = 520_000 if key == "TAMPINES" else 500_000
+       # ---- Fallback (areas outside the 26 towns) ----
+        base = 520_000 if key == "TAMPINES" else 375_000
         out: List[PriceRecord] = []
+
+        # Build monthly series up to CAP_DATE (caps any “future” months)
         y, m = 2024, 1
-        for i in range(max(1, months)):
+        built = 0
+        while True:
+            d = date(y, m, 1)
+            if d > CAP_DATE:
+                break
+
+            # gentle trend so later months aren’t identical (tune if needed)
+            trend = ((y - 2024) * 12 + (m - 1)) * 900  # ~S$900/month drift
+
+            # deterministic light jitter so all non-26 regions aren’t the same. (can change this value max_pct to increase jitter)
+            med = _det_jitter(base + trend, f"{key}:{d.isoformat()}", max_pct=0.06)
+
             out.append(PriceRecord(
                 areaId=area_id,
-                month=date(y, m, 1),
-                medianResale=base + i * 1200,
-                p25=base - 40_000,
-                p75=base + 40_000,
-                volume=50 - (i % 5),
+                month=d,
+                medianResale=int(round(med)),
+                p25=int(round(med * 0.97)),
+                p75=int(round(med * 1.03)),
+                volume=42,
             ))
+            built += 1
             m += 1
             if m > 12:
                 m, y = 1, y + 1
+
+        if months > 0 and built:
+            out = out[-months:]
+
         return out
 
 class MemoryAmenityRepo(IAmenityRepo):
