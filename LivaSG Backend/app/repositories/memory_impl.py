@@ -261,7 +261,7 @@ class MemoryPriceRepo(IPriceRepo):
         out: List[PriceRecord] = []
 
         # Build monthly series up to CAP_DATE (caps any “future” months)
-        y, m = 2024, 1
+        y, m = 2018, 1
         built = 0
         while True:
             d = date(y, m, 1)
