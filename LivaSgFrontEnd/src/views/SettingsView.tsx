@@ -375,7 +375,7 @@ const SettingsView = ({ onBack }: SettingsViewProps) => {
           {/* App Info */}
           <div className="text-center py-4">
             <p className="text-sm text-purple-600">
-              App Version 1.0.0
+              App Version 3.1.4
             </p>
           </div>
         </div>
