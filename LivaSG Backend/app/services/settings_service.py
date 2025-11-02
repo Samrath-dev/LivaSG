@@ -185,7 +185,7 @@ class SettingsService:
             import traceback
             traceback.print_exc()
             return {"success": False, "message": f"Import failed: {str(e)}"}
-
+    
     def _import_json(self, json_data: str, rank_repo: IRankRepo, shortlist_service: Any) -> Dict[str, Any]:
         try:
             print("DEBUG: Starting JSON import")
@@ -333,7 +333,9 @@ class SettingsService:
             lines = list(reader)
             current_section = None
             ranks_data = {}
+            weights_data = {}
             imported_count = 0
+            imported_items = []
             
             print(f"DEBUG: CSV has {len(lines)} lines")
 
@@ -343,33 +345,47 @@ class SettingsService:
                 
                 print(f"DEBUG: Line {line_num}: {line}")
                 
-                section_header = line[0].strip().lower() if line[0] else ""
+                # Clean and normalize the line
+                cleaned_line = [cell.strip() for cell in line if cell.strip()]
+                if not cleaned_line:
+                    continue
+                    
+                first_cell = cleaned_line[0].lower()
                 
-                if "rank" in section_header and len(line) == 1:
+                # Improved section detection
+                if first_cell == "ranks":
                     current_section = "ranks"
                     print("DEBUG: Entering Ranks section")
                     continue
-                elif "weight" in section_header and len(line) == 1:
-                    current_section = "weights" 
+                elif first_cell == "weights":
+                    current_section = "weights"
                     print("DEBUG: Entering Weights section")
                     continue
-                elif "location" in section_header and len(line) == 1:
-                    shortlist_service.clear_all_locations() #same thing remove if want append
+                elif "saved locations" in first_cell:
+                    # Clear existing locations only when we enter this section
+                    try:
+                        shortlist_service.clear_all_locations()
+                    except Exception as e:
+                        print(f"DEBUG: Failed to clear locations: {e}")
                     current_section = "locations"
                     print("DEBUG: Entering Saved Locations section")
                     continue
-                elif line[0] in ["Export Type", "Export Date"]:
+                elif first_cell in ["export type", "export date"]:
                     continue
-                elif "category" in section_header and "rank" in section_header:
+                elif current_section == "ranks" and first_cell == "category":
+                    # Skip the header row in ranks section
                     continue
-                elif "category" in section_header and "weight" in section_header:
+                elif current_section == "weights" and first_cell == "category":
+                    # Skip the header row in weights section
                     continue
-                elif "postal code" in section_header:
+                elif current_section == "locations" and first_cell == "postal code":
+                    # Skip the header row in locations section
                     continue
                 
-                if current_section == "ranks" and len(line) >= 2:
-                    category = line[0].strip().lower()
-                    rank_value = line[1].strip()
+                # Process data based on current section
+                if current_section == "ranks" and len(cleaned_line) >= 2:
+                    category = cleaned_line[0].lower()
+                    rank_value = cleaned_line[1]
                     print(f"DEBUG: Processing rank category: {category} = {rank_value}")
                     
                     try:
@@ -388,24 +404,55 @@ class SettingsService:
                     except ValueError:
                         print(f"DEBUG: Invalid rank value: {rank_value}")
                         
+                elif current_section == "weights" and len(cleaned_line) >= 2:
+                    category = cleaned_line[0].lower()
+                    weight_value = cleaned_line[1]
+                    print(f"DEBUG: Processing weight category: {category} = {weight_value}")
+                    
+                    try:
+                        weight_float = float(weight_value)
+                        if "affordability" in category:
+                            weights_data['wAff'] = weight_float
+                        elif "accessibility" in category:
+                            weights_data['wAcc'] = weight_float
+                        elif "amenities" in category:
+                            weights_data['wAmen'] = weight_float
+                        elif "environment" in category:
+                            weights_data['wEnv'] = weight_float
+                        elif "community" in category:
+                            weights_data['wCom'] = weight_float
+                        print(f"DEBUG: Set {category} weight to {weight_float}")
+                    except ValueError:
+                        print(f"DEBUG: Invalid weight value: {weight_value}")
+                        
                 elif current_section == "locations" and len(line) >= 3 and shortlist_service:
                     print(f"DEBUG: Processing location: {line}")
                     try:
+                        # Use original line to preserve empty cells
                         location_data = {
-                            'postal_code': line[0].strip(),
-                            'address': line[1].strip(),
-                            'area': line[2].strip(),
+                            'postal_code': line[0].strip() if len(line) > 0 else "",
+                            'address': line[1].strip() if len(line) > 1 else "",
+                            'area': line[2].strip() if len(line) > 2 else "",
                             'name': line[3].strip() if len(line) > 3 and line[3].strip() else None,
                             'notes': line[4].strip() if len(line) > 4 and line[4].strip() else None
                         }
-                        shortlist_service.save_location(location_data)
-                        imported_count += 1
-                        print(f"DEBUG: Successfully imported location: {location_data['postal_code']}")
+                        
+                        # Validate required fields
+                        if location_data['postal_code'] and location_data['address'] and location_data['area']:
+                            shortlist_service.save_location(location_data)
+                            imported_count += 1
+                            imported_items.append(f"Location: {location_data['postal_code']}")
+                            print(f"DEBUG: Successfully imported location: {location_data['postal_code']}")
+                        else:
+                            print(f"DEBUG: Skipping invalid location - missing required fields: {location_data}")
                     except Exception as e:
                         print(f"DEBUG: Failed to import location: {e}")
-            
+                        imported_items.append(f"Failed to import location: {str(e)}")
+        
             print(f"DEBUG: Final ranks data: {ranks_data}")
+            print(f"DEBUG: Final weights data: {weights_data}")
             
+            # Import ranks if found
             if ranks_data:
                 try:
                     ranks = RankProfile(
@@ -418,21 +465,48 @@ class SettingsService:
                     print(f"DEBUG: Setting ranks to: {ranks}")
                     rank_repo.set(ranks)
                     imported_count += 1
+                    imported_items.append("Ranks")
                     print("DEBUG: Successfully set ranks")
                 except Exception as e:
                     print(f"DEBUG: Failed to set ranks: {e}")
+                    imported_items.append(f"Failed to import ranks: {str(e)}")
             else:
                 print("DEBUG: No ranks data found in CSV")
+            
+            # Import weights if found
+            if weights_data:
+                try:
+                    weights = WeightsProfile(
+                        id="imported_csv",
+                        name="Imported Weights",
+                        wAff=weights_data.get('wAff', 0.2),
+                        wAcc=weights_data.get('wAcc', 0.2),
+                        wAmen=weights_data.get('wAmen', 0.2),
+                        wEnv=weights_data.get('wEnv', 0.2),
+                        wCom=weights_data.get('wCom', 0.2),
+                    )
+                    print(f"DEBUG: Setting weights to: {weights}")
+                    self.weights_repo.save(weights)
+                    imported_count += 1
+                    imported_items.append("Weights")
+                    print("DEBUG: Successfully set weights")
+                except Exception as e:
+                    print(f"DEBUG: Failed to set weights: {e}")
+                    imported_items.append(f"Failed to import weights: {str(e)}")
+            else:
+                print("DEBUG: No weights data found in CSV")
             
             if imported_count > 0:
                 return {
                     "success": True, 
-                    "message": f"Successfully imported {imported_count} items from CSV"
+                    "message": f"Successfully imported {imported_count} items from CSV",
+                    "details": imported_items
                 }
             else:
                 return {
                     "success": False, 
-                    "message": "No valid data found to import from CSV"
+                    "message": "No valid data found to import from CSV",
+                    "details": imported_items
                 }
                 
         except Exception as e:
