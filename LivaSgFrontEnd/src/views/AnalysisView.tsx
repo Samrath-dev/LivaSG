@@ -541,8 +541,21 @@ export default function CompareLocations({ locations, onClose }: Props) {
               const approx = (relX / svgRect.width) * (filteredMonths.length - 1);
               const idx = Math.max(0, Math.min(filteredMonths.length - 1, Math.round(approx)));
               setHoverIdx(idx);
-              const leftPx = (getX(idx) / chartWidth) * svgRect.width;
-              setTooltipPos({ left: leftPx, top: 8 });
+
+              // Tooltip placement: prefer to the right of the point, but if
+              // that would overflow the svg container, flip to the left.
+              const TOOLTIP_MAX_W = 200; // tailwind max-w-[200px]
+              const MARGIN = 12;
+              const pointPx = (getX(idx) / chartWidth) * svgRect.width;
+              // default try to place to the right of point
+              let leftCandidate = pointPx + MARGIN;
+              // if placing to the right would overflow, place to the left
+              if (leftCandidate + TOOLTIP_MAX_W + MARGIN > svgRect.width) {
+                leftCandidate = Math.max(MARGIN, pointPx - TOOLTIP_MAX_W - MARGIN);
+              }
+              // final clamp to container bounds
+              const finalLeft = Math.max(MARGIN, Math.min(leftCandidate, Math.max(MARGIN, svgRect.width - MARGIN)));
+              setTooltipPos({ left: finalLeft, top: 8 });
             }}
             onMouseLeave={() => { setHoverIdx(null); setTooltipPos(null); }}
             onTouchMove={(e) => {
@@ -554,8 +567,16 @@ export default function CompareLocations({ locations, onClose }: Props) {
               const approx = (relX / svgRect.width) * (filteredMonths.length - 1);
               const idx = Math.max(0, Math.min(filteredMonths.length - 1, Math.round(approx)));
               setHoverIdx(idx);
-              const leftPx = (getX(idx) / chartWidth) * svgRect.width;
-              setTooltipPos({ left: leftPx, top: 8 });
+
+              const TOOLTIP_MAX_W = 200;
+              const MARGIN = 12;
+              const pointPx = (getX(idx) / chartWidth) * svgRect.width;
+              let leftCandidate = pointPx + MARGIN;
+              if (leftCandidate + TOOLTIP_MAX_W + MARGIN > svgRect.width) {
+                leftCandidate = Math.max(MARGIN, pointPx - TOOLTIP_MAX_W - MARGIN);
+              }
+              const finalLeft = Math.max(MARGIN, Math.min(leftCandidate, Math.max(MARGIN, svgRect.width - MARGIN)));
+              setTooltipPos({ left: finalLeft, top: 8 });
             }}
             onTouchEnd={() => { setHoverIdx(null); setTooltipPos(null); }}
           >
