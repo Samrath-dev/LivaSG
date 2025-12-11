@@ -1,4 +1,4 @@
-# LIVASG (2006-SCS3-06)
+# LIVASG 
 
 # Frontend:
 
