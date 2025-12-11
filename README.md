@@ -76,7 +76,7 @@ src/
 
 ```bash
 # Clone the repository
-git clone https://github.com/softwarelab3/2006-SCS3-06.git
+git clone https://github.com/Samrath-dev/LivaSG.git
 
 # Install dependencies
 npm install
@@ -311,9 +311,9 @@ ONEMAP_TOKEN= # your token (if have existing)
 
 ### Contributors names
 
-- Calvin Kuan Jiahui (U2421466L)
-- Jet Hee Fong (U2421248C)
-- Lee Loong Kiat (U2420557J)
-- Samrath Bose (U2423924F)
-- Thum Mun Kuan (U2422906L)
-- Tok Xi Quan (U2421678G)
+- Calvin Kuan Jiahui 
+- Jet Hee Fong 
+- Lee Loong Kiat 
+- Samrath Bose 
+- Thum Mun Kuan 
+- Tok Xi Quan 
